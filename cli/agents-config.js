@@ -5,7 +5,7 @@
 //   Claude Code: https://code.claude.com/docs/en/skills
 //   Gemini CLI:  https://geminicli.com/docs/cli/skills/
 //   Cursor IDE:  https://cursor.com/docs/rules
-//   Codex CLI:   https://developers.openai.com/codex/guides/agents-md
+//   Codex CLI:   https://developers.openai.com/codex/skills + https://developers.openai.com/codex/rules
 //   Qwen Code:   https://github.com/QwenLM/qwen-code
 //   Open Code:   https://opencode.ai/docs/skills/
 
@@ -72,16 +72,19 @@ export const CODING_AGENTS = {
   },
   codex: {
     name: "Codex CLI",
-    // Uses AGENTS.md walked from project root; config in ~/.codex/
+    // Skills: ~/.agents/skills/ (user), .agents/skills/ (project), /etc/codex/skills (admin)
+    // Uses SKILL.md directory format like Claude Code
+    // Rules: ~/.codex/rules/*.rules (Starlark format — not markdown, cannot install directly)
+    // Source: https://developers.openai.com/codex/skills, https://developers.openai.com/codex/rules
     paths: {
-      agents:   { global: join(HOME, ".codex"),              local: null, note: "Uses AGENTS.md" },
-      skills:   { global: null,                              local: null, note: "Define in AGENTS.md or config.toml" },
-      rules:    { global: null,                              local: null, note: "Define in AGENTS.md or config.toml" },
-      prompts:  { global: null,                              local: null, note: "Define in AGENTS.md" },
+      agents:   { global: join(HOME, ".agents", "skills"),   local: join(".agents", "skills") },
+      skills:   { global: join(HOME, ".agents", "skills"),   local: join(".agents", "skills") },
+      rules:    { global: null,                              local: null, note: "Codex uses .rules (Starlark format)" },
+      prompts:  { global: join(HOME, ".agents", "skills"),   local: join(".agents", "skills") },
       memories: { global: null,                              local: null, note: "Managed via config.toml" },
     },
-    // Codex appends to AGENTS.md
-    appendTo: "AGENTS.md",
+    skillAsDir: true,
+    skillFilename: "SKILL.md",
   },
   cursor: {
     name: "Cursor IDE",

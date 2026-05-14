@@ -442,7 +442,7 @@ ihub works with multiple coding agents. When pulling, it installs artifacts to e
 | Qwen Code | `~/.qwen/skills/` | `.qwen/skills/` | `.qwen/skills/` (as skill) | SKILL.md dir |
 | Open Code | `~/.config/opencode/skills/` | `.opencode/skills/` | `.opencode/rules/<name>.md` | SKILL.md dir |
 | Cursor IDE | `~/.cursor/skills/` | `.cursor/skills/` | `.cursor/rules/<name>.mdc` | Flat, .mdc rules |
-| Codex CLI | — | — | — | Uses AGENTS.md |
+| Codex CLI | `~/.agents/skills/` | `.agents/skills/` | — (Starlark `.rules`) | SKILL.md dir |
 
 Memories always install to the local `memories/` directory regardless of agent.
 
