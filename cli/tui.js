@@ -74,8 +74,80 @@ export async function startTui(baseUrl, token) {
   render(state);
 
   stdin.on("data", async (key) => {
-    // Ctrl+C or q at top level
-    if (key === "\x03" || (key === "q" && state.view === "types")) {
+    // Ctrl+C to quit from anywhere
+    if (key === "\x03") {
+      cleanup();
+      process.exit(0);
+    }
+
+    // Agent selection view — handle BEFORE generic ESC/Enter
+    if (state.view === "agent-select") {
+      const idx = parseInt(key, 10) - 1;
+      if (idx >= 0 && idx < AGENT_NAMES.length) {
+        if (!state.pullAgents) state.pullAgents = new Set();
+        const a = AGENT_NAMES[idx];
+        if (state.pullAgents.has(a)) state.pullAgents.delete(a);
+        else state.pullAgents.add(a);
+      } else if ((key === "\r" || key === "\n") && state.pullAgents?.size > 0) {
+        state.view = "scope-select";
+      } else if (key === ESC || key === "\x7f" || key === "q") {
+        state.pullAgents = null;
+        state.view = "list";
+      }
+      render(state);
+      return;
+    }
+
+    // Scope selection view — handle BEFORE generic ESC/Enter
+    if (state.view === "scope-select") {
+      if (key === "l" || key === "p") {
+        state.pullScope = "local";
+        await executeBulkPull(state, baseUrl, token);
+      } else if (key === "g") {
+        state.pullScope = "global";
+        await executeBulkPull(state, baseUrl, token);
+      } else if (key === ESC || key === "\x7f" || key === "q") {
+        state.view = "list";
+        render(state);
+      }
+      return;
+    }
+
+    // Pulling view — any key goes back
+    if (state.view === "pulling") {
+      state.view = "list";
+      state.pullResults = [];
+      render(state);
+      return;
+    }
+
+    // Audit view — n/b for pagination, ESC to go back
+    if (state.view === "audit") {
+      if (key === "n" && state.auditPage * 50 < state.auditTotal) {
+        state.auditPage++;
+        await loadAuditPage(state, baseUrl, token);
+        state.scrollOffset = 0;
+      } else if (key === "b" && state.auditPage > 1) {
+        state.auditPage--;
+        await loadAuditPage(state, baseUrl, token);
+        state.scrollOffset = 0;
+      } else if (key === ESC || key === "\x7f" || key === "q") {
+        state.view = "types";
+        state.audit = null;
+        state.scrollOffset = 0;
+      } else if (key === "r") {
+        await loadAuditPage(state, baseUrl, token);
+      } else if (key === `${ESC}[A`) {
+        state.scrollOffset = Math.max(0, state.scrollOffset - 1);
+      } else if (key === `${ESC}[B`) {
+        state.scrollOffset++;
+      }
+      render(state);
+      return;
+    }
+
+    // q at top level to quit
+    if (key === "q" && state.view === "types") {
       cleanup();
       process.exit(0);
     }
@@ -84,10 +156,6 @@ export async function startTui(baseUrl, token) {
     if (key === ESC || key === "\x7f" || key === "q") {
       if (state.view === "comments") {
         state.view = "detail";
-        state.scrollOffset = 0;
-      } else if (state.view === "audit") {
-        state.view = "types";
-        state.audit = null;
         state.scrollOffset = 0;
       } else if (state.view === "metrics") {
         state.view = "types";
@@ -199,55 +267,9 @@ export async function startTui(baseUrl, token) {
 
     // p — bulk pull selected (from list view)
     if (key === "p" && state.view === "list" && state.marked.size > 0) {
-      // Ask which agent if not set
-      if (!state.pullAgent) {
-        state.view = "agent-select";
-        render(state);
-        return;
-      }
-      await executeBulkPull(state, baseUrl, token);
-      return;
-    }
-
-    // Agent selection view — number keys toggle, Enter confirms
-    if (state.view === "agent-select") {
-      const idx = parseInt(key, 10) - 1;
-      if (idx >= 0 && idx < AGENT_NAMES.length) {
-        if (!state.pullAgents) state.pullAgents = new Set();
-        const a = AGENT_NAMES[idx];
-        if (state.pullAgents.has(a)) state.pullAgents.delete(a);
-        else state.pullAgents.add(a);
-        render(state);
-      } else if ((key === "\r" || key === "\n") && state.pullAgents?.size > 0) {
-        state.view = "scope-select";
-        render(state);
-      } else if (key === ESC || key === "q") {
-        state.pullAgents = null;
-        state.view = "list";
-        render(state);
-      }
-      return;
-    }
-
-    // Scope selection — l or g
-    if (state.view === "scope-select") {
-      if (key === "l") {
-        state.pullScope = "local";
-        await executeBulkPull(state, baseUrl, token);
-      } else if (key === "g") {
-        state.pullScope = "global";
-        await executeBulkPull(state, baseUrl, token);
-      } else if (key === ESC || key === "q") {
-        state.view = "list";
-        render(state);
-      }
-      return;
-    }
-
-    // From pulling view — any key goes back to list
-    if (state.view === "pulling") {
-      state.view = "list";
-      state.pullResults = [];
+      state.pullAgents = null;
+      state.pullScope = null;
+      state.view = "agent-select";
       render(state);
       return;
     }
@@ -271,32 +293,6 @@ export async function startTui(baseUrl, token) {
       state.view = "metrics";
       state.scrollOffset = 0;
       render(state);
-      return;
-    }
-
-    // t — audit trail (admin only, from types view)
-    if (key === "t" && state.view === "types" && state.isAdmin) {
-      state.auditPage = 1;
-      await loadAuditPage(state, baseUrl, token);
-      state.view = "audit";
-      state.scrollOffset = 0;
-      render(state);
-      return;
-    }
-
-    // Audit view — n/b for pagination
-    if (state.view === "audit") {
-      if (key === "n" && state.auditPage * 50 < state.auditTotal) {
-        state.auditPage++;
-        await loadAuditPage(state, baseUrl, token);
-        state.scrollOffset = 0;
-        render(state);
-      } else if (key === "b" && state.auditPage > 1) {
-        state.auditPage--;
-        await loadAuditPage(state, baseUrl, token);
-        state.scrollOffset = 0;
-        render(state);
-      }
       return;
     }
 
@@ -701,11 +697,12 @@ function renderAgentSelect(state, maxRows) {
 }
 
 function renderScopeSelect(state, maxRows) {
-  const agent = CODING_AGENTS[state.pullAgent];
-  let out = `  ${BOLD}Install scope for ${agent.name}${RESET}\n\n`;
+  const agents = state.pullAgents ? [...state.pullAgents] : [];
+  const names = agents.map((a) => CODING_AGENTS[a]?.name || a).join(", ");
+  let out = `  ${BOLD}Install scope for ${names}${RESET}\n\n`;
   out += `  ${GREEN}[l]${RESET} ${BOLD}Project${RESET}  — install to project directory\n`;
   out += `  ${BLUE}[g]${RESET} ${BOLD}Personal${RESET} — install to home directory\n`;
-  out += `\n  ${DIM}${state.marked.size} artifact(s) to pull${RESET}\n`;
+  out += `\n  ${DIM}${state.marked.size} artifact(s) × ${agents.length} agent(s)${RESET}\n`;
   return out;
 }
 
@@ -776,39 +773,53 @@ async function executeBulkPull(state, baseUrl, token) {
 
     // Install for each selected agent
     const targets = [];
+    const isSkillType = (type === "skills" || type === "agents" || type === "prompts");
+
     for (const agent of agents) {
-      const installInfo = getInstallPath(agent, type, scope);
-      let targetDir;
-      let ext = ".md";
+      try {
+        const installInfo = getInstallPath(agent, type, scope);
 
-      if (installInfo?.path) {
-        targetDir = installInfo.path;
-        ext = installInfo.ext || ".md";
-      } else if (installInfo?.note) {
-        continue; // not supported for this agent
-      } else {
-        targetDir = type;
-      }
-
-      mkdirSync(targetDir, { recursive: true });
-      const targetPath = resolve(targetDir, `${name}${ext}`);
-      writeFileSync(targetPath, markdown);
-      targets.push(targetPath);
-
-      // Download attachments for each agent path
-      if (data.attachments?.length > 0) {
-        const attachDir = resolve(dirname(targetPath), name);
-        for (const att of data.attachments) {
-          try {
-            const attRes = await fetch(`${baseUrl}/api/${type}/${name}/attachments/${att.filepath}`);
-            if (attRes.ok) {
-              const buf = Buffer.from(await attRes.arrayBuffer());
-              const attPath = resolve(attachDir, att.filepath);
-              mkdirSync(dirname(attPath), { recursive: true });
-              writeFileSync(attPath, buf);
-            }
-          } catch {}
+        if (!installInfo?.path) {
+          // Not supported for this agent — skip silently
+          continue;
         }
+
+        const targetDir = installInfo.path;
+        let targetPath;
+
+        if (installInfo.skillAsDir && installInfo.skillFilename && isSkillType) {
+          // Directory-based: <dir>/<name>/SKILL.md
+          const skillDir = resolve(targetDir, name);
+          mkdirSync(skillDir, { recursive: true });
+          targetPath = resolve(skillDir, installInfo.skillFilename);
+        } else {
+          // Flat file: <dir>/<name>.md or <name>.mdc
+          const ext = installInfo.ext || ".md";
+          mkdirSync(targetDir, { recursive: true });
+          targetPath = resolve(targetDir, `${name}${ext}`);
+        }
+
+        writeFileSync(targetPath, markdown);
+        targets.push(targetPath);
+
+        // Download attachments
+        if (data.attachments?.length > 0) {
+          const attachDir = resolve(dirname(targetPath), name);
+          for (const att of data.attachments) {
+            try {
+              const attRes = await fetch(`${baseUrl}/api/${type}/${name}/attachments/${att.filepath}`);
+              if (attRes.ok) {
+                const buf = Buffer.from(await attRes.arrayBuffer());
+                const attPath = resolve(attachDir, att.filepath);
+                mkdirSync(dirname(attPath), { recursive: true });
+                writeFileSync(attPath, buf);
+              }
+            } catch {}
+          }
+        }
+      } catch (agentErr) {
+        // Don't let one agent failure stop the rest
+        targets.push(`ERROR: ${CODING_AGENTS[agent]?.name || agent}: ${agentErr.message}`);
       }
     }
 
