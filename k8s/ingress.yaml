@@ -1,0 +1,29 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ihub-server
+  namespace: ihub
+  labels:
+    app.kubernetes.io/name: ihub
+    app.kubernetes.io/component: server
+  annotations:
+    # Uncomment for your ingress controller:
+    # nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  # Uncomment for TLS:
+  # tls:
+  #   - hosts:
+  #       - ihub.example.com
+  #     secretName: ihub-tls
+  rules:
+    - host: ihub.example.com    # Change to your domain
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ihub-server
+                port:
+                  name: http

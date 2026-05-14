@@ -1,0 +1,15 @@
+node_modules
+ihub.db
+.DS_Store
+.git
+agents
+skills
+rules
+memories
+prompts
+examples
+templates
+tests
+cli
+*.md
+!package.json

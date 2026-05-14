@@ -1,0 +1,17 @@
+{
+  "name": "ihub",
+  "version": "0.1.0",
+  "description": "A registry for agents, skills, rules, memories, and prompts",
+  "type": "module",
+  "bin": {
+    "ihub": "./cli/index.js"
+  },
+  "scripts": {
+    "start": "node cli/index.js",
+    "server": "node server/index.js",
+    "test": "node --test tests/**/*.test.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0"
+  }
+}

@@ -1,0 +1,63 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ihub-backup
+  namespace: ihub
+  labels:
+    app.kubernetes.io/name: ihub
+    app.kubernetes.io/component: backup
+spec:
+  schedule: "0 2 * * *"    # Daily at 2 AM
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+          containers:
+            - name: backup
+              image: alpine:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  DATE=$(date +%Y-%m-%d_%H%M)
+                  cp /data/ihub.db /backups/ihub-backup-${DATE}.db
+                  # Keep only last 7 backups
+                  ls -t /backups/ihub-backup-*.db | tail -n +8 | xargs rm -f 2>/dev/null
+                  echo "Backup complete: ihub-backup-${DATE}.db"
+                  ls -lh /backups/
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                  readOnly: true
+                - name: backups
+                  mountPath: /backups
+          restartPolicy: OnFailure
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: ihub-data
+            - name: backups
+              persistentVolumeClaim:
+                claimName: ihub-backups
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ihub-backups
+  namespace: ihub
+  labels:
+    app.kubernetes.io/name: ihub
+    app.kubernetes.io/component: backup
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

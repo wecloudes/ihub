@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ihub-data
+  namespace: ihub
+  labels:
+    app.kubernetes.io/name: ihub
+    app.kubernetes.io/component: server
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  # Uncomment to use a specific storage class
+  # storageClassName: standard

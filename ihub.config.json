@@ -1,0 +1,33 @@
+{
+  "server": {
+    "port": 3000,
+    "db_path": "./ihub.db"
+  },
+
+  "admin": {
+    "username": "admin",
+    "password": "admin"
+  },
+
+  "auth0": {
+    "enabled": false,
+    "domain": "",
+    "client_id": "",
+    "audience": "ihub-api"
+  },
+
+  "slack": {
+    "enabled": false,
+    "webhook_url": "",
+    "digest_interval_hours": 168
+  },
+
+  "metrics": {
+    "enabled": true
+  },
+
+  "audit": {
+    "enabled": true,
+    "log_anonymous": true
+  }
+}

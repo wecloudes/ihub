@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ihub
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  - cronjob-backup.yaml
+  - prometheus.yaml
+  - grafana.yaml
+
+# Load the Grafana dashboard as a ConfigMap
+configMapGenerator:
+  - name: grafana-dashboard
+    files:
+      - ihub.json=../grafana/dashboard.json
+
+commonLabels:
+  app.kubernetes.io/managed-by: kustomize

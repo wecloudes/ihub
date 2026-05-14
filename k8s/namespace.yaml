@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ihub
+  labels:
+    app.kubernetes.io/name: ihub
+    app.kubernetes.io/part-of: ihub

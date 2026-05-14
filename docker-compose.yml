@@ -1,0 +1,36 @@
+services:
+  server:
+    build: .
+    ports:
+      - "3002:3000"
+    volumes:
+      - ihub-data:/data
+    environment:
+      - IHUB_PORT=3000
+      - IHUB_DB_PATH=/data/ihub.db
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./grafana/prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on:
+      - server
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboard.json:/var/lib/grafana/dashboards/ihub.json
+    depends_on:
+      - prometheus
+
+volumes:
+  ihub-data:

@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ihub-server
+  namespace: ihub
+  labels:
+    app.kubernetes.io/name: ihub
+    app.kubernetes.io/component: server
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate    # SQLite requires single-writer
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ihub
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ihub
+        app.kubernetes.io/component: server
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/api/metrics"
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: server
+          image: ihub-server:latest
+          # Change to your registry:
+          # image: ghcr.io/your-org/ihub-server:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: IHUB_PORT
+              value: "3000"
+            - name: IHUB_DB_PATH
+              value: "/data/ihub.db"
+            - name: IHUB_CONFIG
+              value: "/config/ihub.config.json"
+          envFrom:
+            - secretRef:
+                name: ihub-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /config
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /api/ping
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/ping
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ihub-data
+        - name: config
+          configMap:
+            name: ihub-config
