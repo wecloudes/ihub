@@ -2,6 +2,28 @@
 
 All notable changes to ihub are documented in this file.
 
+## [0.2.0] - 2026-05-14
+
+### Added
+
+- **Multi-agent pull**: install artifacts to multiple coding agents simultaneously with `--agent claude,cursor`; frontmatter transformed per agent (Cursor `.mdc`, Claude/Qwen/OpenCode `SKILL.md` dirs)
+- **Import from any agent**: `ihub import` auto-detects source agent from path, maps agent-specific fields to ihub format, prompts only for missing required fields
+- **Interactive TUI browser**: `ihub browse` with multi-select, bulk pull, agent/scope selection, comments/ratings view, admin metrics dashboard, admin audit trail with pagination
+- **Coding agent configs**: `cli/agents-config.js` with verified paths for Claude Code, Gemini CLI, Qwen Code, Open Code, Codex CLI, Cursor IDE
+- **Kubernetes manifests**: `k8s/` directory deployable with `kubectl apply -k k8s/`
+
+### Fixed
+
+- Docker base image switched from `node:22-alpine` to `node:22-slim` (resolves high severity CVE)
+- Gemini CLI paths updated to `~/.gemini/skills/` with SKILL.md format
+- Codex CLI paths updated to `~/.agents/skills/` with SKILL.md format
+- TUI agent-select/scope-select ESC and Enter keys fixed (handler priority)
+- TUI bulk pull uses skillAsDir for directory-based agents
+- TUI per-agent error isolation during bulk pull
+- Memories always install to local `memories/` directory (no agent paths)
+
+---
+
 ## [0.1.0] - 2026-05-13
 
 ### Added
