@@ -3,7 +3,7 @@
 //
 // Sources:
 //   Claude Code: https://code.claude.com/docs/en/skills
-//   Gemini CLI:  https://geminicli.com/docs/reference/configuration/
+//   Gemini CLI:  https://geminicli.com/docs/cli/skills/
 //   Cursor IDE:  https://cursor.com/docs/rules
 //   Codex CLI:   https://developers.openai.com/codex/guides/agents-md
 //   Qwen Code:   https://github.com/QwenLM/qwen-code
@@ -31,16 +31,18 @@ export const CODING_AGENTS = {
   },
   gemini: {
     name: "Gemini CLI",
-    // Gemini uses GEMINI.md for instructions, ~/.gemini/policies/ for rules (TOML)
+    // Skills: ~/.gemini/skills/ (user) and .gemini/skills/ (workspace)
+    // Also aliased at ~/.agents/skills/ and .agents/skills/
+    // Uses SKILL.md format like Claude Code
     paths: {
-      agents:   { global: null,                              local: null, note: "Use GEMINI.md for agent instructions" },
-      skills:   { global: null,                              local: null, note: "Use GEMINI.md for instructions" },
-      rules:    { global: null,                              local: null, note: "Use ~/.gemini/policies/ (TOML format)" },
-      prompts:  { global: null,                              local: null, note: "Use GEMINI.md for prompts" },
+      agents:   { global: join(HOME, ".gemini", "skills"),   local: join(".gemini", "skills") },
+      skills:   { global: join(HOME, ".gemini", "skills"),   local: join(".gemini", "skills") },
+      rules:    { global: null,                              local: join(".gemini", "skills"), note: "Rules as skills" },
+      prompts:  { global: join(HOME, ".gemini", "skills"),   local: join(".gemini", "skills") },
       memories: { global: null,                              local: null, note: "Managed cloud context" },
     },
-    // Gemini appends to GEMINI.md rather than individual files
-    appendTo: "GEMINI.md",
+    skillAsDir: true,
+    skillFilename: "SKILL.md",
   },
   qwen: {
     name: "Qwen Code",

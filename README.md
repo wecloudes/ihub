@@ -435,14 +435,14 @@ ihub works with multiple coding agents. When pulling, it installs artifacts to e
 
 ### Supported agents
 
-| Agent | Skills path | Rules path | Format |
-|-------|------------|------------|--------|
-| Claude Code | `~/.claude/skills/<name>/SKILL.md` | `.claude/rules/<name>.md` | SKILL.md in directory |
-| Qwen Code | `~/.qwen/skills/<name>/SKILL.md` | `.qwen/skills/<name>/SKILL.md` | SKILL.md in directory |
-| Open Code | `~/.config/opencode/skills/<name>/SKILL.md` | `.opencode/rules/<name>.md` | SKILL.md in directory |
-| Cursor IDE | `.cursor/skills/<name>.md` | `.cursor/rules/<name>.mdc` | Flat file, .mdc for rules |
-| Gemini CLI | — | — | Uses GEMINI.md (skipped) |
-| Codex CLI | — | — | Uses AGENTS.md (skipped) |
+| Agent | Skills (personal) | Skills (project) | Rules (project) | Format |
+|-------|-------------------|-----------------|-----------------|--------|
+| Claude Code | `~/.claude/skills/` | `.claude/skills/` | `.claude/rules/<name>.md` | SKILL.md dir |
+| Gemini CLI | `~/.gemini/skills/` | `.gemini/skills/` | `.gemini/skills/` (as skill) | SKILL.md dir |
+| Qwen Code | `~/.qwen/skills/` | `.qwen/skills/` | `.qwen/skills/` (as skill) | SKILL.md dir |
+| Open Code | `~/.config/opencode/skills/` | `.opencode/skills/` | `.opencode/rules/<name>.md` | SKILL.md dir |
+| Cursor IDE | `~/.cursor/skills/` | `.cursor/skills/` | `.cursor/rules/<name>.mdc` | Flat, .mdc rules |
+| Codex CLI | — | — | — | Uses AGENTS.md |
 
 Memories always install to the local `memories/` directory regardless of agent.
 
