@@ -161,6 +161,12 @@ export async function startTui(baseUrl, token) {
         state.view = "types";
         state.metrics = null;
         state.scrollOffset = 0;
+      } else if (state.view === "projects") {
+        state.view = "types";
+        state.scrollOffset = 0;
+      } else if (state.view === "config") {
+        state.view = "types";
+        state.scrollOffset = 0;
       } else if (state.view === "detail") {
         state.view = "list";
         state.detail = null;
@@ -296,6 +302,111 @@ export async function startTui(baseUrl, token) {
       return;
     }
 
+    // j — projects view (from types)
+    if (key === "j" && state.view === "types") {
+      process.stdout.write(CLEAR + `${DIM}Loading projects...${RESET}`);
+      state.projectsData = await fetchJson(`${baseUrl}/api/agents`, token);
+      // Build project tree from all types
+      const allEntries = [];
+      for (const type of TYPES) {
+        for (const e of (state.entries[type] || [])) {
+          allEntries.push({ ...e, _type: type });
+        }
+      }
+      const projects = {};
+      const unassigned = [];
+      for (const e of allEntries) {
+        const proj = e.meta?.project || e.project || "";
+        if (proj) {
+          if (!projects[proj]) projects[proj] = {};
+          if (!projects[proj][e._type]) projects[proj][e._type] = [];
+          projects[proj][e._type].push(e);
+        } else {
+          unassigned.push(e);
+        }
+      }
+      state.projectTree = { projects, unassigned };
+      state.view = "projects";
+      state.scrollOffset = 0;
+      render(state);
+      return;
+    }
+
+    // i — config (admin, from types)
+    if (key === "i" && state.view === "types" && state.isAdmin) {
+      state.serverConfig = await fetchJson(`${baseUrl}/api/config`, token);
+      state.view = "config";
+      state.scrollOffset = 0;
+      render(state);
+      return;
+    }
+
+    // d — delete/remove (from detail, owner only)
+    if (key === "d" && state.view === "detail" && state.detail) {
+      const type = TYPES[state.selectedType];
+      const name = state.detail.name;
+      try {
+        const h = { "Content-Type": "application/json" };
+        if (token) h["Authorization"] = `Bearer ${token}`;
+        const res = await fetch(`${baseUrl}/api/${type}/${name}`, { method: "DELETE", headers: h });
+        const data = await res.json();
+        if (res.ok) {
+          state.entries[type] = await fetchJson(`${baseUrl}/api/${type}`);
+          state.view = "list";
+          state.detail = null;
+          state.selectedItem = 0;
+        }
+        state.statusMsg = res.ok ? `Removed ${type}/${name}` : (data.error || "Remove failed");
+      } catch (err) {
+        state.statusMsg = `Error: ${err.message}`;
+      }
+      render(state);
+      return;
+    }
+
+    // w — write comment (from detail)
+    if (key === "w" && state.view === "detail" && state.detail && token) {
+      const type = TYPES[state.selectedType];
+      const name = state.detail.name;
+      // Switch to cooked mode for input
+      cleanup();
+      process.stdout.write(`${CLEAR}${BOLD}Rate ${type}/${name}${RESET}\n\n`);
+      const stdin = process.stdin;
+      if (stdin.setRawMode) stdin.setRawMode(false);
+
+      const ratingStr = await new Promise((resolve) => {
+        process.stdout.write("Rating (1-5): ");
+        stdin.once("data", (d) => resolve(d.toString().trim()));
+      });
+      const commentBody = await new Promise((resolve) => {
+        process.stdout.write("Comment: ");
+        stdin.once("data", (d) => resolve(d.toString().trim()));
+      });
+
+      if (stdin.setRawMode) stdin.setRawMode(true);
+      process.stdout.write(HIDE_CURSOR);
+
+      const rating = parseInt(ratingStr, 10);
+      if (rating >= 1 && rating <= 5 && commentBody) {
+        try {
+          const h = { "Content-Type": "application/json" };
+          if (token) h["Authorization"] = `Bearer ${token}`;
+          await fetch(`${baseUrl}/api/${type}/${name}/comments`, {
+            method: "POST", headers: h,
+            body: JSON.stringify({ rating, body: commentBody }),
+          });
+          state.comments = await fetchJson(`${baseUrl}/api/${type}/${name}/comments`);
+          state.statusMsg = `Comment added (${rating}/5)`;
+        } catch (err) {
+          state.statusMsg = `Error: ${err.message}`;
+        }
+      } else {
+        state.statusMsg = "Invalid rating or empty comment — skipped";
+      }
+      render(state);
+      return;
+    }
+
     // r — refresh
     if (key === "r") {
       process.stdout.write(CLEAR + `${DIM}Refreshing...${RESET}`);
@@ -361,6 +472,10 @@ function render(state) {
   if (state.isAdmin) output += `  ${BG_GREEN}${BLACK} ADMIN ${RESET}`;
   if (state.marked.size > 0) output += `  ${BG_YELLOW}${BLACK} ${state.marked.size} selected ${RESET}`;
   if (state.isSearch) output += `  ${YELLOW}search: "${state.searchQuery}"${RESET}`;
+  if (state.statusMsg) {
+    output += `  ${DIM}${state.statusMsg}${RESET}`;
+    state.statusMsg = null; // show once
+  }
   output += "\n";
   output += `${DIM}${"─".repeat(cols)}${RESET}\n`;
 
@@ -370,6 +485,8 @@ function render(state) {
   else if (state.view === "comments") output += renderComments(state, contentRows, cols);
   else if (state.view === "metrics") output += renderMetrics(state, contentRows, cols);
   else if (state.view === "audit") output += renderAudit(state, contentRows, cols);
+  else if (state.view === "projects") output += renderProjects(state, contentRows, cols);
+  else if (state.view === "config") output += renderConfig(state, contentRows, cols);
   else if (state.view === "agent-select") output += renderAgentSelect(state, contentRows);
   else if (state.view === "scope-select") output += renderScopeSelect(state, contentRows);
   else if (state.view === "pulling") output += renderPulling(state, contentRows, cols);
@@ -377,13 +494,15 @@ function render(state) {
   // Footer
   output += `\n${DIM}${"─".repeat(cols)}${RESET}\n`;
   const footers = {
-    types: ` ↑↓ navigate  ⏎ select  / search  ${state.isAdmin ? "m metrics  t audit  " : ""}r refresh  q quit`,
+    types: ` ↑↓ navigate  ⏎ select  j projects  / search  ${state.isAdmin ? "m metrics  t audit  i config  " : ""}r refresh  q quit`,
     audit: ` ↑↓ scroll  n next page  b prev page  r refresh  esc back`,
-    list: ` ↑↓ navigate  ⏎ view  space select  a all  ${state.marked.size > 0 ? "p pull selected  " : ""}/ search  esc back`,
+    projects: ` ↑↓ scroll  r refresh  esc back`,
+    config: ` esc back`,
+    list: ` ↑↓ navigate  ⏎ view  space select  a all  ${state.marked.size > 0 ? "p pull  " : ""}/ search  esc back`,
     "agent-select": ` 1-${AGENT_NAMES.length} toggle  ⏎ confirm  esc cancel`,
     "scope-select": ` l project  g personal  esc cancel`,
     pulling: ` Press any key to continue`,
-    detail: ` ↑↓ scroll  c comments  r refresh  esc back`,
+    detail: ` ↑↓ scroll  c comments  w review  d remove  r refresh  esc back`,
     comments: ` ↑↓ scroll  c back to detail  esc back`,
     metrics: ` ↑↓ scroll  r refresh  esc back`,
   };
@@ -840,6 +959,65 @@ async function executeBulkPull(state, baseUrl, token) {
   state.pullAgents = null;
   state.pullScope = null;
   render(state);
+}
+
+function renderProjects(state, maxRows, cols) {
+  const tree = state.projectTree;
+  if (!tree) return `  ${DIM}No data.${RESET}\n`;
+
+  const lines = [];
+  lines.push(`  ${BG_CYAN}${BLACK}${BOLD} Projects ${RESET}`);
+  lines.push("");
+
+  for (const [name, types] of Object.entries(tree.projects)) {
+    lines.push(`  ${BOLD}${CYAN}${name}${RESET}`);
+    for (const type of TYPES) {
+      const entries = types[type];
+      if (!entries || entries.length === 0) continue;
+      lines.push(`  ${DIM}├──${RESET} ${YELLOW}${type}${RESET}`);
+      for (const e of entries) {
+        const ver = e.version ? `${GRAY}@${e.version}${RESET}` : "";
+        lines.push(`  ${DIM}│   ├──${RESET} ${e.name}${ver}`);
+      }
+    }
+    lines.push("");
+  }
+
+  if (tree.unassigned.length > 0) {
+    lines.push(`  ${DIM}${BOLD}(unassigned)${RESET}`);
+    for (const e of tree.unassigned) {
+      lines.push(`  ${DIM}├──${RESET} ${GRAY}[${e._type}]${RESET} ${e.name}`);
+    }
+  }
+
+  return scrollView(lines, state.scrollOffset, maxRows);
+}
+
+function renderConfig(state, maxRows, cols) {
+  const cfg = state.serverConfig;
+  if (!cfg) return `  ${DIM}No config data.${RESET}\n`;
+
+  const lines = [];
+  lines.push(`  ${BG_CYAN}${BLACK}${BOLD} Server Configuration ${RESET}`);
+  lines.push("");
+
+  const features = [
+    ["Server", `port ${cfg.server?.port}`, true],
+    ["Database", cfg.server?.db_path, true],
+    ["Admin", cfg.admin?.username || "(first registered)", !!cfg.admin?.username],
+    ["Auth0", cfg.auth0?.enabled ? cfg.auth0.domain : "disabled", cfg.auth0?.enabled],
+    ["Slack", cfg.slack?.enabled ? `digest every ${cfg.slack.digest_interval_hours}h` : "disabled", cfg.slack?.enabled],
+    ["Metrics", cfg.metrics?.enabled ? "/api/metrics" : "disabled", cfg.metrics?.enabled],
+    ["Audit", cfg.audit?.enabled ? `anonymous: ${cfg.audit.log_anonymous}` : "disabled", cfg.audit?.enabled],
+    ["Firewall", cfg.firewall?.enabled ? `${cfg.firewall.whitelist_count} IPs` : "disabled", cfg.firewall?.enabled],
+  ];
+
+  for (const [name, detail, enabled] of features) {
+    const icon = enabled ? `${GREEN}\u2713${RESET}` : `${RED}\u2717${RESET}`;
+    lines.push(`  ${icon}  ${BOLD}${name.padEnd(12)}${RESET} ${detail}`);
+  }
+
+  return scrollView(lines, state.scrollOffset, maxRows);
 }
 
 async function loadAuditPage(state, baseUrl, token) {

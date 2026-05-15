@@ -1,7 +1,7 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "child_process";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdtempSync, rmSync, readdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { fileURLToPath } from "url";
@@ -144,8 +144,8 @@ describe("TUI integration tests", () => {
     for (const dir of ["agents", "skills", "rules", "memories", "prompts"]) {
       const d = join(ROOT, dir);
       try {
-        for (const f of require("fs").readdirSync(d)) {
-          if (f.endsWith(".md")) require("fs").unlinkSync(join(d, f));
+        for (const f of readdirSync(d)) {
+          if (f.endsWith(".md")) unlinkSync(join(d, f));
         }
       } catch {}
     }
