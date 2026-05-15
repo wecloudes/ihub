@@ -1603,7 +1603,7 @@ function version() {
 
 function help() {
   console.log(`
-ihub — registry for agents, skills, rules, memories, and prompts
+ihub — AI artifact registry for agents, skills, rules, memories, and prompts
 
 Commands:
   browse                     Interactive TUI browser for the registry

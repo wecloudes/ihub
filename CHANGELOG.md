@@ -21,6 +21,14 @@ All notable changes to ihub are documented in this file.
 - TUI bulk pull uses skillAsDir for directory-based agents
 - TUI per-agent error isolation during bulk pull
 - Memories always install to local `memories/` directory (no agent paths)
+- **Sensitive data detection**: auto-scans + masks on push (CLI + server-side); 80+ patterns for API keys (AWS, Azure, GCP, OpenAI, Anthropic, Stripe, Slack, etc.), Kubernetes/ArgoCD tokens, Atlassian (Jira, Confluence), private keys, passwords, connection strings, Spain-specific PII (mobile, DNI/NIE, CIF, IBAN), credit cards, SSN; logged as `sensitive-detected` audit action; `ihub_sensitive_detected_total` metric
+- **IP firewall**: whitelist-based blocking loaded once at startup (immutable); supports exact IPs, CIDR ranges, wildcards; `firewall-blocked` audit action; `ihub_firewall_blocked_total` metric
+- **TUI projects view**: `j` key shows project tree grouped by type
+- **TUI config view**: `i` key shows server config (admin only)
+- **TUI remove**: `d` key removes artifact from detail view
+- **TUI write review**: `w` key adds comment/rating from detail view
+- **TUI integration tests**: 21 automated tests spawning real TUI processes with simulated keystrokes
+- **Test suite**: 284 tests (21 TUI + 35 sensitive + 228 existing)
 
 ---
 

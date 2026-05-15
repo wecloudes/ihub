@@ -1,7 +1,7 @@
 {
   "name": "ihub",
   "version": "0.2.0",
-  "description": "A registry for agents, skills, rules, memories, and prompts",
+  "description": "AI artifact registry for agents, skills, rules, memories, and prompts",
   "type": "module",
   "bin": {
     "ihub": "./cli/index.js"

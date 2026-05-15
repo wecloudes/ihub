@@ -1,6 +1,8 @@
 # ihub
 
-A registry for agents, skills, rules, memories, and prompts. Each artifact is a `.md` file with YAML frontmatter metadata. No vendor lock-in, no proprietary formats — just files you can edit, version with git, and share through a central registry.
+An AI artifact registry for agents, skills, rules, memories, and prompts. Publish once, install everywhere — ihub works with Claude Code, Gemini CLI, Qwen Code, Cursor IDE, Codex CLI, and Open Code, installing artifacts to each coding agent's native path with the correct format.
+
+Each artifact is a `.md` file with YAML frontmatter. No vendor lock-in, no proprietary formats — just files you can edit, version with git, and share across your team and AI toolchain.
 
 ## Install
 
@@ -26,7 +28,7 @@ ihub projects                       # see everything organized by project
 
 ## Understanding artifact types
 
-ihub manages five types of artifacts. Each solves a different problem. Choosing the right type matters — it determines the frontmatter fields, how the artifact is discovered, and how it connects to other artifacts.
+ihub manages five types of AI artifacts. Each serves a different role in the lifecycle of an AI-assisted workflow. Choosing the right type matters — it determines the frontmatter fields, how the artifact is discovered, and how it connects to other artifacts.
 
 ### Agent — _"Who does the work?"_
 
@@ -203,8 +205,11 @@ Types accept singular or plural: `agent`/`agents`, `skill`/`skills`, `rule`/`rul
 ### Browsing artifacts
 
 ```bash
-# Interactive TUI — navigate, multi-select, pull, comments, metrics, audit
+# Interactive TUI — full registry browser
 ihub browse
+# Keys: ↑↓ navigate, ⏎ drill in, / search, space multi-select, p pull
+#       c comments, w review, d remove, j projects
+#       m metrics, t audit, i config (admin only), q/esc back
 
 # List everything
 ihub list
@@ -492,11 +497,20 @@ The server stores artifacts in SQLite and exposes a REST API. Deploy with Docker
   "auth0": { "enabled": false, "domain": "", "client_id": "", "audience": "ihub-api" },
   "slack": { "enabled": false, "webhook_url": "", "digest_interval_hours": 168 },
   "metrics": { "enabled": true },
-  "audit": { "enabled": true, "log_anonymous": true }
+  "audit": { "enabled": true, "log_anonymous": true },
+  "firewall": { "enabled": false, "whitelist": [] }
 }
 ```
 
 Environment variables override config file values. Config file is optional.
+
+### Sensitive data protection
+
+Every artifact push is scanned for sensitive data (CLI + server-side). Detected values are automatically masked with `[MASKED:<type>]` tags before publishing. Covers 80+ patterns: API keys (AWS, Azure, GCP, OpenAI, Anthropic, Stripe, Slack, etc.), private keys, passwords, connection strings, PII (emails, phone numbers, credit cards, IBAN, DNI/NIE), and Kubernetes/ArgoCD tokens. Findings are logged as `sensitive-detected` audit actions and tracked via the `ihub_sensitive_detected_total` Prometheus metric.
+
+### IP firewall
+
+Set `firewall.enabled: true` with a whitelist of allowed IPs. Supports exact IPs, CIDR ranges (`10.0.0.0/8`), and wildcards (`192.168.1.*`). Loaded once at startup (immutable). Blocked requests return `403` and are logged to the audit trail. Configure via `IHUB_FIREWALL_WHITELIST` env var (comma-separated).
 
 ### API endpoints
 
@@ -536,7 +550,7 @@ examples/          sample entries (4 agents, 6 skills, 4 rules, 3 memories, 5 pr
 templates/         scaffolding templates for each type
 cli/               CLI tool (ESM, zero external dependencies)
 server/            registry API server (Node.js + SQLite)
-tests/             228 tests (node:test)
+tests/             284 tests (node:test)
 completions/       bash and zsh shell completions
 man/               manual page source
 grafana/           Grafana dashboard + Prometheus config

@@ -5,7 +5,7 @@ description: Manual page for ihub — registry for agents, skills, rules, memori
 
 # ihub
 
-A registry for agents, skills, rules, memories, and prompts.
+An AI artifact registry for agents, skills, rules, memories, and prompts.
 
 ## Synopsis
 
@@ -16,9 +16,9 @@ ihub <type> <command> [arguments] [flags]
 
 ## Description
 
-ihub is a CLI and HTTP registry for managing AI artifacts as markdown files with YAML frontmatter. It supports five artifact types: agents, skills, rules, memories, and prompts.
+ihub is an AI artifact registry for managing agents, skills, rules, memories, and prompts as markdown files with YAML frontmatter. It works with Claude Code, Gemini CLI, Qwen Code, Cursor IDE, Codex CLI, and Open Code — installing artifacts to each coding agent's native path with the correct format.
 
-Artifacts can be created locally, validated for cross-references, published to a remote registry, and discovered by other users. The registry supports versioning, ownership, comments with ratings, user roles, audit trails, and Prometheus metrics.
+Artifacts can be created locally, imported from any coding agent, validated for cross-references, published to a remote registry, and discovered by other users. The registry supports versioning, ownership, comments with ratings, user roles, sensitive data detection, IP firewall, audit trails, Prometheus metrics, and an interactive TUI browser.
 
 ## Commands
 

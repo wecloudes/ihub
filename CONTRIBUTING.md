@@ -28,10 +28,11 @@ server/        registry API server
   config.js      unified config loader (ihub.config.json + env vars)
   db.js          SQLite layer — users, entries, attachments, comments, audit_log
   metrics.js     in-memory Prometheus metrics collector
-tests/         all tests (228, node:test)
+  sensitive.js   sensitive data detection and masking (80+ patterns)
+tests/         all tests (284, node:test)
   parse.test.js, registry.test.js, render.test.js, dashboard.test.js
   config.test.js, metrics.test.js, slack.test.js
-  db.test.js, routes.test.js, cli.test.js
+  db.test.js, routes.test.js, cli.test.js, tui.test.js, sensitive.test.js
 agents/        working directory for agent entries (.md, gitignored)
 skills/        working directory for skill entries (.md, gitignored)
 rules/         working directory for rule entries (.md, gitignored)
@@ -50,7 +51,7 @@ docker-compose.yml  ihub + Prometheus + Grafana stack
 ## Running tests
 
 ```bash
-npm test                           # run all 228 tests
+npm test                           # run all 284 tests
 node --test tests/parse.test.js    # run a single test file
 node --test --test-name-pattern "push" tests/cli.test.js  # run matching tests
 ```
