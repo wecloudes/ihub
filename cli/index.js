@@ -949,7 +949,8 @@ async function push(args) {
   console.log(`Pushed ${pluralType}/${name}@${ver}`);
 
   if (findings.length > 0) {
-    console.log(`\x1b[33m⚠ ${findings.length} sensitive value(s) were masked before publishing\x1b[0m`);
+    console.log(`\x1b[41m\x1b[37m\x1b[1m ⚠ BLOCKED \x1b[0m ${findings.length} sensitive value(s) masked — artifact requires admin approval`);
+    console.log(`\x1b[2mAn admin must run: ihub admin approve ${pluralType}/${name}\x1b[0m`);
   }
 }
 
@@ -1414,8 +1415,49 @@ async function admin(args) {
     return;
   }
 
+  if (subcommand === "approve") {
+    const target = subArgs[0]; // type/name
+    if (!target || !target.includes("/")) {
+      console.error("Usage: ihub admin approve <type>/<name>");
+      process.exit(1);
+    }
+    const [aType, aName] = target.split("/");
+    const base = loadConfig().registry || process.env.IHUB_REGISTRY || "http://localhost:3000";
+    const token = loadConfig().token || process.env.IHUB_TOKEN;
+    const res = await fetch(`${base}/api/${aType}/${aName}/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Approve failed");
+    console.log(`\x1b[32m✓ Approved: ${aType}/${aName} → available\x1b[0m`);
+    return;
+  }
+
+  if (subcommand === "blocked") {
+    const base = loadConfig().registry || process.env.IHUB_REGISTRY || "http://localhost:3000";
+    const token = loadConfig().token || process.env.IHUB_TOKEN;
+    const res = await fetch(`${base}/api/blocked`, {
+      headers: { "Authorization": `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to list blocked");
+    if (data.length === 0) {
+      console.log("No blocked artifacts.");
+      return;
+    }
+    console.log(`\n\x1b[33m${data.length} blocked artifact(s):\x1b[0m\n`);
+    for (const e of data) {
+      console.log(`  \x1b[31m✗\x1b[0m ${e.type}/${e.name}@${e.version}  \x1b[2mby ${e.owner}\x1b[0m`);
+    }
+    console.log(`\n\x1b[2mApprove with: ihub admin approve <type>/<name>\x1b[0m\n`);
+    return;
+  }
+
   console.error("Usage: ihub admin <subcommand>");
   console.error("  set-role <username> <role>   Set user role (admin only)");
+  console.error("  approve <type>/<name>        Approve a blocked artifact (admin only)");
+  console.error("  blocked                      List blocked artifacts (admin only)");
   console.error("  digest                       Send weekly digest to Slack (admin only)");
   process.exit(1);
 }
@@ -1632,6 +1674,8 @@ Commands:
                               Show server metrics dashboard (filterable)
   backup [path]               Download a full DB backup (admin only)
   admin set-role <user> <role> Set user role (admin only)
+  admin approve <type>/<name> Approve a blocked artifact (admin only)
+  admin blocked              List blocked artifacts (admin only)
   admin digest               Send weekly digest to Slack (admin only)
   completions [bash|zsh]      Output shell completions
   man                        Full manual page

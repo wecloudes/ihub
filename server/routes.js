@@ -23,6 +23,8 @@ import {
   getAttachments,
   getAttachmentContent,
   deleteAttachments,
+  setEntryStatus,
+  listBlockedEntries,
   getDb,
 } from "./db.js";
 import { inc, gauge, serialize } from "./metrics.js";
@@ -30,6 +32,7 @@ import { loadServerConfig } from "./config.js";
 import { maskSensitiveData } from "./sensitive.js";
 import { isAuth0Enabled, verifyAuth0Token, getAuth0Username } from "./auth0.js";
 import { notifyPush, sendWeeklyDigest, isSlackEnabled } from "./slack.js";
+import { sendSecurityAlert } from "./security-alert.js";
 import { randomBytes } from "crypto";
 import { createReadStream, unlinkSync } from "fs";
 import { tmpdir } from "os";
@@ -322,6 +325,39 @@ export async function handleRequest(req, res) {
     return sendJson(res, 200, { ok: true, message: "Weekly digest sent to Slack" });
   }
 
+  // GET /api/blocked — admin only, list blocked artifacts
+  if (parts[0] === "blocked" && req.method === "GET") {
+    const user = await authenticate(req);
+    if (!user) return sendError(res, 401, "Invalid or missing API key");
+    if (user.role !== "admin") return sendError(res, 403, "Admin access required");
+    return sendJson(res, 200, listBlockedEntries());
+  }
+
+  // POST /api/:type/:name/approve — admin only, unblock artifact
+  if (parts[2] === "approve" && req.method === "POST") {
+    const user = await authenticate(req);
+    if (!user) return sendError(res, 401, "Invalid or missing API key");
+    if (user.role !== "admin") return sendError(res, 403, "Admin access required");
+
+    const artType = parts[0];
+    const artName = parts[1];
+    const entry = getEntry(artType, artName);
+    if (!entry) return sendError(res, 404, `Not found: ${artType}/${artName}`);
+    if (entry.status === "available") return sendJson(res, 200, { ok: true, message: "Already available" });
+
+    setEntryStatus(artType, artName, "available");
+    logAction({
+      ip: getClientIp(req),
+      action: "approve",
+      username: user.username,
+      role: user.role,
+      type: artType,
+      name: artName,
+      detail: "UNBLOCKED — admin approved",
+    });
+    return sendJson(res, 200, { ok: true, type: artType, name: artName, status: "available" });
+  }
+
   // GET /api/search?q=...
   if (parts[0] === "search" && req.method === "GET") {
     const q = url.searchParams.get("q");
@@ -429,13 +465,20 @@ export async function handleRequest(req, res) {
     const entry = getEntry(type, name, version);
     if (!entry) return sendError(res, 404, `Not found: ${type}/${name}`);
     const user = await authenticate(req);
+
+    // Blocked artifacts: only visible to admin or owner
+    if (entry.status === "blocked") {
+      if (!user || (user.role !== "admin" && user.username !== entry.owner)) {
+        return sendError(res, 403, `Artifact ${type}/${name} is blocked — pending admin approval`);
+      }
+    }
+
     const isPull = req.headers["x-ihub-action"] === "pull";
     const action = isPull ? "pull" : "view";
     inc("ihub_view_total", { type, name, user: user?.username || "anonymous" });
     if (isPull) inc("ihub_pull_total", { type, name, user: user?.username || "anonymous" });
     logAction({ ip: getClientIp(req), action, username: user?.username || "anonymous", role: user?.role, type, name });
 
-    // Include attachment list in response
     const attachments = getAttachments(type, name);
     return sendJson(res, 200, { ...entry, attachments });
   }
@@ -492,23 +535,27 @@ export async function handleRequest(req, res) {
       const detail = `v${data.version}` + (attachmentCount ? ` +${attachmentCount} files` : "") + (sensitiveCount ? ` [SENSITIVE:${sensitiveCount} masked]` : "");
       logAction({ ip: getClientIp(req), action: "push", username: user.username, role: user.role, type, name, detail });
 
-      // Log sensitive detection as a separate audit action for filtering
+      // Sensitive data: block artifact + alert security team
       if (sensitiveCount > 0) {
+        setEntryStatus(type, name, "blocked");
         logAction({
           ip: getClientIp(req),
-          action: "sensitive-detected",
+          action: "sensitive-blocked",
           username: user.username,
           role: user.role,
           type,
           name,
-          detail: `${sensitiveCount} finding(s): ${sensitiveTypes.join(", ")}`,
+          detail: `BLOCKED — ${sensitiveCount} finding(s): ${sensitiveTypes.join(", ")}`,
         });
+        // Send security alert (async, non-blocking)
+        sendSecurityAlert({ type, name, username: user.username, findings }).catch(() => {});
       }
 
       notifyPush({ type, name, version: data.version, owner: user.username });
       return sendJson(res, 200, {
         ok: true, type, name, version: data.version, owner: user.username,
         attachments: attachmentCount,
+        status: sensitiveCount > 0 ? "blocked" : "available",
         sensitive: sensitiveCount > 0 ? { masked: sensitiveCount, types: sensitiveTypes } : undefined,
       });
     }).catch(() => sendError(res, 400, "Invalid JSON body"));

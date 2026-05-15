@@ -31,6 +31,12 @@
     "log_anonymous": true
   },
 
+  "security": {
+    "notify_via": "terminal",
+    "email": "",
+    "slack_webhook_url": ""
+  },
+
   "firewall": {
     "enabled": false,
     "whitelist": []

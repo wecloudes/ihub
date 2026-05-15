@@ -36,6 +36,7 @@ function init(db) {
       body TEXT,
       author TEXT,
       owner TEXT,
+      status TEXT NOT NULL DEFAULT 'available',
       created_at TEXT DEFAULT (datetime('now')),
       UNIQUE(type, name, version)
     );
@@ -91,6 +92,11 @@ function init(db) {
     db.prepare("SELECT role FROM users LIMIT 1").get();
   } catch {
     db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
+  }
+  try {
+    db.prepare("SELECT status FROM entries LIMIT 1").get();
+  } catch {
+    try { db.exec("ALTER TABLE entries ADD COLUMN status TEXT NOT NULL DEFAULT 'available'"); } catch {}
   }
   try {
     db.prepare("SELECT ip FROM audit_log LIMIT 1").get();
@@ -192,11 +198,26 @@ export function getEntry(type, name, version) {
   return row ? deserializeRow(row) : null;
 }
 
-export function listEntries(type) {
+export function listEntries(type, includeBlocked = false) {
+  const db = getDb();
+  const statusFilter = includeBlocked ? "" : "AND status = 'available'";
+  const rows = db.prepare(
+    `SELECT * FROM entries WHERE type = ? ${statusFilter} GROUP BY name HAVING created_at = MAX(created_at) ORDER BY name`
+  ).all(type);
+  return rows.map(deserializeRow);
+}
+
+export function setEntryStatus(type, name, status) {
+  const db = getDb();
+  const result = db.prepare("UPDATE entries SET status = ? WHERE type = ? AND name = ?").run(status, type, name);
+  return result.changes > 0;
+}
+
+export function listBlockedEntries() {
   const db = getDb();
   const rows = db.prepare(
-    "SELECT * FROM entries WHERE type = ? GROUP BY name HAVING created_at = MAX(created_at) ORDER BY name"
-  ).all(type);
+    "SELECT * FROM entries WHERE status = 'blocked' GROUP BY type, name HAVING created_at = MAX(created_at) ORDER BY created_at DESC"
+  ).all();
   return rows.map(deserializeRow);
 }
 

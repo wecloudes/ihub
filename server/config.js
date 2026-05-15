@@ -13,6 +13,7 @@ const DEFAULTS = {
   metrics: { enabled: true },
   audit: { enabled: true, log_anonymous: true },
   firewall: { enabled: false, whitelist: [] },
+  security: { notify_via: "terminal", email: "", slack_webhook_url: "" },
 };
 
 let _config = null;
@@ -63,6 +64,11 @@ export function loadServerConfig() {
       enabled: fileConfig.audit?.enabled ?? DEFAULTS.audit.enabled,
       log_anonymous: fileConfig.audit?.log_anonymous ?? DEFAULTS.audit.log_anonymous,
     },
+    security: {
+      notify_via: process.env.IHUB_SECURITY_NOTIFY_VIA || fileConfig.security?.notify_via || DEFAULTS.security.notify_via,
+      email: process.env.IHUB_SECURITY_EMAIL || fileConfig.security?.email || DEFAULTS.security.email,
+      slack_webhook_url: process.env.IHUB_SECURITY_SLACK_WEBHOOK || fileConfig.security?.slack_webhook_url || DEFAULTS.security.slack_webhook_url,
+    },
     firewall: {
       enabled: envBool("IHUB_FIREWALL_WHITELIST")
         ?? fileConfig.firewall?.enabled
@@ -90,7 +96,35 @@ export function printConfig(config) {
   console.log(`  Slack:      ${config.slack.enabled ? "enabled" : "disabled"}`);
   console.log(`  Metrics:    ${config.metrics.enabled ? "enabled" : "disabled"}`);
   console.log(`  Audit:      ${config.audit.enabled ? "enabled" : "disabled"} (anonymous: ${config.audit.log_anonymous})`);
+  console.log(`  Security:   notify via ${config.security.notify_via}`);
   console.log(`  Firewall:   ${config.firewall.enabled ? `enabled (${config.firewall.whitelist.length} IPs)` : "disabled"}`);
+}
+
+const VALID_NOTIFY = ["terminal", "slack", "email"];
+
+/**
+ * Validate config at startup. Returns array of error strings.
+ */
+export function validateConfig(config) {
+  const errors = [];
+
+  if (!VALID_NOTIFY.includes(config.security.notify_via)) {
+    errors.push(`security.notify_via must be one of: ${VALID_NOTIFY.join(", ")} (got "${config.security.notify_via}")`);
+  }
+
+  if (config.security.notify_via === "slack" && !config.security.slack_webhook_url) {
+    errors.push(`security.notify_via is "slack" but security.slack_webhook_url is not set. Set it in ihub.config.json or IHUB_SECURITY_SLACK_WEBHOOK env var.`);
+  }
+
+  if (config.security.notify_via === "email" && !config.security.email) {
+    errors.push(`security.notify_via is "email" but security.email is not set. Set it in ihub.config.json or IHUB_SECURITY_EMAIL env var.`);
+  }
+
+  if (config.security.notify_via === "email" && config.security.email && !process.env.SMTP_HOST) {
+    errors.push(`security.notify_via is "email" but SMTP_HOST is not set. Configure SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS env vars.`);
+  }
+
+  return errors;
 }
 
 /**

@@ -1,13 +1,23 @@
 #!/usr/bin/env node
 
 import { createServer } from "http";
-import { loadServerConfig, printConfig } from "./config.js";
+import { loadServerConfig, printConfig, validateConfig } from "./config.js";
 import { handleRequest } from "./routes.js";
 import { sendWeeklyDigest } from "./slack.js";
 import { getDb, getUser, registerUser, getUserCount } from "./db.js";
 import { randomBytes } from "crypto";
 
 const config = loadServerConfig();
+
+// Validate config — exit on errors
+const configErrors = validateConfig(config);
+if (configErrors.length > 0) {
+  console.error("\x1b[31m[CONFIG ERROR] Server cannot start:\x1b[0m");
+  for (const err of configErrors) {
+    console.error(`  \x1b[31m✗\x1b[0m ${err}`);
+  }
+  process.exit(1);
+}
 
 // Set env vars for modules that read them directly (auth0.js, slack.js, db.js)
 if (config.server.db_path) process.env.IHUB_DB_PATH = config.server.db_path;
