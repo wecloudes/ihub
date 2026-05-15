@@ -102,6 +102,7 @@ register("ihub_remove_total", "counter", "Artifacts removed");
 register("ihub_register_total", "counter", "User registrations");
 register("ihub_backup_total", "counter", "Database backups");
 register("ihub_role_change_total", "counter", "User role changes");
+register("ihub_sensitive_detected_total", "counter", "Sensitive data detected and masked");
 register("ihub_entries_count", "gauge", "Current number of entries by type");
 register("ihub_entries_by_project_count", "gauge", "Current number of entries by project and type");
 register("ihub_entries_by_name_count", "gauge", "Current number of entry versions by type and name");

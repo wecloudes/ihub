@@ -27,6 +27,7 @@ import {
 } from "./db.js";
 import { inc, gauge, serialize } from "./metrics.js";
 import { loadServerConfig } from "./config.js";
+import { maskSensitiveData } from "./sensitive.js";
 import { isAuth0Enabled, verifyAuth0Token, getAuth0Username } from "./auth0.js";
 import { notifyPush, sendWeeklyDigest, isSlackEnabled } from "./slack.js";
 import { randomBytes } from "crypto";
@@ -384,6 +385,23 @@ export async function handleRequest(req, res) {
 
     return readBody(req).then((data) => {
       if (!data.version) return sendError(res, 400, "Missing version");
+
+      // Server-side sensitive data scan and mask
+      let body = data.body || "";
+      let sensitiveCount = 0;
+      const sensitiveTypes = [];
+      const { maskedContent, findings } = maskSensitiveData(body);
+      if (findings.length > 0) {
+        body = maskedContent;
+        sensitiveCount = findings.length;
+        const uniqueTypes = [...new Set(findings.map((f) => f.type))];
+        sensitiveTypes.push(...uniqueTypes);
+        // Track per finding type
+        for (const f of findings) {
+          inc("ihub_sensitive_detected_total", { type, sensitive_type: f.type, user: user.username });
+        }
+      }
+
       const result = upsertEntry({
         type,
         name,
@@ -391,13 +409,14 @@ export async function handleRequest(req, res) {
         description: data.description || "",
         tags: data.tags || [],
         meta: data.meta || {},
-        body: data.body || "",
+        body,
         author: data.author || "",
         owner: user.username,
       });
       if (result.error === "forbidden") {
         return sendError(res, 403, `Only the owner "${result.existingOwner}" can update ${type}/${name}`);
       }
+
       // Handle attachments
       const attachmentCount = Array.isArray(data.attachments) ? data.attachments.length : 0;
       if (data.attachments) {
@@ -408,10 +427,28 @@ export async function handleRequest(req, res) {
       }
 
       inc("ihub_push_total", { type, name, user: user.username });
-      const detail = `v${data.version}` + (attachmentCount ? ` +${attachmentCount} files` : "");
+      const detail = `v${data.version}` + (attachmentCount ? ` +${attachmentCount} files` : "") + (sensitiveCount ? ` [SENSITIVE:${sensitiveCount} masked]` : "");
       logAction({ ip: getClientIp(req), action: "push", username: user.username, role: user.role, type, name, detail });
+
+      // Log sensitive detection as a separate audit action for filtering
+      if (sensitiveCount > 0) {
+        logAction({
+          ip: getClientIp(req),
+          action: "sensitive-detected",
+          username: user.username,
+          role: user.role,
+          type,
+          name,
+          detail: `${sensitiveCount} finding(s): ${sensitiveTypes.join(", ")}`,
+        });
+      }
+
       notifyPush({ type, name, version: data.version, owner: user.username });
-      return sendJson(res, 200, { ok: true, type, name, version: data.version, owner: user.username, attachments: attachmentCount });
+      return sendJson(res, 200, {
+        ok: true, type, name, version: data.version, owner: user.username,
+        attachments: attachmentCount,
+        sensitive: sensitiveCount > 0 ? { masked: sensitiveCount, types: sensitiveTypes } : undefined,
+      });
     }).catch(() => sendError(res, 400, "Invalid JSON body"));
   }
 

@@ -10,6 +10,7 @@ import { loadRegistry, loadEntries } from "./parse.js";
 import { renderMarkdown } from "./render.js";
 import { parsePrometheus, parseFilters, renderDashboard } from "./dashboard.js";
 import { startTui } from "./tui.js";
+import { maskSensitiveData, formatFindings } from "../server/sensitive.js";
 import {
   pushEntry,
   pullEntry,
@@ -905,9 +906,11 @@ function collectCompanionFiles(dir, baseDir, excludeFile, result) {
 // --- Remote Commands ---
 
 async function push(args) {
-  const [type, name] = args;
+  const force = args.includes("--force");
+  const filtered = args.filter((a) => a !== "--force");
+  const [type, name] = filtered;
   if (!type || !name) {
-    console.error("Usage: ihub push <type> <name>");
+    console.error("Usage: ihub push <type> <name> [--force]");
     console.error("  type: agent, skill, rule, memory, prompt");
     process.exit(1);
   }
@@ -927,8 +930,27 @@ async function push(args) {
     process.exit(1);
   }
 
+  // Scan and mask sensitive data before pushing
+  const content = readFileSync(entry.path, "utf-8");
+  const { maskedContent, findings } = maskSensitiveData(content);
+
+  if (findings.length > 0) {
+    const report = formatFindings(findings);
+    console.log(report);
+    // Re-parse the entry with masked content
+    const { parseFrontmatter } = await import("./parse.js");
+    const { meta, body } = parseFrontmatter(maskedContent);
+    entry.body = body;
+    Object.assign(entry, meta);
+  }
+
   const result = await pushEntry(pluralType, entry);
-  console.log(`Pushed ${pluralType}/${name}@${result.version}`);
+  const ver = result.version;
+  console.log(`Pushed ${pluralType}/${name}@${ver}`);
+
+  if (findings.length > 0) {
+    console.log(`\x1b[33m⚠ ${findings.length} sensitive value(s) were masked before publishing\x1b[0m`);
+  }
 }
 
 function globalPath(pluralType) {
@@ -1350,6 +1372,7 @@ function getActionColor(action) {
     register: "\x1b[33m",        // yellow
     backup: "\x1b[31m",          // red
     "set-role": "\x1b[31m",      // red
+    "sensitive-detected": "\x1b[43m\x1b[30m", // yellow bg
   };
   return colors[action] || "\x1b[37m";
 }
