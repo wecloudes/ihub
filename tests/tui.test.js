@@ -53,6 +53,11 @@ function spawnTui(env = {}) {
         }, delay);
       });
     },
+    async switchToSkills() {
+      // Navigate right until skills tab is active, then wait for skill items
+      await this.send("\x1b[C", 150);
+      await this.waitFor("test-skill-1", 3000);
+    },
     async waitFor(pattern, timeoutMs = 3000) {
       const start = Date.now();
       while (Date.now() - start < timeoutMs) {
@@ -165,51 +170,47 @@ describe("TUI integration tests", () => {
     }
   });
 
-  it("navigates to list view with Enter", async () => {
+  it("starts directly in list view with agents", async () => {
     const tui = spawnTui();
     try {
-      await tui.waitFor("agents");
-      await tui.send("\r"); // Enter on agents
-      await tui.waitFor("test-agent", 3000);
+      await tui.waitFor("test-agent", 3000); // starts in list, shows agents
     } finally {
       await tui.kill();
     }
   });
 
-  it("navigates down with arrow keys", async () => {
+  it("switches types with right arrow", async () => {
     const tui = spawnTui();
     try {
       await tui.waitFor("agents");
-      await tui.send("\x1b[B"); // Down arrow
-      await tui.waitFor("skills");
-      await tui.send("\r"); // Enter on skills
+      await tui.send("\x1b[C"); // Right arrow to skills
       await tui.waitFor("test-skill-1", 3000);
     } finally {
       await tui.kill();
     }
   });
 
-  it("goes back with Escape", async () => {
+  it("goes back from detail with Escape to list", async () => {
     const tui = spawnTui();
     try {
-      await tui.waitFor("agents");
-      await tui.send("\r"); // Enter
       await tui.waitFor("test-agent");
-      await tui.send("\x1b"); // Escape
-      await tui.waitFor("skills"); // Back to types view showing all types
+      await tui.send("\r"); // Enter detail
+      await tui.waitFor("Test agent", 3000);
+      await tui.send("\x1b"); // Back to list
+      await tui.waitFor("test-agent", 3000);
     } finally {
       await tui.kill();
     }
   });
 
-  it("goes back with q", async () => {
+  it("goes back from detail with q", async () => {
     const tui = spawnTui();
     try {
-      await tui.waitFor("agents");
-      await tui.send("\r");
       await tui.waitFor("test-agent");
+      await tui.send("\r"); // detail
+      await tui.waitFor("Test agent", 3000);
       await tui.send("q");
-      await tui.waitFor("skills"); // Back to types
+      await tui.waitFor("test-agent", 3000); // Back to list
     } finally {
       await tui.kill();
     }
@@ -220,8 +221,6 @@ describe("TUI integration tests", () => {
   it("drills into detail view", async () => {
     const tui = spawnTui();
     try {
-      await tui.waitFor("agents");
-      await tui.send("\r"); // Enter on agents
       await tui.waitFor("test-agent");
       await tui.send("\r"); // Enter on test-agent
       await tui.waitFor("Test agent", 3000); // Description in detail view
@@ -233,13 +232,11 @@ describe("TUI integration tests", () => {
   it("returns from detail with Escape", async () => {
     const tui = spawnTui();
     try {
-      await tui.waitFor("agents");
-      await tui.send("\r");
       await tui.waitFor("test-agent");
       await tui.send("\r");
-      await tui.waitFor("Test agent");
+      await tui.waitFor("Test agent", 3000);
       await tui.send("\x1b"); // Back to list
-      await tui.waitFor("test-agent", 3000); // Back to list showing the item
+      await tui.waitFor("test-agent", 3000);
     } finally {
       await tui.kill();
     }
@@ -250,10 +247,7 @@ describe("TUI integration tests", () => {
   it("toggles comments view with c", async () => {
     const tui = spawnTui();
     try {
-      await tui.waitFor("agents");
-      await tui.send("\x1b[B"); // Down to skills
-      await tui.send("\r"); // Enter skills
-      await tui.waitFor("test-skill-1");
+      await tui.switchToSkills();
       await tui.send("\r"); // Enter detail
       await tui.waitFor("Test skill", 3000);
       await tui.send("c"); // Toggle comments
@@ -267,8 +261,7 @@ describe("TUI integration tests", () => {
     const tui = spawnTui();
     try {
       await tui.waitFor("agents");
-      await tui.send("\x1b[B", 100); await tui.send("\r", 100); // Down to skills, enter
-      await tui.waitFor("test-skill-1");
+      await tui.switchToSkills();
       await tui.send("\r"); // Detail
       await tui.waitFor("Test skill", 3000);
       await tui.send("c"); // To comments
@@ -286,7 +279,7 @@ describe("TUI integration tests", () => {
     const tui = spawnTui();
     try {
       await tui.waitFor("agents");
-      await tui.send("\x1b[B", 100); await tui.send("\r", 100); // Skills list
+      await tui.switchToSkills();
       await tui.waitFor("test-skill-1");
       await tui.send(" "); // Select first
       await tui.waitFor("1 selected", 3000);
@@ -299,7 +292,7 @@ describe("TUI integration tests", () => {
     const tui = spawnTui();
     try {
       await tui.waitFor("agents");
-      await tui.send("\x1b[B", 100); await tui.send("\r", 100); // Skills list
+      await tui.switchToSkills();
       await tui.waitFor("test-skill-1");
       await tui.send("a"); // Select all
       await tui.waitFor("3 selected", 3000);
@@ -312,8 +305,7 @@ describe("TUI integration tests", () => {
     const tui = spawnTui();
     try {
       await tui.waitFor("agents");
-      await tui.send("\x1b[B", 100); await tui.send("\r", 100);
-      await tui.waitFor("test-skill-1");
+      await tui.switchToSkills();
       await tui.send("a"); // Select all
       await tui.waitFor("3 selected");
       await tui.send("a"); // Deselect all
@@ -334,7 +326,7 @@ describe("TUI integration tests", () => {
     const tui = spawnTui();
     try {
       await tui.waitFor("agents");
-      await tui.send("\x1b[B", 100); await tui.send("\r", 100); // Skills list
+      await tui.switchToSkills();
       await tui.waitFor("test-skill-1");
       await tui.send(" "); // Select one
       await tui.waitFor("1 selected");
@@ -351,8 +343,7 @@ describe("TUI integration tests", () => {
     const tui = spawnTui();
     try {
       await tui.waitFor("agents");
-      await tui.send("\x1b[B", 100); await tui.send("\r", 100);
-      await tui.waitFor("test-skill-1");
+      await tui.switchToSkills();
       await tui.send("a"); // Select all
       await tui.waitFor("3 selected");
       await tui.send("p"); // Pull
@@ -368,8 +359,7 @@ describe("TUI integration tests", () => {
     const tui = spawnTui();
     try {
       await tui.waitFor("agents");
-      await tui.send("\x1b[B", 100); await tui.send("\r", 100);
-      await tui.waitFor("test-skill-1");
+      await tui.switchToSkills();
       await tui.send(" "); // Select one
       await tui.waitFor("1 selected");
       await tui.send("p");
@@ -387,8 +377,7 @@ describe("TUI integration tests", () => {
     const tui = spawnTui();
     try {
       await tui.waitFor("agents");
-      await tui.send("\x1b[B", 100); await tui.send("\r", 100);
-      await tui.waitFor("test-skill-1");
+      await tui.switchToSkills();
       await tui.send(" ");
       await tui.waitFor("1 selected");
       await tui.send("p");
@@ -406,7 +395,7 @@ describe("TUI integration tests", () => {
     const tui = spawnTui();
     try {
       await tui.waitFor("agents");
-      await tui.send("\x1b[B", 100); await tui.send("\r", 100); // Skills list
+      await tui.switchToSkills();
       await tui.waitFor("test-skill-1");
       await tui.send(" "); // Select one
       await tui.waitFor("1 selected");
@@ -426,8 +415,7 @@ describe("TUI integration tests", () => {
     const tui = spawnTui();
     try {
       await tui.waitFor("agents");
-      await tui.send("\x1b[B", 100); await tui.send("\r", 100);
-      await tui.waitFor("test-skill-1");
+      await tui.switchToSkills();
       await tui.send(" ");
       await tui.waitFor("1 selected");
       await tui.send("p");
@@ -497,7 +485,7 @@ describe("TUI integration tests", () => {
     const tui = spawnTui();
     try {
       await tui.waitFor("agents");
-      await tui.send("\x1b[B", 100); await tui.send("\r", 100); // skills
+      await tui.switchToSkills();
       await tui.waitFor("test-skill-1");
       const out = tui.getOutput();
       const last = out.slice(out.lastIndexOf("\x1b[2J"));
@@ -510,9 +498,7 @@ describe("TUI integration tests", () => {
   it("switches types with left/right arrows", async () => {
     const tui = spawnTui();
     try {
-      await tui.waitFor("agents");
-      await tui.send("\r"); // enter agents list
-      await tui.waitFor("test-agent");
+      await tui.waitFor("test-agent"); // starts in agents list
       await tui.send("\x1b[C"); // right arrow → skills
       await tui.waitFor("test-skill-1", 3000);
       await tui.send("\x1b[D"); // left arrow → back to agents
@@ -526,7 +512,7 @@ describe("TUI integration tests", () => {
     const tui = spawnTui();
     try {
       await tui.waitFor("agents");
-      await tui.send("\x1b[B", 100); await tui.send("\r", 100); // skills
+      await tui.switchToSkills();
       await tui.waitFor("test-skill-1");
       await tui.send("3"); // type "3" to filter
       await tui.waitFor("filter: 3", 3000);
@@ -542,8 +528,7 @@ describe("TUI integration tests", () => {
     const tui = spawnTui();
     try {
       await tui.waitFor("agents");
-      await tui.send("\x1b[B", 100); await tui.send("\r", 100);
-      await tui.waitFor("test-skill-1");
+      await tui.switchToSkills();
       await tui.send("s");
       await tui.waitFor("sort: date", 3000);
       await tui.send("s");
@@ -570,8 +555,7 @@ describe("TUI integration tests", () => {
     const tui = spawnTui();
     try {
       await tui.waitFor("agents");
-      await tui.send("\x1b[B", 100); await tui.send("\r", 100);
-      await tui.waitFor("test-skill-1");
+      await tui.switchToSkills();
       await tui.send("P"); // quick pull
       await tui.waitFor("Select coding agent", 3000);
       await tui.send("\x1b"); // cancel
@@ -584,8 +568,6 @@ describe("TUI integration tests", () => {
   it("shows dependency graph with g", async () => {
     const tui = spawnTui();
     try {
-      await tui.waitFor("agents");
-      await tui.send("\r"); // agents list
       await tui.waitFor("test-agent");
       await tui.send("\r"); // detail
       await tui.waitFor("Test agent", 3000);
@@ -601,8 +583,6 @@ describe("TUI integration tests", () => {
   it("shows version history with v", async () => {
     const tui = spawnTui();
     try {
-      await tui.waitFor("agents");
-      await tui.send("\r");
       await tui.waitFor("test-agent");
       await tui.send("\r");
       await tui.waitFor("Test agent", 3000);
@@ -618,8 +598,6 @@ describe("TUI integration tests", () => {
   it("bookmarks and unbookmarks with f", async () => {
     const tui = spawnTui();
     try {
-      await tui.waitFor("agents");
-      await tui.send("\r");
       await tui.waitFor("test-agent");
       await tui.send("\r");
       await tui.waitFor("Test agent", 3000);
@@ -658,15 +636,13 @@ describe("TUI integration tests", () => {
 
   // --- Blocked view clears properly ---
 
-  it("blocked view clears when going back to types", async () => {
+  it("blocked view clears when going back", async () => {
     const tui = spawnTui();
     try {
-      await tui.waitFor("agents");
+      await tui.waitFor("test-agent"); // starts in agents list
       await tui.send("B"); // blocked (admin)
       await tui.waitFor("Blocked", 3000);
-      await tui.send("\x1b"); // back to types
-      await tui.waitFor("agents", 3000);
-      await tui.send("\r"); // enter agents
+      await tui.send("\x1b"); // back to normal list
       await tui.waitFor("test-agent", 3000); // should see agents, NOT blocked
     } finally { await tui.kill(); }
   });
@@ -677,7 +653,7 @@ describe("TUI integration tests", () => {
     const tui = spawnTui();
     try {
       await tui.waitFor("agents");
-      await tui.send("\x1b[B", 100); await tui.send("\r", 100); // skills
+      await tui.switchToSkills();
       await tui.waitFor("test-skill-1");
       await tui.send("\r"); // detail
       await tui.waitFor("Test skill", 3000);
@@ -702,7 +678,7 @@ describe("TUI integration tests", () => {
     const tui = spawnTui();
     try {
       await tui.waitFor("agents");
-      await tui.send("\x1b[B", 100); await tui.send("\r", 100); // skills
+      await tui.switchToSkills();
       await tui.waitFor("disposable", 3000);
       // Navigate to disposable
       for (let i = 0; i < 5; i++) await tui.send("\x1b[B", 50);
@@ -718,8 +694,6 @@ describe("TUI integration tests", () => {
   it("copies pull command with y", async () => {
     const tui = spawnTui();
     try {
-      await tui.waitFor("agents");
-      await tui.send("\r");
       await tui.waitFor("test-agent");
       await tui.send("\r");
       await tui.waitFor("Test agent", 3000);

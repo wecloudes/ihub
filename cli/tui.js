@@ -47,7 +47,7 @@ function saveBookmarks(bm) {
 
 export async function startTui(baseUrl, token) {
   const state = {
-    view: "types",
+    view: "list",
     selectedType: 0,
     selectedItem: 0,
     scrollOffset: 0,
@@ -186,7 +186,7 @@ export async function startTui(baseUrl, token) {
         await loadAuditPage(state, baseUrl, token);
         state.scrollOffset = 0;
       } else if (key === ESC || key === "\x7f" || key === "q") {
-        state.view = "types";
+        state.view = "list";
         state.audit = null;
         state.scrollOffset = 0;
         state.breadcrumb = [];
@@ -201,8 +201,8 @@ export async function startTui(baseUrl, token) {
       return;
     }
 
-    // q from types
-    if (key === "q" && state.view === "types" && !state.showBookmarks) {
+    // q to quit from list (home) or types
+    if (key === "q" && (state.view === "list" || state.view === "types") && !state.showBookmarks && !state.detail) {
       cleanup();
       process.exit(0);
     }
@@ -216,22 +216,28 @@ export async function startTui(baseUrl, token) {
         state.view = "detail";
         state.scrollOffset = 0;
       } else if (state.view === "metrics" || state.view === "projects" || state.view === "config" || state.view === "versions") {
-        state.view = "types";
+        state.view = "list";
         state.scrollOffset = 0;
       } else if (state.view === "detail") {
         state.view = "list";
         state.detail = null;
         state.comments = null;
       } else if (state.view === "list") {
-        state.view = "types";
-        state.selectedItem = 0;
-        state.scrollOffset = 0;
-        state.filter = "";
-        state.isSearch = false;
-        state.isBlockedView = false;
-        state.searchResults = null;
-        state.blockedList = null;
-        state.marked.clear();
+        if (state.isSearch || state.isBlockedView) {
+          // Clear search/blocked and go back to normal list
+          state.isSearch = false;
+          state.isBlockedView = false;
+          state.searchResults = null;
+          state.blockedList = null;
+          state.selectedItem = 0;
+          state.scrollOffset = 0;
+          state.filter = "";
+          state.marked.clear();
+        } else {
+          // From normal list — quit
+          cleanup();
+          process.exit(0);
+        }
       }
       state.breadcrumb = buildBreadcrumb(state);
       render(state);
@@ -388,7 +394,8 @@ export async function startTui(baseUrl, token) {
       }
 
       // Fuzzy filter — printable chars (#2)
-      if (key.length === 1 && key >= " " && key <= "~" && !"aApPsf/".includes(key)) {
+      const reserved = "aApPsfFjBmticrqdgvy?/";
+      if (key.length === 1 && key >= " " && key <= "~" && !reserved.includes(key)) {
         state.filter += key;
         state.selectedItem = 0;
         state.scrollOffset = 0;
@@ -514,8 +521,8 @@ export async function startTui(baseUrl, token) {
       return;
     }
 
-    // --- Types view keys ---
-    if (state.view === "types") {
+    // --- Global shortcuts (from list or types) ---
+    if (state.view === "types" || state.view === "list") {
       // m — metrics
       if (key === "m" && state.isAdmin) {
         state.metrics = await fetchText(`${baseUrl}/api/metrics`, token);
@@ -663,10 +670,46 @@ function ratingStars(avg) {
   return `${color}${"★".repeat(full)}${"☆".repeat(5 - full)}${RESET}`;
 }
 
+const _installedCache = new Map();
+let _installedCacheTime = 0;
+
 function isInstalled(name) {
-  // Check common local paths (#4)
-  const paths = [`agents/${name}.md`, `skills/${name}.md`, `rules/${name}.md`, `memories/${name}.md`, `prompts/${name}.md`];
-  return paths.some((p) => existsSync(p));
+  // Refresh cache every 5 seconds
+  if (Date.now() - _installedCacheTime > 5000) {
+    _installedCache.clear();
+    _installedCacheTime = Date.now();
+  }
+  if (_installedCache.has(name)) return _installedCache.get(name);
+
+  const HOME = homedir();
+  const paths = [
+    // ihub local
+    `agents/${name}.md`, `skills/${name}.md`, `rules/${name}.md`, `memories/${name}.md`, `prompts/${name}.md`,
+    // Claude Code
+    join(HOME, ".claude", "skills", name, "SKILL.md"),
+    join(".claude", "skills", name, "SKILL.md"),
+    join(HOME, ".claude", "rules", `${name}.md`),
+    join(".claude", "rules", `${name}.md`),
+    // Gemini
+    join(HOME, ".gemini", "skills", name, "SKILL.md"),
+    join(".gemini", "skills", name, "SKILL.md"),
+    // Cursor
+    join(".cursor", "skills", `${name}.md`),
+    join(".cursor", "rules", `${name}.mdc`),
+    // Qwen
+    join(HOME, ".qwen", "skills", name, "SKILL.md"),
+    // Codex
+    join(HOME, ".agents", "skills", name, "SKILL.md"),
+    join(".agents", "skills", name, "SKILL.md"),
+  ];
+  const found = paths.some((p) => existsSync(p));
+  _installedCache.set(name, found);
+  return found;
+}
+
+function clearInstalledCache() {
+  _installedCache.clear();
+  _installedCacheTime = 0;
 }
 
 // --- Render ---
@@ -726,7 +769,7 @@ function getFooter(state) {
   if (state.showBookmarks) return " ↑↓ navigate  ⏎ open  esc close";
   const f = {
     types: ` ↑↓ navigate  ⏎ select  j projects  F bookmarks  / search  ${state.isAdmin ? "m metrics  t audit  i config  B blocked  " : ""}? help  q quit`,
-    list: ` ↑↓ nav  ←→ type  ⏎ view  space select  a all  ${state.marked.size > 0 ? "p pull  " : ""}P pull one  s sort  / search  ${state.filter ? `filter: ${state.filter}  ` : ""}? help  esc back`,
+    list: ` ↑↓ nav  ←→ type  ⏎ view  space select  a all  ${state.marked.size > 0 ? "p pull  " : ""}P pull one  s sort  / search  j projects  F bookmarks  ${state.isAdmin ? "m metrics  t audit  i config  B blocked  " : ""}${state.filter ? `filter: ${state.filter}  ` : ""}? help  q quit`,
     detail: ` ↑↓ scroll  c comments  w review  f bookmark  y copy  g graph  v versions  d remove  ? help  esc back`,
     comments: ` ↑↓ scroll  c back  esc back`,
     metrics: ` ↑↓ scroll  r refresh  esc back`,
@@ -1150,6 +1193,7 @@ async function executeBulkPull(state, baseUrl, token) {
   }
   state.pullResults.push({ type: "—", name: "done", status: "summary", total: toPull.length, agent: agents.map((a) => CODING_AGENTS[a]?.name || a).join(", "), scope });
   state.marked.clear(); state.pullAgents = null; state.pullScope = null;
+  clearInstalledCache();
   render(state);
 }
 
