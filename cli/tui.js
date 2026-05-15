@@ -67,7 +67,7 @@ export async function startTui(baseUrl, token) {
   }
 
   const stdin = process.stdin;
-  stdin.setRawMode(true);
+  if (stdin.setRawMode) stdin.setRawMode(true);
   stdin.resume();
   stdin.setEncoding("utf-8");
 
@@ -321,11 +321,11 @@ export async function startTui(baseUrl, token) {
     if (key === "/" && (state.view === "types" || state.view === "list")) {
       cleanup();
       process.stdout.write(`${CLEAR}${BOLD}Search: ${RESET}`);
-      stdin.setRawMode(false);
+      if (stdin.setRawMode) stdin.setRawMode(false);
       const query = await new Promise((resolve) => {
         stdin.once("data", (d) => resolve(d.toString().trim()));
       });
-      stdin.setRawMode(true);
+      if (stdin.setRawMode) stdin.setRawMode(true);
       if (query) {
         state.searchResults = await fetchJson(`${baseUrl}/api/search?q=${encodeURIComponent(query)}`);
         state.view = "list";
