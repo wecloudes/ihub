@@ -488,4 +488,285 @@ describe("TUI integration tests", () => {
       try { await tui.kill(); } catch {}
     }
   });
+
+  // === NEW: Comprehensive feature tests ===
+
+  // --- Breadcrumb (#3) ---
+
+  it("shows breadcrumb when navigating into list", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("agents");
+      await tui.send("\x1b[B", 100); await tui.send("\r", 100); // skills
+      await tui.waitFor("test-skill-1");
+      const out = tui.getOutput();
+      const last = out.slice(out.lastIndexOf("\x1b[2J"));
+      assert.ok(last.includes("skills")); // breadcrumb shows type
+    } finally { await tui.kill(); }
+  });
+
+  // --- Tab navigation (#6) ---
+
+  it("switches types with left/right arrows", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("agents");
+      await tui.send("\r"); // enter agents list
+      await tui.waitFor("test-agent");
+      await tui.send("\x1b[C"); // right arrow → skills
+      await tui.waitFor("test-skill-1", 3000);
+      await tui.send("\x1b[D"); // left arrow → back to agents
+      await tui.waitFor("test-agent", 3000);
+    } finally { await tui.kill(); }
+  });
+
+  // --- Fuzzy filter (#2) ---
+
+  it("filters list by typing characters", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("agents");
+      await tui.send("\x1b[B", 100); await tui.send("\r", 100); // skills
+      await tui.waitFor("test-skill-1");
+      await tui.send("3"); // type "3" to filter
+      await tui.waitFor("filter: 3", 3000);
+      const out = tui.getOutput();
+      const last = out.slice(out.lastIndexOf("\x1b[2J"));
+      assert.ok(last.includes("test-skill-3"));
+    } finally { await tui.kill(); }
+  });
+
+  // --- Sort (#8) ---
+
+  it("cycles sort with s key", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("agents");
+      await tui.send("\x1b[B", 100); await tui.send("\r", 100);
+      await tui.waitFor("test-skill-1");
+      await tui.send("s");
+      await tui.waitFor("sort: date", 3000);
+      await tui.send("s");
+      await tui.waitFor("sort: rating", 3000);
+    } finally { await tui.kill(); }
+  });
+
+  // --- Help overlay (#10) ---
+
+  it("shows help with ? and dismisses with any key", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("agents");
+      await tui.send("?");
+      await tui.waitFor("Keyboard Shortcuts", 3000);
+      await tui.send(" "); // dismiss
+      await tui.waitFor("agents", 3000); // back to types
+    } finally { await tui.kill(); }
+  });
+
+  // --- Quick pull P (#12) ---
+
+  it("quick pulls single item with P", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("agents");
+      await tui.send("\x1b[B", 100); await tui.send("\r", 100);
+      await tui.waitFor("test-skill-1");
+      await tui.send("P"); // quick pull
+      await tui.waitFor("Select coding agent", 3000);
+      await tui.send("\x1b"); // cancel
+      await tui.waitFor("test-skill-1", 3000); // back to list
+    } finally { await tui.kill(); }
+  });
+
+  // --- Detail view: dependency graph (#13) ---
+
+  it("shows dependency graph with g", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("agents");
+      await tui.send("\r"); // agents list
+      await tui.waitFor("test-agent");
+      await tui.send("\r"); // detail
+      await tui.waitFor("Test agent", 3000);
+      await tui.send("g"); // graph
+      await tui.waitFor("Dependency Graph", 3000);
+      await tui.send("\x1b"); // back
+      await tui.waitFor("Test agent", 3000);
+    } finally { await tui.kill(); }
+  });
+
+  // --- Detail view: version history (#7) ---
+
+  it("shows version history with v", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("agents");
+      await tui.send("\r");
+      await tui.waitFor("test-agent");
+      await tui.send("\r");
+      await tui.waitFor("Test agent", 3000);
+      await tui.send("v"); // versions
+      await tui.waitFor("Version History", 3000);
+      await tui.send("\x1b"); // back
+      await tui.waitFor("agents", 3000); // back to types (versions goes to types)
+    } finally { await tui.kill(); }
+  });
+
+  // --- Detail view: bookmark (#11) ---
+
+  it("bookmarks and unbookmarks with f", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("agents");
+      await tui.send("\r");
+      await tui.waitFor("test-agent");
+      await tui.send("\r");
+      await tui.waitFor("Test agent", 3000);
+      await tui.send("f"); // bookmark
+      await tui.waitFor("Bookmarked", 3000);
+      await tui.send("f"); // unbookmark
+      await tui.waitFor("Unbookmarked", 3000);
+    } finally { await tui.kill(); }
+  });
+
+  // --- Bookmarks list (#11) ---
+
+  it("shows bookmarks list with F", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("agents");
+      await tui.send("F"); // bookmarks list
+      await tui.waitFor("Bookmarks", 3000);
+      await tui.send("\x1b"); // back
+      await tui.waitFor("agents", 3000);
+    } finally { await tui.kill(); }
+  });
+
+  // --- Projects view ---
+
+  it("shows projects with j", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("agents");
+      await tui.send("j"); // projects
+      await tui.waitFor("Projects", 3000);
+      await tui.send("\x1b"); // back
+      await tui.waitFor("agents", 3000);
+    } finally { await tui.kill(); }
+  });
+
+  // --- Blocked view clears properly ---
+
+  it("blocked view clears when going back to types", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("agents");
+      await tui.send("B"); // blocked (admin)
+      await tui.waitFor("Blocked", 3000);
+      await tui.send("\x1b"); // back to types
+      await tui.waitFor("agents", 3000);
+      await tui.send("\r"); // enter agents
+      await tui.waitFor("test-agent", 3000); // should see agents, NOT blocked
+    } finally { await tui.kill(); }
+  });
+
+  // --- Write review from detail ---
+
+  it("does not freeze on write review flow", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("agents");
+      await tui.send("\x1b[B", 100); await tui.send("\r", 100); // skills
+      await tui.waitFor("test-skill-1");
+      await tui.send("\r"); // detail
+      await tui.waitFor("Test skill", 3000);
+      await tui.send("w"); // write review
+      await new Promise((r) => setTimeout(r, 300));
+      await tui.send("5\n"); // rating
+      await new Promise((r) => setTimeout(r, 100));
+      await tui.send("Great!\n"); // comment
+      await tui.waitFor("Review added", 5000);
+    } finally { await tui.kill(); }
+  });
+
+  // --- Delete from detail ---
+
+  it("removes artifact with d and returns to list", async () => {
+    // Push a disposable artifact first
+    await apiPost("/api/skills/disposable", {
+      version: "1.0.0", description: "To be deleted", tags: [],
+      meta: { name: "disposable" }, body: "# Delete me", author: "tuiuser",
+    }, userToken);
+
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("agents");
+      await tui.send("\x1b[B", 100); await tui.send("\r", 100); // skills
+      await tui.waitFor("disposable", 3000);
+      // Navigate to disposable
+      for (let i = 0; i < 5; i++) await tui.send("\x1b[B", 50);
+      await tui.send("\r"); // open it
+      await new Promise((r) => setTimeout(r, 500));
+      await tui.send("d"); // delete
+      await tui.waitFor("Removed", 3000);
+    } finally { await tui.kill(); }
+  });
+
+  // --- Clipboard copy (#14) ---
+
+  it("copies pull command with y", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("agents");
+      await tui.send("\r");
+      await tui.waitFor("test-agent");
+      await tui.send("\r");
+      await tui.waitFor("Test agent", 3000);
+      await tui.send("y"); // copy
+      await tui.waitFor("ihub pull", 3000); // status shows the command
+    } finally { await tui.kill(); }
+  });
+
+  // --- Multiple operations without freezing ---
+
+  it("survives rapid navigation without freezing", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("agents");
+      // Rapid: down, down, enter, down, enter, esc, esc, down, enter
+      for (const k of ["\x1b[B", "\x1b[B", "\r"]) await tui.send(k, 50);
+      await new Promise((r) => setTimeout(r, 300));
+      await tui.send("\r", 100); // enter detail
+      await new Promise((r) => setTimeout(r, 300));
+      await tui.send("\x1b", 100); // back
+      await tui.send("\x1b", 100); // back to types
+      await tui.waitFor("agents", 3000); // still responsive
+    } finally { await tui.kill(); }
+  });
+
+  it("survives entering and leaving all admin views", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("agents");
+      // metrics
+      await tui.send("m"); await tui.waitFor("Metrics", 3000);
+      await tui.send("\x1b"); await tui.waitFor("agents", 3000);
+      // audit
+      await tui.send("t"); await tui.waitFor("Audit", 3000);
+      await tui.send("\x1b"); await tui.waitFor("agents", 3000);
+      // config
+      await tui.send("i"); await tui.waitFor("Configuration", 3000);
+      await tui.send("\x1b"); await tui.waitFor("agents", 3000);
+      // projects
+      await tui.send("j"); await tui.waitFor("Projects", 3000);
+      await tui.send("\x1b"); await tui.waitFor("agents", 3000);
+      // blocked
+      await tui.send("B"); await tui.waitFor("Blocked", 3000);
+      await tui.send("\x1b"); await tui.waitFor("agents", 3000);
+      // bookmarks
+      await tui.send("F"); await tui.waitFor("Bookmarks", 3000);
+      await tui.send("\x1b"); await tui.waitFor("agents", 3000);
+    } finally { await tui.kill(); }
+  });
 });

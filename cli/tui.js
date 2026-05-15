@@ -228,7 +228,9 @@ export async function startTui(baseUrl, token) {
         state.scrollOffset = 0;
         state.filter = "";
         state.isSearch = false;
+        state.isBlockedView = false;
         state.searchResults = null;
+        state.blockedList = null;
         state.marked.clear();
       }
       state.breadcrumb = buildBreadcrumb(state);
@@ -266,7 +268,7 @@ export async function startTui(baseUrl, token) {
     }
 
     // Left/Right arrows — tab between types from list view (#6)
-    if (key === `${ESC}[D` && state.view === "list" && !state.isSearch) {
+    if (key === `${ESC}[D` && state.view === "list" && !state.isSearch && !state.isBlockedView) {
       state.selectedType = (state.selectedType - 1 + TYPES.length) % TYPES.length;
       state.selectedItem = 0;
       state.scrollOffset = 0;
@@ -275,7 +277,7 @@ export async function startTui(baseUrl, token) {
       render(state);
       return;
     }
-    if (key === `${ESC}[C` && state.view === "list" && !state.isSearch) {
+    if (key === `${ESC}[C` && state.view === "list" && !state.isSearch && !state.isBlockedView) {
       state.selectedType = (state.selectedType + 1) % TYPES.length;
       state.selectedItem = 0;
       state.scrollOffset = 0;
