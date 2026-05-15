@@ -6,12 +6,24 @@ All notable changes to ihub are documented in this file.
 
 ### Added
 
-- **Memory taxonomy**: formalized `context_type` vocabulary for memories — `decision`, `architecture`, `incident`, `domain`, `context`, `learning` — with clear boundaries against other artifact types (memories store knowledge, not actions/constraints/instructions)
-- **Memory template**: updated with context_type reference and boundary guidance
+- **TUI split-pane preview**: right-side markdown preview when terminal >= 120 columns; list width adapts dynamically to content (shorter names = wider preview); scroll with `{`/`}` keys; clamped so you can't scroll past content
 - **TUI artifact guide**: `G` key opens interactive guide with 3 tabs — overview (types, boundaries, decision tree), memory context types (6 types with examples), knowledge mapping (50+ IT project situations mapped to context types and roles)
-- **Registry examples**: 12 new memories covering all context types (3 ADRs, 2 architecture, 2 incidents, 2 domain, 2 context, 2 learnings), 3 agents, 4 skills, 3 rules, 3 prompts, 2 blocked artifacts, 3 users with 108+ comments
-- **Documentation**: comprehensive knowledge mapping tables for IT projects (development, infrastructure, FinOps, migrations, landing zones) with roles and context types
-- **Test suite**: 307 tests
+- **TUI comprehensive metrics**: `m` key now shows all available metrics in paired side-by-side charts (when terminal >= 100 cols) — entries by type/project, pushes/pulls/views by user and artifact, comments by user/artifact, removes, HTTP requests, security stats, admin stats
+- **TUI delete confirmation**: `d` requires double-press to confirm, any other key cancels
+- **TUI project filtering**: `j` from list view shows only the selected artifact's project; `A` from project view shows all
+- **TUI search cancel**: pressing Esc or `q` (when input is empty) cancels the `/` search prompt
+- **TUI dynamic resize**: terminal resize re-renders layout; footer pinned to bottom; scroll clamping on all views; pagination info in footer bar
+- **Memory taxonomy**: formalized `context_type` vocabulary — `decision`, `architecture`, `incident`, `domain`, `context`, `learning` — with clear boundaries against other artifact types
+- **Grafana dashboard**: expanded from 14 to 24 panels — added pulls by user/time, entries by project, comments by artifact, sensitive detected, firewall blocked, role changes
+- **Documentation**: comprehensive knowledge mapping tables for IT projects (development, infrastructure, FinOps, migrations, landing zones) with roles and context types; security alerts and blocking workflow fully documented across all files
+- **Registry examples**: 12 new memories, 3 agents, 4 skills, 3 rules, 3 prompts, 2 blocked artifacts, 3 users with 108+ comments
+- **Test suite**: 307 tests (44 TUI + 35 sensitive + 228 existing)
+
+### Fixed
+
+- Blocked artifacts now correctly resolve type for preview and detail view
+- Scroll pagination moved from content area to footer line
+- ESC key works in guide view
 
 ---
 
