@@ -195,6 +195,133 @@ Is it an instruction template for an AI model?
   → Prompt
 ```
 
+### Artifact type boundaries
+
+| Type | Stores | Question it answers | Does NOT store |
+|------|--------|-------------------|----------------|
+| **Agent** | Actor definitions, capabilities, orchestration | _"Who does the work?"_ | Knowledge (→ memory), constraints (→ rule) |
+| **Skill** | Procedures, automation, how-to | _"How to do X?"_ | Why we do X (→ memory), what X must follow (→ rule) |
+| **Rule** | Constraints, policies, standards | _"What must be enforced?"_ | Why it was decided (→ memory), how to implement (→ skill) |
+| **Memory** | Knowledge, context, evidence | _"What do we know?"_ | Actions (→ skill), constraints (→ rule), instructions (→ prompt) |
+| **Prompt** | Instruction templates for AI models | _"What should the AI say?"_ | Execution logic (→ skill), actor definition (→ agent) |
+
+### Memory context types — when to use each
+
+| context_type | Stores | Boundary |
+|---|---|---|
+| `decision` | **Why** we chose X over Y | Not a rule (rules enforce; decisions explain) |
+| `architecture` | **What** the system looks like | Not a skill (skills do things; architecture describes) |
+| `incident` | **What happened** and root cause | Not a runbook (runbooks are skills; incidents are evidence) |
+| `domain` | **What things mean** in our context | Not a constraint (rules constrain; domain informs) |
+| `context` | **Who/when/where** around the project | Not an agent (agents act; context describes the environment) |
+| `learning` | **What we measured** and observed | Not a policy (rules prescribe; learnings provide evidence) |
+
+### Knowledge mapping for IT projects
+
+This table maps every situation where valuable knowledge is generated to the appropriate memory context type and the roles involved.
+
+<details>
+<summary><strong>Requirements & Analysis</strong></summary>
+
+| Situation | Valuable Knowledge | context_type | Roles (producer → consumer) |
+|---|---|---|---|
+| Stakeholder interviews | Business needs, user personas, pain points | `domain` | Product Owner, BA → Developers, Agents |
+| Functional requirements | What the system must do, acceptance criteria | `domain` | BA, Product Owner → Developers, QA |
+| Non-functional requirements | SLAs, latency targets, availability, compliance | `domain` | Architect, SRE → Developers, Ops |
+| Regulatory constraints | GDPR, PSD2, SOC2, HIPAA, local laws | `domain` | Legal, Compliance → All |
+| Glossary / Ubiquitous language | "Tenant means X, not Y. Deploy ≠ Release" | `domain` | BA, Tech Lead → All |
+| User journey mapping | How users flow through the system, drop-off points | `domain` | UX, Product → Frontend, Agents |
+| Integration requirements | Third-party APIs, SLAs from vendors, rate limits | `domain` | Architect, BA → Developers |
+
+</details>
+
+<details>
+<summary><strong>Architecture & Design</strong></summary>
+
+| Situation | Valuable Knowledge | context_type | Roles (producer → consumer) |
+|---|---|---|---|
+| System topology | Services, databases, queues, how they connect | `architecture` | Architect → All |
+| Data models / ERDs | Entities, relationships, constraints, indexes | `architecture` | Architect, DBA → Developers |
+| API contracts | Endpoints, schemas, versioning strategy, pagination | `architecture` | Architect, Backend → Frontend, QA |
+| Network topology | VPCs, subnets, peering, firewall rules, DNS | `architecture` | Cloud Architect, NetOps → SRE, Security |
+| Landing zone design | Account structure, OU hierarchy, guardrails, SCPs | `architecture` | Cloud Architect → Platform, FinOps |
+| CI/CD pipeline design | Build stages, environments, promotion flow, rollback | `architecture` | DevOps, Platform → Developers |
+| Security architecture | Auth flows, encryption at rest/transit, key management | `architecture` | Security Architect → All |
+| Disaster recovery design | RPO/RTO targets, backup strategy, failover regions | `architecture` | Architect, SRE → Ops, Management |
+
+</details>
+
+<details>
+<summary><strong>Decisions</strong></summary>
+
+| Situation | Valuable Knowledge | context_type | Roles (producer → consumer) |
+|---|---|---|---|
+| Technology selection | "PostgreSQL over MongoDB because..." | `decision` | Architect, Tech Lead → All |
+| Framework/library choice | "Next.js over Remix because..." | `decision` | Tech Lead, Senior Dev → Developers |
+| Build vs buy | "Use Auth0 instead of custom auth because..." | `decision` | CTO, Architect → All |
+| Repo strategy | Monorepo vs polyrepo, rationale, trade-offs | `decision` | Tech Lead → Developers |
+| Cloud provider choice | "AWS over Azure because..." with cost/feature analysis | `decision` | CTO, Cloud Architect → All |
+| Migration strategy | Big bang vs strangler fig vs parallel run, why | `decision` | Architect, PM → Developers, Ops |
+| Data residency decisions | Where data lives, why (legal, latency, cost) | `decision` | Architect, Legal → Cloud, DBA |
+| Vendor selection | "Chose Datadog over Grafana Cloud because..." | `decision` | Platform, Management → SRE, FinOps |
+| Deprecation decisions | What's going away, replacement, timeline, why | `decision` | Tech Lead, Architect → All |
+| Trade-off records | "We accepted eventual consistency here because..." | `decision` | Architect → Developers, QA |
+
+</details>
+
+<details>
+<summary><strong>Incidents & Postmortems</strong></summary>
+
+| Situation | Valuable Knowledge | context_type | Roles (producer → consumer) |
+|---|---|---|---|
+| Production outage | Timeline, root cause, blast radius, resolution | `incident` | SRE, Oncall → All |
+| Security breach | Attack vector, compromised data, containment, disclosure | `incident` | Security, SRE → Management, Legal |
+| Data loss event | What was lost, recovery steps, data integrity status | `incident` | DBA, SRE → Management, Developers |
+| Failed migration | What broke, rollback steps taken, data state after | `incident` | DBA, DevOps → Developers, PM |
+| Failed deployment | What went wrong, why canary/checks didn't catch it | `incident` | DevOps, Developer → SRE, QA |
+| Capacity incident | Traffic spike, auto-scaling failure, resource exhaustion | `incident` | SRE, Cloud → FinOps, Architect |
+| Third-party outage | Vendor downtime impact, fallback behavior, SLA claim | `incident` | SRE → Management, Legal |
+| Near miss | "Almost broke prod but caught it in staging because..." | `incident` | Any → All |
+
+</details>
+
+<details>
+<summary><strong>Team & Project Context</strong></summary>
+
+| Situation | Valuable Knowledge | context_type | Roles (producer → consumer) |
+|---|---|---|---|
+| Team ownership map | Who owns which service, escalation paths | `context` | Engineering Manager → All |
+| Quarterly priorities | What the team is focused on and why, what's deprioritized | `context` | PM, Management → Developers, Agents |
+| Stakeholder map | Who cares about what, approval chains, RACI | `context` | PM, BA → All |
+| Project timeline | Milestones, deadlines, dependencies, blockers | `context` | PM → All |
+| Budget constraints | Cloud budget limits, headcount, licensing costs | `context` | FinOps, Management → Architect, PM |
+| Vendor relationships | Account managers, contract terms, renewal dates, SLAs | `context` | Procurement, Management → SRE, FinOps |
+| Compliance deadlines | Audit dates, certification renewals, regulatory deadlines | `context` | Compliance, Legal → All |
+| Onboarding notes | "Things I wish I'd known on day 1" from recent joiners | `context` | New hires → Future hires, Agents |
+| Cross-team dependencies | "Team X blocks us on Y, expected by Z date" | `context` | PM, Tech Lead → Developers |
+
+</details>
+
+<details>
+<summary><strong>Learnings & Evidence</strong></summary>
+
+| Situation | Valuable Knowledge | context_type | Roles (producer → consumer) |
+|---|---|---|---|
+| Performance benchmarks | "Caching reduced p99 from 120ms to 8ms" with setup details | `learning` | Senior Dev, SRE → Developers |
+| Cost optimization results | "Reserved instances saved 40% vs on-demand" with numbers | `learning` | FinOps, Cloud → Management |
+| Testing strategy results | Which test types catch real bugs vs create noise | `learning` | QA, Senior Dev → Developers |
+| Migration retrospective | What worked, what didn't, time estimates vs actuals | `learning` | Tech Lead, PM → Future migration teams |
+| Tool evaluation results | "Tried X for 2 months, here's what we found" | `learning` | Any → All |
+| Scaling findings | "Service handles 10K rps before degrading, bottleneck is X" | `learning` | SRE, Senior Dev → Architect |
+| Security audit findings | Penetration test results, remediation effectiveness | `learning` | Security → Developers, SRE |
+| FinOps analysis | Cost per customer, cost per transaction, waste identified | `learning` | FinOps → Management, Architect |
+| Failed experiment | "We tried X and it didn't work because Y" | `learning` | Any → All |
+| Pattern validation | "This design pattern solved problem X in 3 services" | `learning` | Senior Dev, Architect → Developers |
+| Landing zone audit | What guardrails worked, which were too restrictive | `learning` | Cloud Architect, Security → Platform |
+| DR drill results | Recovery time actual vs target, gaps identified | `learning` | SRE → Management, Architect |
+
+</details>
+
 ---
 
 ## Commands
@@ -559,7 +686,7 @@ examples/          sample entries (4 agents, 6 skills, 4 rules, 3 memories, 5 pr
 templates/         scaffolding templates for each type
 cli/               CLI tool (ESM, zero external dependencies)
 server/            registry API server (Node.js + SQLite)
-tests/             306 tests (node:test)
+tests/             307 tests (node:test)
 completions/       bash and zsh shell completions
 man/               manual page source
 grafana/           Grafana dashboard + Prometheus config

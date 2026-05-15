@@ -801,6 +801,23 @@ describe("TUI integration tests", () => {
 
   // --- Project filtering ---
 
+  // --- Guide view ---
+
+  it("shows guide view with G and navigates tabs", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("agents");
+      await tui.send("G");
+      await tui.waitFor("Artifact Types Guide", 3000);
+      await tui.send("\x1b[C"); // right arrow → memories tab
+      await tui.waitFor("Memory Context Types", 3000);
+      await tui.send("\x1b[C"); // right arrow → mapping tab
+      await tui.waitFor("Knowledge Mapping", 3000);
+      await tui.send("\x1b"); // back
+      await tui.waitFor("agents", 3000);
+    } finally { await tui.kill(); }
+  });
+
   it("shows filtered project view with j and all projects with A", async () => {
     const tui = spawnTui();
     try {

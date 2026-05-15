@@ -79,6 +79,7 @@ export async function startTui(baseUrl, token) {
     breadcrumb: [],
     projectTree: null,
     serverConfig: null,
+    guideTab: 0,
     _previewCache: new Map(),
     _previewKey: null,
     _previewBody: "",
@@ -430,7 +431,7 @@ export async function startTui(baseUrl, token) {
       }
 
       // Fuzzy filter — printable chars (#2)
-      const reserved = "aApPsfFjBmticrqdgvy?/{}";
+      const reserved = "aApPsfFjBmticrqdgvyG?/{}";
 
       // { and } — scroll preview pane
       if (key === "{") {
@@ -576,6 +577,23 @@ export async function startTui(baseUrl, token) {
       }
     }
 
+    // Guide view — tab switching
+    if (state.view === "guide") {
+      const guideTabs = ["overview", "memories", "mapping"];
+      if (key === `${ESC}[C` || key === "\t") {
+        state.guideTab = (state.guideTab + 1) % guideTabs.length;
+        state.scrollOffset = 0;
+        render(state);
+        return;
+      }
+      if (key === `${ESC}[D`) {
+        state.guideTab = (state.guideTab - 1 + guideTabs.length) % guideTabs.length;
+        state.scrollOffset = 0;
+        render(state);
+        return;
+      }
+    }
+
     // Comments view — c to go back
     if (key === "c" && state.view === "comments") {
       state.view = "detail";
@@ -641,6 +659,15 @@ export async function startTui(baseUrl, token) {
         state.selectedItem = 0;
         state.scrollOffset = 0;
         state.breadcrumb = ["blocked"];
+        render(state);
+        return;
+      }
+      // G — artifact guide
+      if (key === "G") {
+        state.view = "guide";
+        state.scrollOffset = 0;
+        state.guideTab = 0;
+        state.breadcrumb = ["guide"];
         render(state);
         return;
       }
@@ -903,6 +930,7 @@ function render(state) {
   else if (state.view === "audit") output += renderAudit(state, contentRows, cols);
   else if (state.view === "projects") output += renderProjects(state, contentRows, cols);
   else if (state.view === "config") output += renderConfig(state, contentRows);
+  else if (state.view === "guide") output += renderGuide(state, contentRows, cols);
   else if (state.view === "agent-select") output += renderAgentSelect(state);
   else if (state.view === "scope-select") output += renderScopeSelect(state);
   else if (state.view === "pulling") output += renderPulling(state, contentRows);
@@ -926,8 +954,8 @@ function getFooter(state) {
   if (state.showHelp) return " press any key to close help";
   if (state.showBookmarks) return " ↑↓ navigate  ⏎ open  esc close";
   const f = {
-    types: ` ↑↓ navigate  ⏎ select  j projects  F bookmarks  / search  ${state.isAdmin ? "m metrics  t audit  i config  B blocked  " : ""}? help  q quit`,
-    list: ` ↑↓ nav  ←→ type  ⏎ view  space select  a all  ${state.marked.size > 0 ? "p pull  " : ""}P pull one  s sort  / search  j projects  F bookmarks  ${(process.stdout.columns || 80) >= 120 ? "{} preview scroll  " : ""}${state.isAdmin ? "m metrics  t audit  i config  B blocked  " : ""}${state.filter ? `filter: ${state.filter}  ` : ""}? help  q quit`,
+    types: ` ↑↓ navigate  ⏎ select  j projects  G guide  F bookmarks  / search  ${state.isAdmin ? "m metrics  t audit  i config  B blocked  " : ""}? help  q quit`,
+    list: ` ↑↓ nav  ←→ type  ⏎ view  space select  a all  ${state.marked.size > 0 ? "p pull  " : ""}P pull one  s sort  / search  j projects  G guide  F bookmarks  ${(process.stdout.columns || 80) >= 120 ? "{} preview scroll  " : ""}${state.isAdmin ? "m metrics  t audit  i config  B blocked  " : ""}${state.filter ? `filter: ${state.filter}  ` : ""}? help  q quit`,
     detail: ` ↑↓ scroll  c comments  w review  f bookmark  y copy  g graph  v versions  d remove  ? help  esc back`,
     comments: ` ↑↓ scroll  c back  esc back`,
     metrics: ` ↑↓ scroll  r refresh  esc back`,
@@ -939,6 +967,7 @@ function getFooter(state) {
     pulling: ` press any key to continue`,
     graph: ` ↑↓ scroll  esc back`,
     versions: ` ↑↓ scroll  esc back`,
+    guide: ` ↑↓ scroll  ←→ tab  esc back`,
   };
   return f[state.view] || " ? help";
 }
@@ -1261,6 +1290,187 @@ function renderVersions(state, maxRows) {
   return scrollView(lines, state.scrollOffset, maxRows, state);
 }
 
+function renderGuide(state, maxRows, cols) {
+  const tabs = ["overview", "memories", "mapping"];
+  const tab = state.guideTab || 0;
+  const lines = [];
+
+  // Tab bar
+  const tabBar = "  " + tabs.map((t, i) =>
+    i === tab ? `${INVERSE} ${t} ${RESET}` : `${DIM} ${t} ${RESET}`
+  ).join("  ");
+  lines.push(tabBar);
+  lines.push("");
+
+  if (tab === 0) {
+    // Overview: artifact types, when to use, boundaries
+    lines.push(`  ${BG_CYAN}${BLACK}${BOLD} Artifact Types Guide ${RESET}`);
+    lines.push("");
+    lines.push(`  ${CYAN}${BOLD}Agent${RESET} ${DIM}— "Who does the work?"${RESET}`);
+    lines.push(`  An actor with capabilities, inputs, outputs. Orchestrates skills and follows rules.`);
+    lines.push(`  ${DIM}Use when: you need a complete workflow with defined behavior.${RESET}`);
+    lines.push(`  ${DIM}Example: code-reviewer, migration-assistant, security-scanner${RESET}`);
+    lines.push("");
+    lines.push(`  ${GREEN}${BOLD}Skill${RESET} ${DIM}— "How to do X?"${RESET}`);
+    lines.push(`  A reusable action or procedure. Has triggers, args, and can be shared across agents.`);
+    lines.push(`  ${DIM}Use when: you have a repeatable task that agents can invoke.${RESET}`);
+    lines.push(`  ${DIM}Example: test-generator, db-migration, changelog-gen${RESET}`);
+    lines.push("");
+    lines.push(`  ${YELLOW}${BOLD}Rule${RESET} ${DIM}— "What must be enforced?"${RESET}`);
+    lines.push(`  A constraint or policy. Has scope (global/project) and severity (error/warning/info).`);
+    lines.push(`  ${DIM}Use when: a team decision must be enforced consistently.${RESET}`);
+    lines.push(`  ${DIM}Example: no-any-type, require-tests, semantic-commits${RESET}`);
+    lines.push("");
+    lines.push(`  ${MAGENTA}${BOLD}Memory${RESET} ${DIM}— "What do we know?"${RESET}`);
+    lines.push(`  Knowledge and context that persists across sessions. NOT actions or constraints.`);
+    lines.push(`  ${DIM}Use when: knowledge should be recalled, not enforced.${RESET}`);
+    lines.push(`  ${DIM}Example: adr-001-database-choice, system-topology, incident-2026-04${RESET}`);
+    lines.push("");
+    lines.push(`  ${BLUE}${BOLD}Prompt${RESET} ${DIM}— "What should the AI say?"${RESET}`);
+    lines.push(`  A reusable instruction template for AI models. Has variables and expected output.`);
+    lines.push(`  ${DIM}Use when: you have a proven instruction that produces reliable AI output.${RESET}`);
+    lines.push(`  ${DIM}Example: code-review-feedback, debug-assistant, write-tests${RESET}`);
+    lines.push("");
+    lines.push(`  ${DIM}${"─".repeat(cols - 4)}${RESET}`);
+    lines.push("");
+    lines.push(`  ${BOLD}Boundaries${RESET}`);
+    lines.push("");
+    const bw = Math.min(cols - 4, 90);
+    lines.push(`  ${BOLD}${padR("Type", 10)}${padR("Stores", 30)}${padR("Does NOT store", bw - 40)}${RESET}`);
+    lines.push(`  ${DIM}${"─".repeat(bw)}${RESET}`);
+    lines.push(`  ${CYAN}${padR("Agent", 10)}${RESET}${padR("Actor, orchestration", 30)}${DIM}Knowledge, constraints${RESET}`);
+    lines.push(`  ${GREEN}${padR("Skill", 10)}${RESET}${padR("Procedures, how-to", 30)}${DIM}Why we do X, what X must follow${RESET}`);
+    lines.push(`  ${YELLOW}${padR("Rule", 10)}${RESET}${padR("Constraints, policies", 30)}${DIM}Why it was decided, how to implement${RESET}`);
+    lines.push(`  ${MAGENTA}${padR("Memory", 10)}${RESET}${padR("Knowledge, evidence", 30)}${DIM}Actions, constraints, instructions${RESET}`);
+    lines.push(`  ${BLUE}${padR("Prompt", 10)}${RESET}${padR("AI instructions", 30)}${DIM}Execution logic, actor definitions${RESET}`);
+    lines.push("");
+    lines.push(`  ${BOLD}Decision tree${RESET}`);
+    lines.push("");
+    lines.push(`  ${DIM}Is it a complete workflow?${RESET}            ${CYAN}→ Agent${RESET}`);
+    lines.push(`  ${DIM}Is it a reusable action?${RESET}             ${GREEN}→ Skill${RESET}`);
+    lines.push(`  ${DIM}Is it a constraint to enforce?${RESET}       ${YELLOW}→ Rule${RESET}`);
+    lines.push(`  ${DIM}Is it knowledge to recall?${RESET}           ${MAGENTA}→ Memory${RESET}`);
+    lines.push(`  ${DIM}Is it an instruction for an AI?${RESET}      ${BLUE}→ Prompt${RESET}`);
+  } else if (tab === 1) {
+    // Memory context types
+    lines.push(`  ${BG_CYAN}${BLACK}${BOLD} Memory Context Types ${RESET}`);
+    lines.push("");
+    const types = [
+      { name: "decision", color: CYAN, icon: "◆", desc: "Why we chose X over Y",
+        detail: "ADRs, trade-off analyses, technology selections, vendor choices.",
+        boundary: "Not a rule (rules enforce; decisions explain why).",
+        examples: "adr-001-database-choice, adr-002-monorepo, adr-003-auth-strategy" },
+      { name: "architecture", color: GREEN, icon: "▲", desc: "What the system looks like",
+        detail: "Service topology, data models, network layout, API contracts, schemas.",
+        boundary: "Not a skill (skills do things; architecture describes things).",
+        examples: "system-topology, data-model-orders" },
+      { name: "incident", color: RED, icon: "●", desc: "What happened and root cause",
+        detail: "Postmortems, timelines, blast radius, action items, near misses.",
+        boundary: "Not a runbook (runbooks are skills; incidents are evidence).",
+        examples: "incident-2026-04, incident-2026-03-redis" },
+      { name: "domain", color: YELLOW, icon: "■", desc: "What things mean in our context",
+        detail: "Business rules, glossary, regulatory constraints, user personas.",
+        boundary: "Not a constraint (rules constrain; domain knowledge informs).",
+        examples: "domain-payments, domain-glossary" },
+      { name: "context", color: MAGENTA, icon: "◇", desc: "Who, when, where around the project",
+        detail: "Team structure, ownership, priorities, stakeholders, timelines, budget.",
+        boundary: "Not an agent (agents act; context describes the environment).",
+        examples: "team-ownership, project-q2-priorities" },
+      { name: "learning", color: BLUE, icon: "★", desc: "What we measured and observed",
+        detail: "Benchmarks, experiment results, what worked vs failed, retrospectives.",
+        boundary: "Not a policy (rules prescribe; learnings provide evidence).",
+        examples: "learning-caching-strategy, learning-testing-strategy" },
+    ];
+    for (const t of types) {
+      lines.push(`  ${t.color}${t.icon} ${BOLD}${t.name}${RESET} ${DIM}— ${t.desc}${RESET}`);
+      lines.push(`    ${t.detail}`);
+      lines.push(`    ${DIM}Boundary: ${t.boundary}${RESET}`);
+      lines.push(`    ${DIM}Examples: ${t.examples}${RESET}`);
+      lines.push("");
+    }
+  } else if (tab === 2) {
+    // Knowledge mapping
+    lines.push(`  ${BG_CYAN}${BLACK}${BOLD} Knowledge Mapping for IT Projects ${RESET}`);
+    lines.push("");
+    const bw = Math.min(cols - 4, 100);
+    const sections = [
+      { title: "Requirements & Analysis", color: YELLOW, items: [
+        ["Stakeholder interviews", "domain", "Product Owner, BA → Dev"],
+        ["Functional requirements", "domain", "BA, PO → Dev, QA"],
+        ["Non-functional requirements", "domain", "Architect, SRE → Dev, Ops"],
+        ["Regulatory constraints", "domain", "Legal, Compliance → All"],
+        ["Glossary / Ubiquitous language", "domain", "BA, Tech Lead → All"],
+        ["User journey mapping", "domain", "UX, Product → Frontend"],
+        ["Integration requirements", "domain", "Architect, BA → Dev"],
+      ]},
+      { title: "Architecture & Design", color: GREEN, items: [
+        ["System topology", "architecture", "Architect → All"],
+        ["Data models / ERDs", "architecture", "Architect, DBA → Dev"],
+        ["API contracts", "architecture", "Architect, Backend → FE, QA"],
+        ["Network topology", "architecture", "Cloud Arch, NetOps → SRE"],
+        ["Landing zone design", "architecture", "Cloud Arch → Platform, FinOps"],
+        ["CI/CD pipeline design", "architecture", "DevOps → Developers"],
+        ["Security architecture", "architecture", "Security Arch → All"],
+        ["DR design", "architecture", "Architect, SRE → Ops, Mgmt"],
+      ]},
+      { title: "Decisions", color: CYAN, items: [
+        ["Technology selection", "decision", "Architect, Lead → All"],
+        ["Framework/library choice", "decision", "Lead, Sr Dev → Dev"],
+        ["Build vs buy", "decision", "CTO, Architect → All"],
+        ["Cloud provider choice", "decision", "CTO, Cloud Arch → All"],
+        ["Migration strategy", "decision", "Architect, PM → Dev, Ops"],
+        ["Vendor selection", "decision", "Platform, Mgmt → SRE, FinOps"],
+        ["Trade-off records", "decision", "Architect → Dev, QA"],
+      ]},
+      { title: "Incidents & Postmortems", color: RED, items: [
+        ["Production outage", "incident", "SRE, Oncall → All"],
+        ["Security breach", "incident", "Security, SRE → Mgmt, Legal"],
+        ["Data loss event", "incident", "DBA, SRE → Mgmt, Dev"],
+        ["Failed migration", "incident", "DBA, DevOps → Dev, PM"],
+        ["Failed deployment", "incident", "DevOps, Dev → SRE, QA"],
+        ["Capacity incident", "incident", "SRE, Cloud → FinOps, Arch"],
+        ["Near miss", "incident", "Any → All"],
+      ]},
+      { title: "Team & Project Context", color: MAGENTA, items: [
+        ["Team ownership map", "context", "Eng Manager → All"],
+        ["Quarterly priorities", "context", "PM, Mgmt → Dev, Agents"],
+        ["Stakeholder map / RACI", "context", "PM, BA → All"],
+        ["Budget constraints", "context", "FinOps, Mgmt → Arch, PM"],
+        ["Vendor relationships", "context", "Procurement → SRE, FinOps"],
+        ["Compliance deadlines", "context", "Compliance → All"],
+        ["Onboarding notes", "context", "New hires → Future hires"],
+      ]},
+      { title: "Learnings & Evidence", color: BLUE, items: [
+        ["Performance benchmarks", "learning", "Sr Dev, SRE → Dev"],
+        ["Cost optimization results", "learning", "FinOps → Mgmt"],
+        ["Testing strategy results", "learning", "QA, Sr Dev → Dev"],
+        ["Migration retrospective", "learning", "Lead, PM → Future teams"],
+        ["Tool evaluation", "learning", "Any → All"],
+        ["Security audit findings", "learning", "Security → Dev, SRE"],
+        ["FinOps analysis", "learning", "FinOps → Mgmt, Arch"],
+        ["DR drill results", "learning", "SRE → Mgmt, Arch"],
+      ]},
+    ];
+
+    for (const s of sections) {
+      lines.push(`  ${s.color}${BOLD}${s.title}${RESET}`);
+      lines.push(`  ${DIM}${padR("Situation", 32)}${padR("Type", 15)}Roles${RESET}`);
+      lines.push(`  ${DIM}${"─".repeat(Math.min(bw, 80))}${RESET}`);
+      for (const [sit, type, roles] of s.items) {
+        lines.push(`  ${padR(sit, 32)}${MAGENTA}${padR(type, 15)}${RESET}${DIM}${roles}${RESET}`);
+      }
+      lines.push("");
+    }
+  }
+
+  return scrollView(lines, state.scrollOffset, maxRows, state);
+}
+
+function padR(str, len) {
+  const s = String(str);
+  return s.length >= len ? s : s + " ".repeat(len - s.length);
+}
+
 function renderHelp(state, maxRows, cols) {
   const lines = [];
   lines.push(`  ${BG_CYAN}${BLACK}${BOLD} Keyboard Shortcuts ${RESET}`);
@@ -1284,7 +1494,8 @@ function renderHelp(state, maxRows, cols) {
   lines.push(`  ${CYAN}d${RESET}        remove artifact`);
   lines.push("");
   lines.push(`  ${BOLD}Global${RESET}`);
-  lines.push(`  ${CYAN}j${RESET}        projects view   ${CYAN}F${RESET}        bookmarks`);
+  lines.push(`  ${CYAN}j${RESET}        projects view   ${CYAN}G${RESET}        artifact guide`);
+  lines.push(`  ${CYAN}F${RESET}        bookmarks`);
   lines.push(`  ${CYAN}?${RESET}        this help       ${CYAN}Ctrl+C${RESET}   quit`);
   if (state.isAdmin) {
     lines.push("");

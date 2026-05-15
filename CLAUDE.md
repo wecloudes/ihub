@@ -28,7 +28,7 @@ server/    — registry API server
   db.js       — SQLite (users, entries, attachments, comments, audit_log)
   metrics.js  — Prometheus metrics collector
   sensitive.js — sensitive data detection and masking (80+ patterns)
-tests/     — 306 tests (node:test)
+tests/     — 307 tests (node:test)
   parse, registry, render, dashboard, config, metrics, sensitive, slack, db, routes, cli, tui
 agents/ skills/ rules/ memories/ prompts/ — working directories (gitignored)
 examples/  — sample entries (4 agents, 6 skills, 4 rules, 3 memories, 5 prompts) + more in registry
@@ -91,7 +91,7 @@ docker compose up -d
 kubectl apply -k k8s/
 ```
 
-Run tests: `npm test` (306 tests)
+Run tests: `npm test` (307 tests)
 
 ## Key conventions
 
@@ -107,7 +107,7 @@ Run tests: `npm test` (306 tests)
 
 ## After every change
 
-1. **Run tests**: `npm test` — all 306 tests must pass
+1. **Run tests**: `npm test` — all 307 tests must pass
 2. **Add tests**: for any new command, endpoint, or DB function
 3. **Update docs**: CLAUDE.md, README.md, CONTRIBUTING.md, CHANGELOG.md
 4. **Verify Docker build** if server code changed

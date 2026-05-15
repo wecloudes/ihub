@@ -8,7 +8,10 @@ All notable changes to ihub are documented in this file.
 
 - **Memory taxonomy**: formalized `context_type` vocabulary for memories — `decision`, `architecture`, `incident`, `domain`, `context`, `learning` — with clear boundaries against other artifact types (memories store knowledge, not actions/constraints/instructions)
 - **Memory template**: updated with context_type reference and boundary guidance
+- **TUI artifact guide**: `G` key opens interactive guide with 3 tabs — overview (types, boundaries, decision tree), memory context types (6 types with examples), knowledge mapping (50+ IT project situations mapped to context types and roles)
 - **Registry examples**: 12 new memories covering all context types (3 ADRs, 2 architecture, 2 incidents, 2 domain, 2 context, 2 learnings), 3 agents, 4 skills, 3 rules, 3 prompts, 2 blocked artifacts, 3 users with 108+ comments
+- **Documentation**: comprehensive knowledge mapping tables for IT projects (development, infrastructure, FinOps, migrations, landing zones) with roles and context types
+- **Test suite**: 307 tests
 
 ---
 
