@@ -239,7 +239,7 @@ describe("TUI integration tests", () => {
       await tui.send("\r");
       await tui.waitFor("Test agent");
       await tui.send("\x1b"); // Back to list
-      await tui.waitFor("entries"); // List view shows "entries"
+      await tui.waitFor("test-agent", 3000); // Back to list showing the item
     } finally {
       await tui.kill();
     }
