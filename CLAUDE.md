@@ -17,7 +17,7 @@ cli/       — CLI tool (ESM, zero external dependencies)
   registry.js    — HTTP client for remote registry
   render.js      — terminal markdown renderer (ANSI)
   dashboard.js   — terminal metrics dashboard
-  tui.js         — interactive TUI browser (multi-select, comments, metrics, audit, projects, config, remove, review)
+  tui.js         — interactive TUI browser (multi-select, comments, metrics, audit, projects, config, remove, review, split-pane preview, dynamic resize)
   agents-config.js — coding agent path configs (6 agents)
 server/    — registry API server
   index.js    — http entrypoint
@@ -28,7 +28,7 @@ server/    — registry API server
   db.js       — SQLite (users, entries, attachments, comments, audit_log)
   metrics.js  — Prometheus metrics collector
   sensitive.js — sensitive data detection and masking (80+ patterns)
-tests/     — 284 tests (node:test)
+tests/     — 306 tests (node:test)
   parse, registry, render, dashboard, config, metrics, sensitive, slack, db, routes, cli, tui
 agents/ skills/ rules/ memories/ prompts/ — working directories (gitignored)
 examples/  — sample entries (4 agents, 6 skills, 4 rules, 3 memories, 5 prompts)
@@ -91,7 +91,7 @@ docker compose up -d
 kubectl apply -k k8s/
 ```
 
-Run tests: `npm test` (284 tests)
+Run tests: `npm test` (306 tests)
 
 ## Key conventions
 
@@ -103,11 +103,11 @@ Run tests: `npm test` (284 tests)
 - Firewall: IP whitelist loaded once at startup (immutable); supports exact, CIDR, wildcard; blocked IPs logged + tracked
 - Memories always install to local `memories/`
 - Attachments: companion files in `<type>/<name>/` uploaded on push, recreated on pull
-- TUI (`ihub browse`): types, list, detail, comments, projects (`j`), metrics (`m`), audit (`t`), config (`i`), remove (`d`), write review (`w`), multi-select + bulk pull (`space`/`a`/`p`)
+- TUI (`ihub browse`): types, list, detail, comments, projects (`j`), metrics (`m`), audit (`t`), config (`i`), remove (`d` twice to confirm), write review (`w`), multi-select + bulk pull (`space`/`a`/`p`), split-pane preview (`{`/`}` scroll, auto-shown when terminal >= 120 cols), dynamic resize, search cancel with Esc/q, scroll clamping, footer pinned to bottom
 
 ## After every change
 
-1. **Run tests**: `npm test` — all 284 tests must pass
+1. **Run tests**: `npm test` — all 306 tests must pass
 2. **Add tests**: for any new command, endpoint, or DB function
 3. **Update docs**: CLAUDE.md, README.md, CONTRIBUTING.md, CHANGELOG.md
 4. **Verify Docker build** if server code changed

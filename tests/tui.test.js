@@ -684,7 +684,9 @@ describe("TUI integration tests", () => {
       for (let i = 0; i < 5; i++) await tui.send("\x1b[B", 50);
       await tui.send("\r"); // open it
       await new Promise((r) => setTimeout(r, 500));
-      await tui.send("d"); // delete
+      await tui.send("d"); // first d — confirmation prompt
+      await tui.waitFor("DELETE", 3000);
+      await tui.send("d"); // second d — confirm delete
       await tui.waitFor("Removed", 3000);
     } finally { await tui.kill(); }
   });
@@ -741,6 +743,74 @@ describe("TUI integration tests", () => {
       // bookmarks
       await tui.send("F"); await tui.waitFor("Bookmarks", 3000);
       await tui.send("\x1b"); await tui.waitFor("agents", 3000);
+    } finally { await tui.kill(); }
+  });
+
+  // --- Search cancel ---
+
+  it("cancels search with Escape key", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("agents");
+      await tui.send("/");
+      await new Promise((r) => setTimeout(r, 200));
+      await tui.send("\x1b"); // Escape cancels
+      await tui.waitFor("agents", 3000); // back to list
+    } finally { await tui.kill(); }
+  });
+
+  it("cancels search with q on empty input", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("agents");
+      await tui.send("/");
+      await new Promise((r) => setTimeout(r, 200));
+      await tui.send("q"); // q cancels when input is empty
+      await tui.waitFor("agents", 3000);
+    } finally { await tui.kill(); }
+  });
+
+  // --- Delete confirmation ---
+
+  it("cancels delete with any other key after first d", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("test-agent");
+      await tui.send("\r");
+      await tui.waitFor("Test agent", 3000);
+      await tui.send("d"); // first d — confirmation
+      await tui.waitFor("DELETE", 3000);
+      await tui.send("n"); // any other key cancels
+      await tui.waitFor("cancelled", 3000);
+    } finally { await tui.kill(); }
+  });
+
+  // --- Preview scroll keys ---
+
+  it("handles preview scroll keys without crashing", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("test-agent");
+      await tui.send("}"); // scroll down
+      await new Promise((r) => setTimeout(r, 100));
+      await tui.send("{"); // scroll up
+      await new Promise((r) => setTimeout(r, 100));
+      await tui.waitFor("agents", 3000); // still on list
+    } finally { await tui.kill(); }
+  });
+
+  // --- Project filtering ---
+
+  it("shows filtered project view with j and all projects with A", async () => {
+    const tui = spawnTui();
+    try {
+      await tui.waitFor("test-agent");
+      await tui.send("j"); // projects for current artifact
+      await tui.waitFor("Projects", 3000);
+      await tui.send("A"); // show all projects
+      await tui.waitFor("Projects", 3000);
+      await tui.send("\x1b");
+      await tui.waitFor("agents", 3000);
     } finally { await tui.kill(); }
   });
 });

@@ -207,9 +207,12 @@ Types accept singular or plural: `agent`/`agents`, `skill`/`skills`, `rule`/`rul
 ```bash
 # Interactive TUI — full registry browser
 ihub browse
-# Keys: ↑↓ navigate, ⏎ drill in, / search, space multi-select, p pull
-#       c comments, w review, d remove, j projects
-#       m metrics, t audit, i config (admin only), q/esc back
+# Keys: ↑↓ navigate, ←→ switch type, ⏎ drill in, / search (Esc/q cancel)
+#       space multi-select, a select all, p pull selected, P quick pull
+#       c comments, w review, d remove (double-press), j projects
+#       {} scroll preview, s sort, f bookmark, F bookmarks, g graph, v versions
+#       m metrics, t audit, i config, B blocked (admin), q/esc back
+# Split-pane preview appears automatically when terminal >= 120 columns
 
 # List everything
 ihub list
@@ -550,7 +553,7 @@ examples/          sample entries (4 agents, 6 skills, 4 rules, 3 memories, 5 pr
 templates/         scaffolding templates for each type
 cli/               CLI tool (ESM, zero external dependencies)
 server/            registry API server (Node.js + SQLite)
-tests/             284 tests (node:test)
+tests/             306 tests (node:test)
 completions/       bash and zsh shell completions
 man/               manual page source
 grafana/           Grafana dashboard + Prometheus config

@@ -44,14 +44,14 @@ completions/   bash and zsh shell completions
 man/           manual page source
 k8s/           Kubernetes manifests (kustomize)
 grafana/       dashboard JSON, Prometheus config, provisioning
-Dockerfile     multi-stage server image (Alpine + tini)
+Dockerfile     multi-stage server image (slim + tini)
 docker-compose.yml  ihub + Prometheus + Grafana stack
 ```
 
 ## Running tests
 
 ```bash
-npm test                           # run all 284 tests
+npm test                           # run all 306 tests
 node --test tests/parse.test.js    # run a single test file
 node --test --test-name-pattern "push" tests/cli.test.js  # run matching tests
 ```

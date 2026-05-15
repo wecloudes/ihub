@@ -25,10 +25,16 @@ All notable changes to ihub are documented in this file.
 - **IP firewall**: whitelist-based blocking loaded once at startup (immutable); supports exact IPs, CIDR ranges, wildcards; `firewall-blocked` audit action; `ihub_firewall_blocked_total` metric
 - **TUI projects view**: `j` key shows project tree grouped by type
 - **TUI config view**: `i` key shows server config (admin only)
-- **TUI remove**: `d` key removes artifact from detail view
+- **TUI remove**: `d` key removes artifact from detail view (double-press to confirm, any key cancels)
 - **TUI write review**: `w` key adds comment/rating from detail view
-- **TUI integration tests**: 21 automated tests spawning real TUI processes with simulated keystrokes
-- **Test suite**: 284 tests (21 TUI + 35 sensitive + 228 existing)
+- **TUI split-pane preview**: right-side markdown preview when terminal width >= 120 columns; list width adapts dynamically to content (shorter names = wider preview); scroll with `{`/`}` keys; clamped so you can't scroll past content
+- **TUI project filtering**: `j` from list view shows only the selected artifact's project; `A` from project view shows all projects
+- **TUI search cancel**: pressing Esc or `q` (when input is empty) cancels the `/` search prompt
+- **TUI dynamic resize**: terminal resize re-renders the layout automatically; footer pinned to bottom with full-height content area
+- **TUI scroll clamping**: up/down arrows and preview scroll stop at content boundaries
+- **TUI blocked view fix**: blocked artifacts now correctly resolve their type for preview and detail view
+- **TUI integration tests**: 38 automated tests spawning real TUI processes with simulated keystrokes
+- **Test suite**: 306 tests (43 TUI + 35 sensitive + 228 existing)
 
 ---
 

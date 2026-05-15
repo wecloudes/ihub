@@ -67,6 +67,7 @@ export async function startTui(baseUrl, token) {
     isAdmin: false,
     // New state
     filter: "",           // inline fuzzy filter
+    previewScroll: 0,    // right pane scroll offset
     sortBy: "name",       // name | date | rating | pulls
     showHelp: false,
     bookmarks: loadBookmarks(),
@@ -78,6 +79,9 @@ export async function startTui(baseUrl, token) {
     breadcrumb: [],
     projectTree: null,
     serverConfig: null,
+    _previewCache: new Map(),
+    _previewKey: null,
+    _previewBody: "",
   };
 
   process.stdout.write(CLEAR + HIDE_CURSOR);
@@ -119,8 +123,14 @@ export async function startTui(baseUrl, token) {
 
   render(state);
 
+  // Re-render on terminal resize so layout adapts dynamically
+  process.stdout.on("resize", () => render(state));
+
   stdin.on("data", async (key) => {
     if (key === "\x03") { cleanup(); process.exit(0); }
+
+    // Ignore main handler while search input is active
+    if (state._searchMode) return;
 
     // Help overlay — dismiss with any key
     if (state.showHelp) {
@@ -166,6 +176,29 @@ export async function startTui(baseUrl, token) {
         state.view = "list";
         render(state);
       }
+      return;
+    }
+
+    // Projects view — A to show all
+    if (state.view === "projects") {
+      if (key === "A" || key === "a") {
+        state.projectTree = buildProjectTree(state, null);
+        state.projectFilter = null;
+        state.breadcrumb = ["projects"];
+        state.scrollOffset = 0;
+      } else if (key === ESC || key === "\x7f" || key === "q") {
+        state.view = "list";
+        state.scrollOffset = 0;
+        state.breadcrumb = [];
+      } else if (key === `${ESC}[A`) {
+        state.scrollOffset = Math.max(0, state.scrollOffset - 1);
+      } else if (key === `${ESC}[B`) {
+        state.scrollOffset++;
+      } else if (key === "r") {
+        for (const type of TYPES) state.entries[type] = await fetchJson(`${baseUrl}/api/${type}`);
+        state.projectTree = buildProjectTree(state, state.projectFilter);
+      }
+      render(state);
       return;
     }
 
@@ -250,6 +283,7 @@ export async function startTui(baseUrl, token) {
         state.selectedType = Math.max(0, state.selectedType - 1);
       } else if (state.view === "list" || state.showBookmarks) {
         state.selectedItem = Math.max(0, state.selectedItem - 1);
+        state.previewScroll = 0;
         adjustScroll(state);
       } else {
         state.scrollOffset = Math.max(0, state.scrollOffset - 1);
@@ -265,9 +299,11 @@ export async function startTui(baseUrl, token) {
       } else if (state.view === "list" || state.showBookmarks) {
         const items = getVisibleItems(state);
         state.selectedItem = Math.min(items.length - 1, state.selectedItem + 1);
+        state.previewScroll = 0;
         adjustScroll(state);
       } else {
-        state.scrollOffset++;
+        const maxOffset = Math.max(0, (state._contentLines || 0) - (state._contentVisibleRows || 1));
+        if (state.scrollOffset < maxOffset) state.scrollOffset++;
       }
       render(state);
       return;
@@ -317,8 +353,8 @@ export async function startTui(baseUrl, token) {
         const items = getVisibleItems(state);
         if (items.length > 0) {
           const item = items[state.selectedItem];
-          const type = state.isSearch ? (item.type || TYPES[state.selectedType]) : TYPES[state.selectedType];
-          state.detail = await fetchJson(`${baseUrl}/api/${type}/${item.name}`);
+          const type = (state.isSearch || state.isBlockedView) ? (item.type || TYPES[state.selectedType]) : TYPES[state.selectedType];
+          state.detail = await fetchJson(`${baseUrl}/api/${type}/${item.name}`, token);
           state.comments = await fetchJson(`${baseUrl}/api/${type}/${item.name}/comments`);
           state.view = "detail";
           state.scrollOffset = 0;
@@ -336,7 +372,7 @@ export async function startTui(baseUrl, token) {
         const items = getVisibleItems(state);
         if (items.length > 0) {
           const item = items[state.selectedItem];
-          const type = state.isSearch ? (item.type || TYPES[state.selectedType]) : TYPES[state.selectedType];
+          const type = (state.isSearch || state.isBlockedView) ? (item.type || TYPES[state.selectedType]) : TYPES[state.selectedType];
           const k = `${type}/${item.name}`;
           if (state.marked.has(k)) state.marked.delete(k);
           else state.marked.add(k);
@@ -351,7 +387,7 @@ export async function startTui(baseUrl, token) {
       if (key === "a") {
         const items = getVisibleItems(state);
         const type = TYPES[state.selectedType];
-        const keys = items.map((i) => `${state.isSearch ? (i.type || type) : type}/${i.name}`);
+        const keys = items.map((i) => `${(state.isSearch || state.isBlockedView) ? (i.type || type) : type}/${i.name}`);
         const allSel = keys.every((k) => state.marked.has(k));
         if (allSel) keys.forEach((k) => state.marked.delete(k));
         else keys.forEach((k) => state.marked.add(k));
@@ -373,7 +409,7 @@ export async function startTui(baseUrl, token) {
         const items = getVisibleItems(state);
         if (items.length > 0) {
           const item = items[state.selectedItem];
-          const type = state.isSearch ? (item.type || TYPES[state.selectedType]) : TYPES[state.selectedType];
+          const type = (state.isSearch || state.isBlockedView) ? (item.type || TYPES[state.selectedType]) : TYPES[state.selectedType];
           state.marked.add(`${type}/${item.name}`);
           state.pullAgents = null;
           state.pullScope = null;
@@ -394,7 +430,20 @@ export async function startTui(baseUrl, token) {
       }
 
       // Fuzzy filter — printable chars (#2)
-      const reserved = "aApPsfFjBmticrqdgvy?/";
+      const reserved = "aApPsfFjBmticrqdgvy?/{}";
+
+      // { and } — scroll preview pane
+      if (key === "{") {
+        state.previewScroll = Math.max(0, state.previewScroll - 3);
+        render(state);
+        return;
+      }
+      if (key === "}") {
+        const maxScroll = Math.max(0, (state._previewTotalLines || 0) - (state._previewVisibleRows || 1));
+        state.previewScroll = Math.min(state.previewScroll + 3, maxScroll);
+        render(state);
+        return;
+      }
       if (key.length === 1 && key >= " " && key <= "~" && !reserved.includes(key)) {
         state.filter += key;
         state.selectedItem = 0;
@@ -447,24 +496,39 @@ export async function startTui(baseUrl, token) {
         return;
       }
 
-      // d — remove
+      // d — remove (with confirmation)
       if (key === "d") {
-        const type = TYPES[state.selectedType];
-        const name = state.detail.name;
-        const h = { "Content-Type": "application/json" };
-        if (token) h["Authorization"] = `Bearer ${token}`;
-        const res = await fetch(`${baseUrl}/api/${type}/${name}`, { method: "DELETE", headers: h });
-        if (res.ok) {
-          state.entries[type] = await fetchJson(`${baseUrl}/api/${type}`);
-          state.view = "list";
-          state.detail = null;
-          state.selectedItem = 0;
-          state.statusMsg = `Removed ${type}/${name}`;
+        if (state.confirmDelete) {
+          // Second d — execute delete
+          state.confirmDelete = false;
+          const type = TYPES[state.selectedType];
+          const name = state.detail.name;
+          const h = { "Content-Type": "application/json" };
+          if (token) h["Authorization"] = `Bearer ${token}`;
+          const res = await fetch(`${baseUrl}/api/${type}/${name}`, { method: "DELETE", headers: h });
+          if (res.ok) {
+            state.entries[type] = await fetchJson(`${baseUrl}/api/${type}`);
+            state.view = "list";
+            state.detail = null;
+            state.selectedItem = 0;
+            state.statusMsg = `Removed ${type}/${name}`;
+          } else {
+            const d = await res.json().catch(() => ({}));
+            state.statusMsg = d.error || "Remove failed — only owners and admins can delete";
+          }
+          state.breadcrumb = buildBreadcrumb(state);
         } else {
-          const d = await res.json().catch(() => ({}));
-          state.statusMsg = d.error || "Remove failed";
+          // First d — ask confirmation
+          state.confirmDelete = true;
+          state.statusMsg = `\x1b[41m\x1b[37m DELETE ${TYPES[state.selectedType]}/${state.detail.name}? Press d to confirm, any other key to cancel \x1b[0m`;
         }
-        state.breadcrumb = buildBreadcrumb(state);
+        render(state);
+        return;
+      }
+      // Any other key cancels delete confirmation
+      if (state.confirmDelete) {
+        state.confirmDelete = false;
+        state.statusMsg = "Delete cancelled";
         render(state);
         return;
       }
@@ -544,19 +608,19 @@ export async function startTui(baseUrl, token) {
       }
       // j — projects
       if (key === "j") {
-        const allEntries = [];
-        for (const type of TYPES) for (const e of (state.entries[type] || [])) allEntries.push({ ...e, _type: type });
-        const projects = {};
-        const unassigned = [];
-        for (const e of allEntries) {
-          const proj = e.meta?.project || e.project || "";
-          if (proj) { if (!projects[proj]) projects[proj] = {}; if (!projects[proj][e._type]) projects[proj][e._type] = []; projects[proj][e._type].push(e); }
-          else unassigned.push(e);
+        // Show project of the currently selected/viewed artifact
+        let filterProject = null;
+        if (state.view === "list") {
+          const items = getVisibleItems(state);
+          if (items.length > 0 && state.selectedItem < items.length) {
+            filterProject = items[state.selectedItem].meta?.project || items[state.selectedItem].project;
+          }
         }
-        state.projectTree = { projects, unassigned };
+        state.projectTree = buildProjectTree(state, filterProject);
+        state.projectFilter = filterProject;
         state.view = "projects";
         state.scrollOffset = 0;
-        state.breadcrumb = ["projects"];
+        state.breadcrumb = filterProject ? ["projects", filterProject] : ["projects"];
         render(state);
         return;
       }
@@ -607,11 +671,56 @@ export async function startTui(baseUrl, token) {
 
     // / — search
     if (key === "/" && (state.view === "types" || state.view === "list")) {
-      cleanup();
-      process.stdout.write(`${CLEAR}${BOLD}Search: ${RESET}`);
-      if (stdin.setRawMode) stdin.setRawMode(false);
-      const query = await new Promise((r) => { stdin.once("data", (d) => r(d.toString().trim())); });
-      if (stdin.setRawMode) stdin.setRawMode(true);
+      // Inline search prompt — stays in raw mode so Esc/q can cancel
+      state._searchInput = "";
+      state._searchMode = true;
+      process.stdout.write(`${CLEAR}${BOLD}Search: ${RESET}${SHOW_CURSOR}`);
+      const query = await new Promise((resolve) => {
+        const onSearchKey = (chunk) => {
+          // Process each character in the chunk
+          for (let ci = 0; ci < chunk.length; ci++) {
+            const k = chunk[ci];
+            // Esc — cancel (consume rest of escape sequence)
+            if (k === ESC) {
+              stdin.removeListener("data", onSearchKey);
+              resolve("");
+              return;
+            }
+            // q with empty input → cancel
+            if (k === "q" && !state._searchInput) {
+              stdin.removeListener("data", onSearchKey);
+              resolve("");
+              return;
+            }
+            // Enter → submit
+            if (k === "\r" || k === "\n") {
+              stdin.removeListener("data", onSearchKey);
+              resolve(state._searchInput.trim());
+              return;
+            }
+            // Backspace
+            if (k === "\x7f") {
+              state._searchInput = state._searchInput.slice(0, -1);
+              process.stdout.write(`\r${BOLD}Search: ${RESET}${state._searchInput} \b${SHOW_CURSOR}`);
+              continue;
+            }
+            // Ctrl+C
+            if (k === "\x03") {
+              stdin.removeListener("data", onSearchKey);
+              cleanup();
+              process.exit(0);
+            }
+            // Printable chars
+            if (k >= " " && k <= "~") {
+              state._searchInput += k;
+              process.stdout.write(k);
+            }
+          }
+        };
+        stdin.on("data", onSearchKey);
+      });
+      state._searchMode = false;
+      process.stdout.write(HIDE_CURSOR);
       if (query) {
         state.searchResults = await fetchJson(`${baseUrl}/api/search?q=${encodeURIComponent(query)}`);
         state.view = "list";
@@ -630,6 +739,25 @@ export async function startTui(baseUrl, token) {
 }
 
 // --- Helpers ---
+
+function buildProjectTree(state, filterProject) {
+  const allEntries = [];
+  for (const type of TYPES) for (const e of (state.entries[type] || [])) allEntries.push({ ...e, _type: type });
+  const projects = {};
+  const unassigned = [];
+  for (const e of allEntries) {
+    const proj = e.meta?.project || e.project || "";
+    if (proj) {
+      if (filterProject && proj !== filterProject) continue;
+      if (!projects[proj]) projects[proj] = {};
+      if (!projects[proj][e._type]) projects[proj][e._type] = [];
+      projects[proj][e._type].push(e);
+    } else if (!filterProject) {
+      unassigned.push(e);
+    }
+  }
+  return { projects, unassigned };
+}
 
 function buildBreadcrumb(state, name, sub) {
   const parts = [];
@@ -717,7 +845,7 @@ function clearInstalledCache() {
 function render(state) {
   const rows = process.stdout.rows || 24;
   const cols = process.stdout.columns || 80;
-  const contentRows = rows - 5; // header + breadcrumb + footer
+  const contentRows = rows - 4; // header + breadcrumb + footer line + footer text
 
   let output = CLEAR;
 
@@ -744,7 +872,31 @@ function render(state) {
   } else if (state.showBookmarks) {
     output += renderBookmarks(state, contentRows, cols);
   } else if (state.view === "types") output += renderTypes(state, contentRows);
-  else if (state.view === "list") output += renderList(state, contentRows, cols);
+  else if (state.view === "list") {
+    // Trigger async preview body fetch for split-pane
+    if (cols >= 120) {
+      const items = getVisibleItems(state);
+      if (items.length > 0 && state.selectedItem < items.length) {
+        const sel = items[state.selectedItem];
+        const itemType = (state.isSearch || state.isBlockedView) ? (sel.type || TYPES[state.selectedType]) : TYPES[state.selectedType];
+        const cacheKey = `${itemType}/${sel.name}`;
+        if (state._previewKey !== cacheKey) {
+          state._previewKey = cacheKey;
+          state._previewBody = state._previewCache.get(cacheKey) || "";
+          if (!state._previewCache.has(cacheKey)) {
+            const url = `${state.baseUrl}/api/${itemType}/${sel.name}`;
+            fetchJson(url, state.token).then((d) => {
+              const body = d?.body || "";
+              state._previewCache.set(cacheKey, body);
+              state._previewBody = body;
+              if (state.view === "list" && state._previewKey === cacheKey) render(state);
+            });
+          }
+        }
+      }
+    }
+    output += renderList(state, contentRows, cols);
+  }
   else if (state.view === "detail") output += renderDetail(state, contentRows, cols);
   else if (state.view === "comments") output += renderComments(state, contentRows, cols);
   else if (state.view === "metrics") output += renderMetrics(state, contentRows, cols);
@@ -757,8 +909,14 @@ function render(state) {
   else if (state.view === "graph") output += renderGraph(state, contentRows, cols);
   else if (state.view === "versions") output += renderVersions(state, contentRows);
 
-  // Footer
-  output += `\n${DIM}${"─".repeat(cols)}${RESET}\n`;
+  // Pad content to push footer to the bottom of the terminal
+  const usedLines = output.split("\n").length - 1; // lines already written (CLEAR adds 1)
+  const footerLines = 2; // separator + footer text
+  const padLines = Math.max(0, rows - usedLines - footerLines);
+  output += "\n".repeat(padLines);
+
+  // Footer — pinned to bottom
+  output += `${DIM}${"─".repeat(cols)}${RESET}\n`;
   output += `${DIM}${getFooter(state)}${RESET}`;
 
   process.stdout.write(output);
@@ -769,12 +927,12 @@ function getFooter(state) {
   if (state.showBookmarks) return " ↑↓ navigate  ⏎ open  esc close";
   const f = {
     types: ` ↑↓ navigate  ⏎ select  j projects  F bookmarks  / search  ${state.isAdmin ? "m metrics  t audit  i config  B blocked  " : ""}? help  q quit`,
-    list: ` ↑↓ nav  ←→ type  ⏎ view  space select  a all  ${state.marked.size > 0 ? "p pull  " : ""}P pull one  s sort  / search  j projects  F bookmarks  ${state.isAdmin ? "m metrics  t audit  i config  B blocked  " : ""}${state.filter ? `filter: ${state.filter}  ` : ""}? help  q quit`,
+    list: ` ↑↓ nav  ←→ type  ⏎ view  space select  a all  ${state.marked.size > 0 ? "p pull  " : ""}P pull one  s sort  / search  j projects  F bookmarks  ${(process.stdout.columns || 80) >= 120 ? "{} preview scroll  " : ""}${state.isAdmin ? "m metrics  t audit  i config  B blocked  " : ""}${state.filter ? `filter: ${state.filter}  ` : ""}? help  q quit`,
     detail: ` ↑↓ scroll  c comments  w review  f bookmark  y copy  g graph  v versions  d remove  ? help  esc back`,
     comments: ` ↑↓ scroll  c back  esc back`,
     metrics: ` ↑↓ scroll  r refresh  esc back`,
     audit: ` ↑↓ scroll  n next  b prev  r refresh  esc back`,
-    projects: ` ↑↓ scroll  esc back`,
+    projects: ` ↑↓ scroll  ${state.projectFilter ? "A show all  " : ""}r refresh  esc back`,
     config: ` esc back`,
     "agent-select": ` 1-${AGENT_NAMES.length} toggle  ⏎ confirm  esc cancel`,
     "scope-select": ` l project  g personal  esc cancel`,
@@ -815,6 +973,7 @@ function renderList(state, maxRows, cols) {
   const type = TYPES[state.selectedType];
   const color = TYPE_COLORS[type];
   const items = getVisibleItems(state);
+  const showPreview = cols >= 120;
 
   // Tab bar (#6)
   let tabs = "";
@@ -833,14 +992,48 @@ function renderList(state, maxRows, cols) {
 
   if (items.length === 0) return out + `  ${DIM}No entries.${RESET}\n`;
 
-  const previewCols = Math.floor(cols * 0.4);
-  const listCols = cols - previewCols - 3;
   const visible = Math.min(items.length, maxRows - 5);
 
+  // Calculate dynamic list width based on actual content
+  let listWidth, previewWidth;
+  if (showPreview) {
+    // Measure the widest visible list row: prefix (8: "  > ○ ✓★ ") + name + " " + description
+    let maxItemWidth = 0;
+    for (let i = state.scrollOffset; i < Math.min(items.length, state.scrollOffset + visible); i++) {
+      const item = items[i];
+      const prefix = 10; // "  > ○ ✓★ " decorators
+      const typePrefix = state.isSearch ? 2 : 0;
+      const blocked = item.status === "blocked" ? 4 : 0;
+      const nameLen = (item.name || "").length;
+      const descLen = (item.description || "").length;
+      const w = prefix + typePrefix + blocked + nameLen + 1 + descLen;
+      if (w > maxItemWidth) maxItemWidth = w;
+    }
+    // List gets just enough to show content, min 30, max 55% of cols
+    const minList = 30;
+    const maxList = Math.floor(cols * 0.55);
+    listWidth = Math.max(minList, Math.min(maxItemWidth + 2, maxList));
+    previewWidth = cols - listWidth - 3;
+  } else {
+    listWidth = cols;
+    previewWidth = 0;
+  }
+
+  // Build preview lines if wide enough
+  let previewLines = [];
+  if (showPreview && items.length > 0 && state.selectedItem < items.length) {
+    const sel = items[state.selectedItem];
+    const itemType = (state.isSearch || state.isBlockedView) ? (sel.type || type) : type;
+    const body = state._previewBody || "";
+    previewLines = wrapAndFormatPreview(sel, body, previewWidth - 2);
+  }
+
+  // Render list rows, optionally side-by-side with preview
+  const listRows = [];
   for (let i = state.scrollOffset; i < Math.min(items.length, state.scrollOffset + visible); i++) {
     const item = items[i];
     const sel = i === state.selectedItem;
-    const itemType = state.isSearch ? (item.type || type) : type;
+    const itemType = (state.isSearch || state.isBlockedView) ? (item.type || type) : type;
     const itemKey = `${itemType}/${item.name}`;
     const isMarked = state.marked.has(itemKey);
     const checkbox = isMarked ? `${GREEN}\u25C9${RESET}` : `${DIM}\u25CB${RESET}`;
@@ -849,33 +1042,123 @@ function renderList(state, maxRows, cols) {
     const blocked = item.status === "blocked" ? `${RED}[B]${RESET} ` : "";
     const typeLabel = state.isSearch ? `${TYPE_COLORS[item.type] || ""}${(item.type || "?").charAt(0).toUpperCase()}${RESET} ` : "";
 
-    // Rating in list (#9)
     let ratingLabel = "";
     if (item.meta?.rating || item.rating) {
       ratingLabel = " " + ratingStars(item.meta?.rating || item.rating);
     }
 
     if (sel) {
-      out += `  ${INVERSE} > ${RESET} ${checkbox} ${installed}${bmk} ${blocked}${typeLabel}${BOLD}${item.name}${RESET}${ratingLabel}\n`;
+      listRows.push(`  ${INVERSE} > ${RESET} ${checkbox} ${installed}${bmk} ${blocked}${typeLabel}${BOLD}${item.name}${RESET}${ratingLabel}`);
     } else {
-      const desc = (item.description || "").slice(0, listCols - 20);
-      out += `    ${checkbox} ${installed}${bmk} ${blocked}${typeLabel}${item.name} ${DIM}${desc}${RESET}\n`;
+      const desc = (item.description || "").slice(0, listWidth - 20);
+      listRows.push(`    ${checkbox} ${installed}${bmk} ${blocked}${typeLabel}${item.name} ${DIM}${desc}${RESET}`);
     }
   }
 
-  // Live preview pane (#1) — show selected item details on right
-  // We append preview info below the list for terminal compatibility
-  if (items.length > 0 && state.selectedItem < items.length) {
-    const sel = items[state.selectedItem];
-    out += `\n  ${DIM}${"─".repeat(cols - 4)}${RESET}\n`;
-    const desc = sel.description || "";
-    out += `  ${BOLD}${sel.name}${RESET} ${GRAY}@${sel.version || "?"}${RESET}\n`;
-    out += `  ${DIM}${desc.slice(0, cols - 4)}${RESET}\n`;
-    const tags = Array.isArray(sel.tags) ? sel.tags : [];
-    if (tags.length) out += `  ${tags.slice(0, 8).map((t) => `${CYAN}#${t}${RESET}`).join(" ")}\n`;
+  if (showPreview) {
+    // Side-by-side: list on left, preview on right — fill to bottom
+    const scroll = state.previewScroll || 0;
+    const headerLines = out.split("\n").length - 1;
+    const totalRows = Math.max(listRows.length, maxRows - headerLines);
+    // Clamp scroll so we don't scroll past content
+    const maxScroll = Math.max(0, previewLines.length - totalRows);
+    if (state.previewScroll > maxScroll) state.previewScroll = maxScroll;
+    const clampedScroll = state.previewScroll;
+    // Store for key handlers
+    state._previewTotalLines = previewLines.length;
+    state._previewVisibleRows = totalRows;
+    for (let r = 0; r < totalRows; r++) {
+      const left = padVisible(listRows[r] || "", listWidth);
+      const pIdx = r + clampedScroll;
+      const right = pIdx < previewLines.length ? previewLines[pIdx] : "";
+      out += `${left} ${DIM}│${RESET} ${right}\n`;
+    }
+  } else {
+    // Narrow: list only, summary below
+    for (const row of listRows) out += row + "\n";
+
+    if (items.length > 0 && state.selectedItem < items.length) {
+      const sel = items[state.selectedItem];
+      out += `\n  ${DIM}${"─".repeat(cols - 4)}${RESET}\n`;
+      const desc = sel.description || "";
+      out += `  ${BOLD}${sel.name}${RESET} ${GRAY}@${sel.version || "?"}${RESET}\n`;
+      out += `  ${DIM}${desc.slice(0, cols - 4)}${RESET}\n`;
+      const tags = Array.isArray(sel.tags) ? sel.tags : [];
+      if (tags.length) out += `  ${tags.slice(0, 8).map((t) => `${CYAN}#${t}${RESET}`).join(" ")}\n`;
+    }
   }
 
   return out;
+}
+
+// Word-wrap text to fit within a given width
+function wrapText(text, width) {
+  if (width <= 0) return [text];
+  const lines = [];
+  for (const line of text.split("\n")) {
+    if (stripAnsi(line).length <= width) {
+      lines.push(line);
+    } else {
+      // Wrap long lines at word boundaries
+      const words = line.split(" ");
+      let current = "";
+      for (const word of words) {
+        const test = current ? current + " " + word : word;
+        if (stripAnsi(test).length > width && current) {
+          lines.push(current);
+          current = word;
+        } else {
+          current = test;
+        }
+      }
+      if (current) lines.push(current);
+    }
+  }
+  return lines;
+}
+
+// Strip ANSI escape codes for length calculations
+function stripAnsi(str) {
+  return str.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+// Pad a string (accounting for ANSI codes) to a visual width
+function padVisible(str, width) {
+  const visible = stripAnsi(str).length;
+  if (visible >= width) return str;
+  return str + " ".repeat(width - visible);
+}
+
+// Format the preview pane content with syntax highlighting and word wrap
+function wrapAndFormatPreview(item, body, width) {
+  const lines = [];
+  // Header
+  lines.push(`${BOLD}${item.name}${RESET} ${GRAY}@${item.version || "?"}${RESET}`);
+  if (item.description) lines.push(`${DIM}${item.description}${RESET}`);
+  const tags = Array.isArray(item.tags) ? item.tags : [];
+  if (tags.length) lines.push(tags.slice(0, 6).map((t) => `${CYAN}#${t}${RESET}`).join(" "));
+  lines.push(`${DIM}${"─".repeat(width)}${RESET}`);
+
+  if (!body) {
+    lines.push(`${DIM}Loading preview...${RESET}`);
+    return lines;
+  }
+
+  // Render markdown body with basic syntax highlighting
+  for (const raw of body.split("\n")) {
+    let formatted;
+    if (raw.startsWith("# ")) formatted = `${BOLD}${MAGENTA}${raw.slice(2)}${RESET}`;
+    else if (raw.startsWith("## ")) formatted = `${BOLD}${YELLOW}${raw.slice(3)}${RESET}`;
+    else if (raw.startsWith("### ")) formatted = `${BOLD}${CYAN}${raw.slice(4)}${RESET}`;
+    else if (raw.startsWith("- ")) formatted = `${CYAN}\u2022${RESET} ${raw.slice(2)}`;
+    else if (raw.startsWith("```")) formatted = `${DIM}${raw}${RESET}`;
+    else formatted = raw;
+
+    for (const wrapped of wrapText(formatted, width)) {
+      lines.push(wrapped);
+    }
+  }
+  return lines;
 }
 
 function renderDetail(state, maxRows, cols) {
@@ -932,7 +1215,7 @@ function renderDetail(state, maxRows, cols) {
       else lines.push(`  ${line}`);
     }
   }
-  return scrollView(lines, state.scrollOffset, maxRows);
+  return scrollView(lines, state.scrollOffset, maxRows, state);
 }
 
 function renderComments(state, maxRows, cols) {
@@ -947,7 +1230,7 @@ function renderComments(state, maxRows, cols) {
   } else lines.push(`  ${DIM}No reviews yet.${RESET}`);
   lines.push(""); lines.push(`  ${DIM}${"─".repeat(cols - 4)}${RESET}`);
   for (const c of (d.comments || [])) { lines.push(""); lines.push(`  ${ratingStars(c.rating)}  ${CYAN}${BOLD}@${c.username}${RESET}  ${DIM}${c.created_at}${RESET}`); for (const l of c.body.split("\n")) lines.push(`  ${l}`); }
-  return scrollView(lines, state.scrollOffset, maxRows);
+  return scrollView(lines, state.scrollOffset, maxRows, state);
 }
 
 function renderGraph(state, maxRows, cols) {
@@ -966,16 +1249,16 @@ function renderGraph(state, maxRows, cols) {
   if (meta.inputs?.length) { lines.push(`  ${DIM}├── inputs${RESET}`); for (const i of meta.inputs) lines.push(`  ${DIM}│   └──${RESET} ${i}`); }
   if (meta.outputs?.length) { lines.push(`  ${DIM}└── outputs${RESET}`); for (const o of meta.outputs) lines.push(`  ${DIM}    └──${RESET} ${o}`); }
   if (lines.length === 3) lines.push(`  ${DIM}(no dependencies)${RESET}`);
-  return scrollView(lines, state.scrollOffset, maxRows);
+  return scrollView(lines, state.scrollOffset, maxRows, state);
 }
 
 function renderVersions(state, maxRows) {
   const lines = [];
   lines.push(`  ${BOLD}${CYAN}Version History: ${state.detail?.name}${RESET}`);
   lines.push("");
-  if (!state.versionList?.length) { lines.push(`  ${DIM}No versions.${RESET}`); return scrollView(lines, state.scrollOffset, maxRows); }
+  if (!state.versionList?.length) { lines.push(`  ${DIM}No versions.${RESET}`); return scrollView(lines, state.scrollOffset, maxRows, state); }
   for (const v of state.versionList) lines.push(`  ${GREEN}\u25CF${RESET} ${BOLD}${v.version}${RESET}  ${DIM}${v.created_at}${RESET}`);
-  return scrollView(lines, state.scrollOffset, maxRows);
+  return scrollView(lines, state.scrollOffset, maxRows, state);
 }
 
 function renderHelp(state, maxRows, cols) {
@@ -992,6 +1275,7 @@ function renderHelp(state, maxRows, cols) {
   lines.push(`  ${CYAN}space${RESET}    toggle select   ${CYAN}a${RESET}        select/deselect all`);
   lines.push(`  ${CYAN}p${RESET}        pull selected   ${CYAN}P${RESET}        quick pull one`);
   lines.push(`  ${CYAN}s${RESET}        cycle sort (name/date/rating/pulls)`);
+  lines.push(`  ${CYAN}{ }${RESET}      scroll preview pane (wide terminals)`);
   lines.push("");
   lines.push(`  ${BOLD}Detail View${RESET}`);
   lines.push(`  ${CYAN}c${RESET}        comments        ${CYAN}w${RESET}        write review`);
@@ -1008,7 +1292,7 @@ function renderHelp(state, maxRows, cols) {
     lines.push(`  ${CYAN}m${RESET}        metrics         ${CYAN}t${RESET}        audit trail`);
     lines.push(`  ${CYAN}i${RESET}        server config   ${CYAN}B${RESET}        blocked artifacts`);
   }
-  return scrollView(lines, state.scrollOffset, maxRows);
+  return scrollView(lines, state.scrollOffset, maxRows, state);
 }
 
 function renderBookmarks(state, maxRows) {
@@ -1021,7 +1305,7 @@ function renderBookmarks(state, maxRows) {
     const sel = i === state.selectedItem;
     lines.push(sel ? `  ${INVERSE} > ${RESET} ${YELLOW}\u2605${RESET} ${bm[i]}` : `      ${YELLOW}\u2605${RESET} ${DIM}${bm[i]}${RESET}`);
   }
-  return scrollView(lines, state.scrollOffset, maxRows);
+  return scrollView(lines, state.scrollOffset, maxRows, state);
 }
 
 function renderProjects(state, maxRows, cols) {
@@ -1035,7 +1319,7 @@ function renderProjects(state, maxRows, cols) {
     lines.push("");
   }
   if (tree.unassigned.length) { lines.push(`  ${DIM}${BOLD}(unassigned)${RESET}`); for (const e of tree.unassigned) lines.push(`  ${DIM}├──${RESET} ${GRAY}[${e._type}]${RESET} ${e.name}`); }
-  return scrollView(lines, state.scrollOffset, maxRows);
+  return scrollView(lines, state.scrollOffset, maxRows, state);
 }
 
 function renderConfig(state, maxRows) {
@@ -1053,7 +1337,7 @@ function renderConfig(state, maxRows) {
     ["Firewall", cfg.firewall?.enabled ? `${cfg.firewall.whitelist_count} IPs` : "disabled", cfg.firewall?.enabled],
   ];
   for (const [n, d, e] of features) lines.push(`  ${e ? `${GREEN}\u2713` : `${RED}\u2717`}${RESET}  ${BOLD}${n.padEnd(12)}${RESET} ${d}`);
-  return scrollView(lines, state.scrollOffset, maxRows);
+  return scrollView(lines, state.scrollOffset, maxRows, state);
 }
 
 function renderAgentSelect(state) {
@@ -1086,7 +1370,7 @@ function renderPulling(state, maxRows) {
     else if (r.status === "done") { lines.push(`  ${GREEN}\u2714${RESET} ${r.type}/${r.name}${GRAY}@${r.version || "?"}${r.attachments ? ` +${r.attachments} files` : ""}${RESET}`); if (r.target) lines.push(`    ${DIM}→ ${r.target}${RESET}`); }
     else if (r.status === "error") lines.push(`  ${RED}\u2718${RESET} ${r.type}/${r.name} ${RED}${r.error}${RESET}`);
   }
-  return scrollView(lines, state.scrollOffset, maxRows);
+  return scrollView(lines, state.scrollOffset, maxRows, state);
 }
 
 function renderMetrics(state, maxRows, cols) {
@@ -1104,7 +1388,7 @@ function renderMetrics(state, maxRows, cols) {
   const pu = group("ihub_push_total", "user");
   if (Object.keys(pu).length) { lines.push(`  ${BOLD}${GREEN}Pushes by User${RESET}`); bar(pu, GREEN); lines.push(""); }
   lines.push(`  ${DIM}/api/metrics  |  ${new Date().toISOString()}${RESET}`);
-  return scrollView(lines, state.scrollOffset, maxRows);
+  return scrollView(lines, state.scrollOffset, maxRows, state);
 }
 
 function renderAudit(state, maxRows, cols) {
@@ -1120,15 +1404,24 @@ function renderAudit(state, maxRows, cols) {
     lines.push(`  ${DIM}${e.created_at || ""}${RESET}  ${GRAY}${(e.ip || "").padEnd(15)}${RESET}  ${isA ? RED : CYAN}${(e.username || "anon").padEnd(10)}${RESET} ${badge} ${ac}${BOLD}${(e.action || "").toUpperCase().padEnd(18)}${RESET} ${e.type && e.name ? `${YELLOW}${e.type}/${e.name}${RESET}` : ""}${e.detail ? ` ${DIM}(${e.detail})${RESET}` : ""}`);
   }
   if (totalPages > 1) { lines.push(""); const h = []; if (state.auditPage < totalPages) h.push(`n → page ${state.auditPage + 1}`); if (state.auditPage > 1) h.push(`b → page ${state.auditPage - 1}`); lines.push(`  ${DIM}${h.join("  |  ")}${RESET}`); }
-  return scrollView(lines, state.scrollOffset, maxRows);
+  return scrollView(lines, state.scrollOffset, maxRows, state);
 }
 
 // --- Shared ---
 
-function scrollView(lines, offset, maxRows) {
-  const visible = lines.slice(offset, offset + maxRows);
+function scrollView(lines, offset, maxRows, state) {
+  // Clamp offset
+  const maxOffset = Math.max(0, lines.length - maxRows);
+  if (state && state.scrollOffset > maxOffset) state.scrollOffset = maxOffset;
+  const clampedOffset = state ? state.scrollOffset : Math.min(offset, maxOffset);
+  // Store for key handlers
+  if (state) {
+    state._contentLines = lines.length;
+    state._contentVisibleRows = maxRows;
+  }
+  const visible = lines.slice(clampedOffset, clampedOffset + maxRows);
   let out = visible.join("\n") + "\n";
-  if (lines.length > maxRows) out += `\n  ${DIM}${offset + 1}-${Math.min(offset + maxRows, lines.length)} of ${lines.length}${RESET}`;
+  if (lines.length > maxRows) out += `\n  ${DIM}${clampedOffset + 1}-${Math.min(clampedOffset + maxRows, lines.length)} of ${lines.length}${RESET}`;
   return out;
 }
 
