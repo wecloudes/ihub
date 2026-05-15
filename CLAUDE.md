@@ -28,6 +28,7 @@ server/    — registry API server
   db.js       — SQLite (users, entries, attachments, comments, audit_log)
   metrics.js  — Prometheus metrics collector
   sensitive.js — sensitive data detection and masking (80+ patterns)
+  security-alert.js — security alert notifications (terminal/slack/email via notify_via config)
 tests/     — 307 tests (node:test)
   parse, registry, render, dashboard, config, metrics, sensitive, slack, db, routes, cli, tui
 agents/ skills/ rules/ memories/ prompts/ — working directories (gitignored)
@@ -69,6 +70,8 @@ ihub metrics [--type T] [--user U] [--name N] [--project P]
 ihub config
 ihub backup [path]
 ihub admin set-role <user> <role>
+ihub admin approve <type>/<name>        # unblock artifact after security review
+ihub admin blocked                       # list blocked artifacts
 ihub admin digest
 
 # Auth
@@ -99,11 +102,11 @@ Run tests: `npm test` (307 tests)
 - Multi-agent pull: `--agent claude,cursor` installs to each agent's native path; Claude/Gemini/Qwen/Codex/OpenCode use `<name>/SKILL.md` dirs; Cursor uses `.mdc`
 - `transformForAgent()` rewrites frontmatter per agent on pull
 - `import` auto-detects source agent, maps fields, prompts for missing required fields
-- Sensitive data: scanned + masked on push (CLI + server-side); `sensitive-detected` audit action; `ihub_sensitive_detected_total` metric
+- Sensitive data: scanned + masked on push (CLI + server-side); if found, artifact is **blocked** (status: "blocked", pulls return 403); admin must `ihub admin approve` to unblock; security alert sent via `security.notify_via` (terminal/slack/email); `sensitive-detected` audit action; `ihub_sensitive_detected_total` metric
 - Firewall: IP whitelist loaded once at startup (immutable); supports exact, CIDR, wildcard; blocked IPs logged + tracked
 - Memories always install to local `memories/`
 - Attachments: companion files in `<type>/<name>/` uploaded on push, recreated on pull
-- TUI (`ihub browse`): types, list, detail, comments, projects (`j`), metrics (`m`), audit (`t`), config (`i`), remove (`d` twice to confirm), write review (`w`), multi-select + bulk pull (`space`/`a`/`p`), split-pane preview (`{`/`}` scroll, auto-shown when terminal >= 120 cols), dynamic resize, search cancel with Esc/q, scroll clamping, footer pinned to bottom
+- TUI (`ihub browse`): types, list, detail, comments, projects (`j`), metrics (`m`, side-by-side charts), audit (`t`), config (`i`), guide (`G`, 3-tab artifact reference), remove (`d` twice to confirm), write review (`w`), blocked (`B`), multi-select + bulk pull (`space`/`a`/`p`), split-pane preview (`{`/`}` scroll, auto-shown when terminal >= 120 cols), dynamic resize, search cancel with Esc/q, scroll clamping, footer pinned to bottom
 
 ## After every change
 

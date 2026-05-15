@@ -25,7 +25,7 @@ Artifacts can be created locally, imported from any coding agent, validated for 
 ### Browsing
 
 **browse**
-Interactive TUI browser for the registry. Navigate artifact types with arrow keys, drill into entries with Enter, view comments and ratings with c, search with /. Admin users can view metrics (m) and the audit trail (t) with pagination (n/b). Multi-select artifacts with space bar, select all with a, and bulk pull with p (prompts for coding agent and scope).
+Interactive TUI browser for the registry. Keys: ↑↓ navigate, ←→ switch type, ⏎ drill in, / search (Esc/q cancel), space multi-select, a select all, p pull selected, P quick pull, c comments, w write review, d remove (double-press to confirm), f bookmark, F bookmarks, g dependency graph, v versions, y copy pull command, j projects (shows current artifact's project, A for all), G artifact guide (3-tab reference: types, memory taxonomy, knowledge mapping), s cycle sort, {} scroll preview pane. Admin: m metrics (side-by-side charts when wide), t audit trail (n/b pages), i config, B blocked artifacts. Split-pane markdown preview appears on the right when terminal >= 120 columns. Terminal resize re-renders layout automatically.
 
 **list** [type]
 List entries. Type can be agents, skills, rules, memories, prompts, or omitted for all.
@@ -106,6 +106,12 @@ Download a full SQLite database backup. Defaults to ihub-backup-<timestamp>.db. 
 **admin set-role** <username> <role>
 Set a user's role to "user" or "admin". Admin only.
 
+**admin approve** <type>/<name>
+Unblock a blocked artifact after reviewing its sensitive data findings. The artifact's status changes from "blocked" to "available" and it becomes pullable. Admin only.
+
+**admin blocked**
+List all currently blocked artifacts with their type, name, owner, and findings summary. Admin only.
+
 **admin digest**
 Trigger the weekly Slack digest immediately. Admin only. Requires SLACK_WEBHOOK_URL.
 
@@ -142,7 +148,7 @@ Types accept singular or plural: agent/agents, skill/skills, rule/rules, memory/
 
 **rule** — A constraint or standard. Defines scope, severity (error/warning/info), and which agents it applies to.
 
-**memory** — Captured context or knowledge that persists across sessions. Defines scope, context type (memory/preference/decision/insight), and related entries.
+**memory** — Captured context or knowledge that persists across sessions. Defines scope, context type (decision/architecture/incident/domain/context/learning), and related entries.
 
 **prompt** — A reusable instruction template. Defines the prompt text, variables, target model, and compatible agents.
 
@@ -178,7 +184,9 @@ The server reads ihub.config.json on startup:
   "auth0": { "enabled": false, "domain": "", "client_id": "", "audience": "ihub-api" },
   "slack": { "enabled": false, "webhook_url": "", "digest_interval_hours": 168 },
   "metrics": { "enabled": true },
-  "audit": { "enabled": true, "log_anonymous": true }
+  "audit": { "enabled": true, "log_anonymous": true },
+  "firewall": { "enabled": false, "whitelist": [] },
+  "security": { "notify_via": "terminal", "email": "", "slack_webhook_url": "" }
 }
 ```
 
@@ -197,6 +205,15 @@ Environment variables override config file values. Set IHUB_CONFIG for a custom 
 - **AUTH0_CLIENT_ID** — Auth0 application client ID
 - **AUTH0_AUDIENCE** — Auth0 API audience (default: ihub-api)
 - **SLACK_WEBHOOK_URL** — Slack incoming webhook URL
+- **IHUB_FIREWALL_WHITELIST** — Comma-separated IP whitelist (exact, CIDR, wildcard)
+- **IHUB_SECURITY_NOTIFY_VIA** — Security alert channel: terminal, slack, or email
+- **IHUB_SECURITY_EMAIL** — Email address for security alerts (when notify_via=email)
+- **IHUB_SECURITY_SLACK_WEBHOOK** — Slack webhook for security alerts (separate from notifications)
+- **SMTP_HOST** — SMTP server host for email alerts
+- **SMTP_PORT** — SMTP server port (default: 587)
+- **SMTP_USER** — SMTP username
+- **SMTP_PASS** — SMTP password
+- **SMTP_FROM** — From address for security emails
 
 ## Files
 

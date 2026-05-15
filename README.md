@@ -344,7 +344,9 @@ ihub browse
 #       space multi-select, a select all, p pull selected, P quick pull
 #       c comments, w review, d remove (double-press), j projects
 #       {} scroll preview, s sort, f bookmark, F bookmarks, g graph, v versions
-#       m metrics, t audit, i config, B blocked (admin), q/esc back
+#       G guide (artifact types + memory taxonomy + knowledge mapping)
+#       m metrics (side-by-side charts), t audit, i config, B blocked (admin)
+#       q/esc back — terminal resize re-renders layout automatically
 # Split-pane preview appears automatically when terminal >= 120 columns
 
 # List everything
@@ -488,6 +490,12 @@ ihub backup /backups/ihub-2026-05-14.db
 ihub admin set-role bob admin
 ihub admin set-role carol user
 
+# Approve a blocked artifact (unblock after sensitive data review)
+ihub admin approve skills/slack-notifier
+
+# List all blocked artifacts
+ihub admin blocked
+
 # Trigger weekly Slack digest
 ihub admin digest
 ```
@@ -550,7 +558,7 @@ Frontmatter is a widely-used convention (Jekyll, Hugo, Obsidian, Claude Code) fo
 | Agent | `inputs`, `outputs`, `skills`, `rules` |
 | Skill | `triggers`, `args`, `compatible_agents` |
 | Rule | `scope`, `severity` (error/warning/info), `applies_to` |
-| Memory | `scope`, `context_type` (memory/preference/decision/insight), `related` |
+| Memory | `scope`, `context_type` (decision/architecture/incident/domain/context/learning), `related` |
 | Prompt | `model`, `compatible_agents` |
 
 ihub supports simple YAML only: strings, numbers, booleans, and inline arrays. No nested objects or multi-line values.
@@ -634,7 +642,8 @@ The server stores artifacts in SQLite and exposes a REST API. Deploy with Docker
   "slack": { "enabled": false, "webhook_url": "", "digest_interval_hours": 168 },
   "metrics": { "enabled": true },
   "audit": { "enabled": true, "log_anonymous": true },
-  "firewall": { "enabled": false, "whitelist": [] }
+  "firewall": { "enabled": false, "whitelist": [] },
+  "security": { "notify_via": "terminal", "email": "", "slack_webhook_url": "" }
 }
 ```
 
@@ -642,7 +651,21 @@ Environment variables override config file values. Config file is optional.
 
 ### Sensitive data protection
 
-Every artifact push is scanned for sensitive data (CLI + server-side). Detected values are automatically masked with `[MASKED:<type>]` tags before publishing. Covers 80+ patterns: API keys (AWS, Azure, GCP, OpenAI, Anthropic, Stripe, Slack, etc.), private keys, passwords, connection strings, PII (emails, phone numbers, credit cards, IBAN, DNI/NIE), and Kubernetes/ArgoCD tokens. Findings are logged as `sensitive-detected` audit actions and tracked via the `ihub_sensitive_detected_total` Prometheus metric.
+Every artifact push is scanned for sensitive data (CLI + server-side). Detected values are automatically masked with `[MASKED:<type>]` tags. If sensitive data is found, the artifact is **blocked** — it's stored but marked `status: "blocked"`, pulls return `403` ("pending admin approval"), and a security alert is sent. An admin must run `ihub admin approve <type>/<name>` to unblock it.
+
+Covers 80+ patterns: API keys (AWS, Azure, GCP, OpenAI, Anthropic, Stripe, Slack, etc.), private keys, passwords, connection strings, PII (emails, phone numbers, credit cards, IBAN, DNI/NIE), and Kubernetes/ArgoCD tokens. Findings are logged as `sensitive-detected` audit actions and tracked via the `ihub_sensitive_detected_total` Prometheus metric.
+
+### Security alerts
+
+When sensitive data is detected, a security alert is sent via the channel configured in `security.notify_via`:
+
+| Channel | Config | Description |
+|---------|--------|-------------|
+| `terminal` | Default, no setup | Prints alert to server console |
+| `slack` | `security.slack_webhook_url` | Sends Block Kit message to a dedicated Slack channel (separate from push notifications) |
+| `email` | `security.email` + SMTP env vars | Sends email via SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`) |
+
+The alert includes: artifact name, who pushed it, number of findings, finding types, and an `ihub admin approve` command to unblock.
 
 ### IP firewall
 
@@ -672,6 +695,8 @@ Set `firewall.enabled: true` with a whitelist of allowed IPs. Supports exact IPs
 | `GET` | `/api/backup` | Admin | Download DB backup |
 | `POST` | `/api/users/:username/role` | Admin | Set user role |
 | `POST` | `/api/digest` | Admin | Trigger Slack digest |
+| `GET` | `/api/blocked` | Admin | List blocked artifacts |
+| `POST` | `/api/:type/:name/approve` | Admin | Unblock artifact |
 | `GET` | `/api/metrics` | No | Prometheus metrics |
 
 ## Project structure

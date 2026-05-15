@@ -18,18 +18,19 @@ cli/           CLI tool (ESM, no external dependencies)
   registry.js    HTTP client for remote registry
   render.js      terminal markdown renderer (ANSI)
   dashboard.js   terminal metrics dashboard renderer
-  tui.js         interactive TUI browser (multi-select, comments, metrics)
+  tui.js         interactive TUI browser (multi-select, comments, metrics, audit, projects, guide, split-pane preview, dynamic resize)
   agents-config.js  coding agent path configs (Claude, Gemini, Qwen, Cursor, Codex, Open Code)
 server/        registry API server
   index.js       native http server entrypoint
-  routes.js      REST route handlers (auth, CRUD, comments, attachments, backup, metrics, audit)
+  routes.js      REST route handlers (auth, CRUD, comments, attachments, backup, metrics, audit, firewall, blocked/approve)
   auth0.js       Auth0 JWT verification (RS256, JWKS, optional)
   slack.js       Slack webhook (push notifications + digest)
   config.js      unified config loader (ihub.config.json + env vars)
   db.js          SQLite layer — users, entries, attachments, comments, audit_log
   metrics.js     in-memory Prometheus metrics collector
   sensitive.js   sensitive data detection and masking (80+ patterns)
-tests/         all tests (284, node:test)
+  security-alert.js  security alert notifications (terminal/slack/email)
+tests/         all tests (307, node:test)
   parse.test.js, registry.test.js, render.test.js, dashboard.test.js
   config.test.js, metrics.test.js, slack.test.js
   db.test.js, routes.test.js, cli.test.js, tui.test.js, sensitive.test.js
