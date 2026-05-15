@@ -106,9 +106,70 @@ function refreshGauges() {
   gauge("ihub_comments_count", {}, commentsRow.c);
 }
 
+// Firewall config — loaded once, immutable for the lifetime of the process
+let _firewallConfig = null;
+
+function getFirewallConfig() {
+  if (!_firewallConfig) {
+    const cfg = loadServerConfig();
+    _firewallConfig = Object.freeze({
+      enabled: cfg.firewall.enabled,
+      whitelist: Object.freeze([...cfg.firewall.whitelist]),
+    });
+  }
+  return _firewallConfig;
+}
+
+function normalizeIp(ip) {
+  if (!ip) return "";
+  // Strip IPv6 prefix for IPv4-mapped addresses (::ffff:192.168.1.1 → 192.168.1.1)
+  return ip.replace(/^::ffff:/, "");
+}
+
+function isIpAllowed(ip) {
+  const fw = getFirewallConfig();
+  if (!fw.enabled) return true;
+  const normalized = normalizeIp(ip);
+  return fw.whitelist.some((allowed) => {
+    // Exact match
+    if (normalized === allowed) return true;
+    // CIDR support: 10.0.0.0/8, 192.168.0.0/16, etc.
+    if (allowed.includes("/")) return matchCidr(normalized, allowed);
+    // Wildcard: 192.168.1.*
+    if (allowed.includes("*")) {
+      const regex = new RegExp("^" + allowed.replace(/\./g, "\\.").replace(/\*/g, "\\d{1,3}") + "$");
+      return regex.test(normalized);
+    }
+    return false;
+  });
+}
+
+function matchCidr(ip, cidr) {
+  const [range, bits] = cidr.split("/");
+  const mask = ~(2 ** (32 - parseInt(bits, 10)) - 1) >>> 0;
+  const ipNum = ipToInt(ip);
+  const rangeNum = ipToInt(range);
+  if (ipNum === null || rangeNum === null) return false;
+  return (ipNum & mask) === (rangeNum & mask);
+}
+
+function ipToInt(ip) {
+  const parts = ip.split(".");
+  if (parts.length !== 4) return null;
+  return parts.reduce((sum, octet) => (sum << 8) + parseInt(octet, 10), 0) >>> 0;
+}
+
 export async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const parts = url.pathname.replace(/^\/api\/?/, "").split("/").filter(Boolean);
+
+  // Firewall — check before anything else
+  const clientIp = getClientIp(req);
+  if (!isIpAllowed(clientIp)) {
+    inc("ihub_firewall_blocked_total", { ip: normalizeIp(clientIp) });
+    logAction({ ip: clientIp, action: "firewall-blocked", username: null, role: null, detail: `${req.method} /${parts.join("/")}` });
+    return sendError(res, 403, "Forbidden — IP not whitelisted");
+  }
 
   inc("ihub_http_requests_total", { method: req.method, path: `/${parts[0] || ""}` });
 
@@ -135,6 +196,7 @@ export async function handleRequest(req, res) {
       slack: { enabled: cfg.slack.enabled, digest_interval_hours: cfg.slack.digest_interval_hours },
       metrics: cfg.metrics,
       audit: cfg.audit,
+      firewall: { enabled: cfg.firewall.enabled, whitelist_count: cfg.firewall.whitelist.length },
     };
     return sendJson(res, 200, safe);
   }

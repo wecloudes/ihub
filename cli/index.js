@@ -1281,6 +1281,7 @@ async function showConfig() {
     ["Slack", cfg.slack.enabled ? `digest every ${cfg.slack.digest_interval_hours}h` : "disabled", cfg.slack.enabled],
     ["Metrics", cfg.metrics.enabled ? "/api/metrics" : "disabled", cfg.metrics.enabled],
     ["Audit", cfg.audit.enabled ? `anonymous: ${cfg.audit.log_anonymous}` : "disabled", cfg.audit.enabled],
+    ["Firewall", cfg.firewall?.enabled ? `${cfg.firewall.whitelist_count} IPs whitelisted` : "disabled", cfg.firewall?.enabled],
   ];
 
   for (const [name, detail, enabled] of features) {

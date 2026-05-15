@@ -12,6 +12,7 @@ const DEFAULTS = {
   slack: { enabled: false, webhook_url: "", digest_interval_hours: 168 },
   metrics: { enabled: true },
   audit: { enabled: true, log_anonymous: true },
+  firewall: { enabled: false, whitelist: [] },
 };
 
 let _config = null;
@@ -62,6 +63,16 @@ export function loadServerConfig() {
       enabled: fileConfig.audit?.enabled ?? DEFAULTS.audit.enabled,
       log_anonymous: fileConfig.audit?.log_anonymous ?? DEFAULTS.audit.log_anonymous,
     },
+    firewall: {
+      enabled: envBool("IHUB_FIREWALL_WHITELIST")
+        ?? fileConfig.firewall?.enabled
+        ?? DEFAULTS.firewall.enabled,
+      whitelist: parseWhitelist(
+        process.env.IHUB_FIREWALL_WHITELIST,
+        fileConfig.firewall?.whitelist,
+        DEFAULTS.firewall.whitelist
+      ),
+    },
   };
 
   return _config;
@@ -79,6 +90,7 @@ export function printConfig(config) {
   console.log(`  Slack:      ${config.slack.enabled ? "enabled" : "disabled"}`);
   console.log(`  Metrics:    ${config.metrics.enabled ? "enabled" : "disabled"}`);
   console.log(`  Audit:      ${config.audit.enabled ? "enabled" : "disabled"} (anonymous: ${config.audit.log_anonymous})`);
+  console.log(`  Firewall:   ${config.firewall.enabled ? `enabled (${config.firewall.whitelist.length} IPs)` : "disabled"}`);
 }
 
 /**
@@ -91,6 +103,12 @@ export function resetConfig() {
 function envInt(key) {
   const val = process.env[key];
   return val ? parseInt(val, 10) : undefined;
+}
+
+function parseWhitelist(envVal, fileVal, defaultVal) {
+  if (envVal) return envVal.split(",").map((ip) => ip.trim()).filter(Boolean);
+  if (Array.isArray(fileVal) && fileVal.length > 0) return fileVal;
+  return defaultVal;
 }
 
 function envBool(key) {
