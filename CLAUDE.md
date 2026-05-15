@@ -31,7 +31,7 @@ server/    — registry API server
 tests/     — 306 tests (node:test)
   parse, registry, render, dashboard, config, metrics, sensitive, slack, db, routes, cli, tui
 agents/ skills/ rules/ memories/ prompts/ — working directories (gitignored)
-examples/  — sample entries (4 agents, 6 skills, 4 rules, 3 memories, 5 prompts)
+examples/  — sample entries (4 agents, 6 skills, 4 rules, 3 memories, 5 prompts) + more in registry
 templates/ — scaffolding templates
 completions/ — bash + zsh shell completions
 man/       — manual page (ihub.1.md)

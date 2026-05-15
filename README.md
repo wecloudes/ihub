@@ -113,18 +113,24 @@ related: [code-reviewer]
 ```
 
 **Context types:**
-- `memory` — a general piece of knowledge (e.g. "the payments service uses Stripe v3")
-- `preference` — a team or user preference (e.g. "prefer functional style over classes")
-- `decision` — a recorded architectural decision with rationale
-- `insight` — a lesson learned from an incident or experience
+- `decision` — Why we chose X over Y. ADRs, trade-off analyses, rationale for technology choices. _Not a rule_ (rules enforce; decisions explain why).
+- `architecture` — How the system is structured. Service topology, data models, entity relationships, schemas. _Not a skill_ (skills do things; architecture describes things).
+- `incident` — What went wrong. Postmortems, timelines, root cause, impact, action items. _Not a runbook_ (runbooks are skills; incidents are evidence).
+- `domain` — Business concepts, glossary, regulatory context, user personas, industry constraints. _Not a constraint_ (rules constrain; domain knowledge informs).
+- `context` — Team structure, stakeholders, project state, ownership, priorities, timelines. _Not an agent definition_ (agents act; context describes the environment).
+- `learning` — Validated findings from experience. What worked, what didn't, benchmarks, measured results. _Not a policy_ (rules prescribe; learnings provide evidence).
 
 **Use a memory when:**
-- You learned something important during debugging or an incident
-- A team made an architectural decision and you want to capture _why_
-- You need context that should surface when working on related artifacts
-- The knowledge isn't actionable enough to be a rule
+- A team made an architectural decision and you want to capture _why_ (`decision`)
+- You need to document how the system is structured for onboarding (`architecture`)
+- An incident happened and you want to preserve the postmortem (`incident`)
+- Business rules or domain concepts need to be consistent across the team (`domain`)
+- Team structure, priorities, or project state needs to be shared (`context`)
+- You learned something valuable from experience that should inform future work (`learning`)
 
-**Real examples:** `api-versioning-strategy` (why URL-based versioning was chosen), `error-handling-patterns` (team conventions after a production incident), `deployment-checklist` (steps learned from past near-misses)
+**Key boundary:** Memories store knowledge — things an agent needs to **know**. They don't store actions (skills), constraints (rules), instructions (prompts), or actor definitions (agents).
+
+**Real examples:** `adr-001-database-choice` (PostgreSQL over MongoDB with rationale), `system-topology` (services, databases, queues), `incident-2026-03-redis` (Redis failover postmortem), `domain-payments` (business rules, provider constraints, EU regulations), `team-ownership` (who owns what, escalation paths), `learning-caching-strategy` (what caching approaches worked vs failed)
 
 ---
 

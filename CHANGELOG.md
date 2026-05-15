@@ -2,6 +2,16 @@
 
 All notable changes to ihub are documented in this file.
 
+## [0.3.0] - 2026-05-15
+
+### Added
+
+- **Memory taxonomy**: formalized `context_type` vocabulary for memories — `decision`, `architecture`, `incident`, `domain`, `context`, `learning` — with clear boundaries against other artifact types (memories store knowledge, not actions/constraints/instructions)
+- **Memory template**: updated with context_type reference and boundary guidance
+- **Registry examples**: 12 new memories covering all context types (3 ADRs, 2 architecture, 2 incidents, 2 domain, 2 context, 2 learnings), 3 agents, 4 skills, 3 rules, 3 prompts, 2 blocked artifacts, 3 users with 108+ comments
+
+---
+
 ## [0.2.0] - 2026-05-14
 
 ### Added
