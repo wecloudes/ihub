@@ -9,43 +9,57 @@
     {
       "title": "Total Users",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "gridPos": { "h": 4, "w": 3, "x": 0, "y": 0 },
       "targets": [{ "expr": "ihub_users_count", "legendFormat": "Users" }],
       "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "blue", "value": null }] } } }
     },
     {
       "title": "Total Entries",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "gridPos": { "h": 4, "w": 3, "x": 3, "y": 0 },
       "targets": [{ "expr": "sum(ihub_entries_count)", "legendFormat": "Entries" }],
       "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }] } } }
     },
     {
       "title": "Total Comments",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "gridPos": { "h": 4, "w": 3, "x": 6, "y": 0 },
       "targets": [{ "expr": "ihub_comments_count", "legendFormat": "Comments" }],
       "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "purple", "value": null }] } } }
     },
     {
-      "title": "HTTP Requests / min",
+      "title": "Pushes",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
-      "targets": [{ "expr": "sum(rate(ihub_http_requests_total[1m])) * 60", "legendFormat": "req/min" }],
-      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "orange", "value": null }] } } }
-    },
-    {
-      "title": "Registrations",
-      "type": "stat",
-      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
-      "targets": [{ "expr": "sum(ihub_register_total)", "legendFormat": "Registrations" }],
+      "gridPos": { "h": 4, "w": 3, "x": 9, "y": 0 },
+      "targets": [{ "expr": "sum(ihub_push_total)", "legendFormat": "Pushes" }],
       "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "yellow", "value": null }] } } }
     },
     {
-      "title": "Backups",
+      "title": "Pulls",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
-      "targets": [{ "expr": "sum(ihub_backup_total)", "legendFormat": "Backups" }],
+      "gridPos": { "h": 4, "w": 3, "x": 12, "y": 0 },
+      "targets": [{ "expr": "sum(ihub_pull_total)", "legendFormat": "Pulls" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }] } } }
+    },
+    {
+      "title": "Views",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 15, "y": 0 },
+      "targets": [{ "expr": "sum(ihub_view_total)", "legendFormat": "Views" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "blue", "value": null }] } } }
+    },
+    {
+      "title": "Sensitive Detected",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 18, "y": 0 },
+      "targets": [{ "expr": "sum(ihub_sensitive_detected_total)", "legendFormat": "Sensitive" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "red", "value": null }] } } }
+    },
+    {
+      "title": "Firewall Blocked",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 21, "y": 0 },
+      "targets": [{ "expr": "sum(ihub_firewall_blocked_total)", "legendFormat": "Blocked" }],
       "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "red", "value": null }] } } }
     },
     {
@@ -55,25 +69,47 @@
       "targets": [{ "expr": "ihub_entries_count", "legendFormat": "{{type}}" }]
     },
     {
+      "title": "Entries by Project",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 4 },
+      "targets": [{ "expr": "sum by (project) (ihub_entries_by_project_count)", "legendFormat": "{{project}}" }]
+    },
+    {
       "title": "Pushes over Time",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 4 },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 4 },
       "targets": [
         { "expr": "sum by (type) (rate(ihub_push_total[5m]))", "legendFormat": "{{type}}" }
       ]
     },
     {
       "title": "Pushes by User",
-      "type": "timeseries",
+      "type": "barchart",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
       "targets": [
-        { "expr": "sum by (user) (rate(ihub_push_total[5m]))", "legendFormat": "{{user}}" }
+        { "expr": "sum by (user) (ihub_push_total)", "legendFormat": "{{user}}" }
+      ]
+    },
+    {
+      "title": "Pulls by User",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        { "expr": "sum by (user) (ihub_pull_total)", "legendFormat": "{{user}}" }
+      ]
+    },
+    {
+      "title": "Pulls over Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "targets": [
+        { "expr": "sum by (type) (rate(ihub_pull_total[5m]))", "legendFormat": "{{type}}" }
       ]
     },
     {
       "title": "Views by Type",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
       "targets": [
         { "expr": "sum by (type) (rate(ihub_view_total[5m]))", "legendFormat": "{{type}}" }
       ]
@@ -81,34 +117,70 @@
     {
       "title": "Comments by User",
       "type": "barchart",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
       "targets": [
-        { "expr": "sum by (user) (ihub_comment_total)", "legendFormat": "{{user}}" }
+        { "expr": "sum by (user) (ihub_comments_by_user_count)", "legendFormat": "{{user}}" }
+      ]
+    },
+    {
+      "title": "Comments by Artifact",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "targets": [
+        { "expr": "topk(15, ihub_comments_by_artifact_count)", "legendFormat": "{{type}}/{{name}}" }
       ]
     },
     {
       "title": "Searches over Time",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 36 },
       "targets": [
         { "expr": "rate(ihub_search_total[5m])", "legendFormat": "searches/s" }
       ]
     },
     {
       "title": "Removes by User",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 36 },
       "targets": [
-        { "expr": "sum by (user) (rate(ihub_remove_total[5m]))", "legendFormat": "{{user}}" }
+        { "expr": "sum by (user) (ihub_remove_total)", "legendFormat": "{{user}}" }
       ]
     },
     {
       "title": "HTTP Requests by Method",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 36 },
       "targets": [
         { "expr": "sum by (method) (rate(ihub_http_requests_total[5m]))", "legendFormat": "{{method}}" }
       ]
+    },
+    {
+      "title": "HTTP Requests / min",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 44 },
+      "targets": [{ "expr": "sum(rate(ihub_http_requests_total[1m])) * 60", "legendFormat": "req/min" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "orange", "value": null }] } } }
+    },
+    {
+      "title": "Registrations",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 44 },
+      "targets": [{ "expr": "sum(ihub_register_total)", "legendFormat": "Registrations" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "yellow", "value": null }] } } }
+    },
+    {
+      "title": "Backups",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 44 },
+      "targets": [{ "expr": "sum(ihub_backup_total)", "legendFormat": "Backups" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "semi-dark-blue", "value": null }] } } }
+    },
+    {
+      "title": "Role Changes",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 44 },
+      "targets": [{ "expr": "sum(ihub_role_change_total)", "legendFormat": "Role Changes" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "orange", "value": null }] } } }
     }
   ],
   "schemaVersion": 39,

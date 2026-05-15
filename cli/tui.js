@@ -249,7 +249,7 @@ export async function startTui(baseUrl, token) {
       } else if (state.view === "comments" || state.view === "graph") {
         state.view = "detail";
         state.scrollOffset = 0;
-      } else if (state.view === "metrics" || state.view === "projects" || state.view === "config" || state.view === "versions") {
+      } else if (state.view === "metrics" || state.view === "projects" || state.view === "config" || state.view === "versions" || state.view === "guide") {
         state.view = "list";
         state.scrollOffset = 0;
       } else if (state.view === "detail") {
@@ -945,7 +945,9 @@ function render(state) {
 
   // Footer — pinned to bottom
   output += `${DIM}${"─".repeat(cols)}${RESET}\n`;
-  output += `${DIM}${getFooter(state)}${RESET}`;
+  let footer = getFooter(state);
+  if (state._scrollInfo) footer += `  ${state._scrollInfo}`;
+  output += `${DIM}${footer}${RESET}`;
 
   process.stdout.write(output);
 }
@@ -1586,18 +1588,153 @@ function renderPulling(state, maxRows) {
 
 function renderMetrics(state, maxRows, cols) {
   if (!state.metrics) return `  ${DIM}No metrics.${RESET}\n`;
-  const lines = []; const parsed = {};
-  for (const line of state.metrics.split("\n")) { if (!line || line.startsWith("#")) continue; const m = line.match(/^([a-zA-Z_]+)(?:\{(.+?)\})?\s+(.+)$/); if (!m) continue; const [, name, ls, v] = m; if (!parsed[name]) parsed[name] = []; const labels = {}; if (ls) for (const p of ls.match(/[a-zA-Z_]+="[^"]*"/g) || []) { const eq = p.indexOf("="); labels[p.slice(0, eq)] = p.slice(eq + 2, -1); } parsed[name].push({ labels, value: parseFloat(v) }); }
-  lines.push(`  ${BG_YELLOW}${BLACK}${BOLD} Metrics ${RESET}`); lines.push("");
+  const lines = [];
+  const parsed = {};
+  for (const line of state.metrics.split("\n")) {
+    if (!line || line.startsWith("#")) continue;
+    const m = line.match(/^([a-zA-Z_]+)(?:\{(.+?)\})?\s+(.+)$/);
+    if (!m) continue;
+    const [, name, ls, v] = m;
+    if (!parsed[name]) parsed[name] = [];
+    const labels = {};
+    if (ls) for (const p of ls.match(/[a-zA-Z_]+="[^"]*"/g) || []) {
+      const eq = p.indexOf("=");
+      labels[p.slice(0, eq)] = p.slice(eq + 2, -1);
+    }
+    parsed[name].push({ labels, value: parseFloat(v) });
+  }
+
   const sum = (n) => (parsed[n] || []).reduce((s, e) => s + e.value, 0);
-  lines.push(`  ${CYAN}${BOLD}${sum("ihub_users_count")}${RESET} ${DIM}Users${RESET}   ${GREEN}${BOLD}${sum("ihub_entries_count")}${RESET} ${DIM}Entries${RESET}   ${MAGENTA}${BOLD}${sum("ihub_comments_count")}${RESET} ${DIM}Comments${RESET}   ${YELLOW}${BOLD}${sum("ihub_push_total")}${RESET} ${DIM}Pushes${RESET}   ${BLUE}${BOLD}${sum("ihub_view_total")}${RESET} ${DIM}Views${RESET}`);
+  const group = (n, l) => {
+    const r = {};
+    for (const e of (parsed[n] || [])) { const k = e.labels[l] || "?"; r[k] = (r[k] || 0) + e.value; }
+    return r;
+  };
+  const groupTwo = (n, l1, l2) => {
+    const r = {};
+    for (const e of (parsed[n] || [])) { const k = `${e.labels[l1] || "?"}/${e.labels[l2] || "?"}`; r[k] = (r[k] || 0) + e.value; }
+    return r;
+  };
+
+  // Side-by-side layout when terminal is wide enough
+  const canPair = cols >= 100;
+  const paneW = canPair ? Math.floor((cols - 5) / 2) : cols - 4;
+  const chartBarW = Math.min(20, Math.max(8, paneW - 28));
+  const chartLabelW = Math.min(20, Math.max(10, paneW - chartBarW - 8));
+
+  // Build a chart block as an array of lines
+  function makeChart(title, data, color, limit = 10) {
+    const block = [];
+    const sorted = Object.entries(data).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, limit);
+    if (sorted.length === 0) return block;
+    const max = Math.max(...sorted.map(([, v]) => v), 1);
+    block.push(`${BOLD}${color}${title}${RESET}`);
+    for (const [k, v] of sorted) {
+      const len = Math.max(1, Math.round((v / max) * chartBarW));
+      block.push(`  ${k.padEnd(chartLabelW).slice(0, chartLabelW)} ${color}${"█".repeat(len)}${DIM}${"░".repeat(chartBarW - len)}${RESET} ${v}`);
+    }
+    const total = Object.entries(data).filter(([, v]) => v > 0).length;
+    if (total > limit) block.push(`  ${DIM}...and ${total - limit} more${RESET}`);
+    return block;
+  }
+
+  // Merge two chart blocks side-by-side
+  function sideBySide(leftBlock, rightBlock) {
+    const h = Math.max(leftBlock.length, rightBlock.length);
+    for (let i = 0; i < h; i++) {
+      const left = padVisible(leftBlock[i] || "", paneW);
+      const right = rightBlock[i] || "";
+      lines.push(`  ${left} ${DIM}│${RESET} ${right}`);
+    }
+    lines.push("");
+  }
+
+  // Add a chart pair (side-by-side if wide, stacked if narrow)
+  function addCharts(left, right) {
+    if (left.length === 0 && right.length === 0) return;
+    if (canPair && left.length > 0 && right.length > 0) {
+      sideBySide(left, right);
+    } else {
+      if (left.length > 0) { for (const l of left) lines.push(`  ${l}`); lines.push(""); }
+      if (right.length > 0) { for (const l of right) lines.push(`  ${l}`); lines.push(""); }
+    }
+  }
+
+  lines.push(`  ${BG_YELLOW}${BLACK}${BOLD} Metrics ${RESET}`);
   lines.push("");
-  const group = (n, l) => { const r = {}; for (const e of (parsed[n] || [])) { const k = e.labels[l] || "?"; r[k] = (r[k] || 0) + e.value; } return r; };
-  const bar = (data, color, limit = 10) => { const sorted = Object.entries(data).sort((a, b) => b[1] - a[1]).slice(0, limit); const max = Math.max(...sorted.map(([, v]) => v), 1); for (const [k, v] of sorted) { const len = Math.max(1, Math.round((v / max) * 20)); lines.push(`    ${k.padEnd(20)} ${color}${"█".repeat(len)}${DIM}${"░".repeat(20 - len)}${RESET} ${v}`); } };
-  const et = parsed["ihub_entries_count"] || [];
-  if (et.length) { lines.push(`  ${BOLD}${YELLOW}Entries by Type${RESET}`); bar(Object.fromEntries(et.map((e) => [e.labels.type || "?", e.value])), GREEN); lines.push(""); }
-  const pu = group("ihub_push_total", "user");
-  if (Object.keys(pu).length) { lines.push(`  ${BOLD}${GREEN}Pushes by User${RESET}`); bar(pu, GREEN); lines.push(""); }
+
+  // Stats row
+  const stats = [
+    [CYAN, sum("ihub_users_count"), "Users"],
+    [GREEN, sum("ihub_entries_count"), "Entries"],
+    [MAGENTA, sum("ihub_comments_count"), "Comments"],
+    [YELLOW, sum("ihub_push_total"), "Pushes"],
+    [BLUE, sum("ihub_pull_total"), "Pulls"],
+    [WHITE, sum("ihub_view_total"), "Views"],
+    [RED, sum("ihub_search_total"), "Searches"],
+    [GRAY, sum("ihub_remove_total"), "Removes"],
+  ];
+  lines.push("  " + stats.map(([c, v, l]) => `${c}${BOLD}${v}${RESET} ${DIM}${l}${RESET}`).join("   "));
+  lines.push("");
+
+  // Security stats
+  const sensitive = sum("ihub_sensitive_detected_total");
+  const firewalled = sum("ihub_firewall_blocked_total");
+  if (sensitive > 0 || firewalled > 0) {
+    lines.push(`  ${BG_RED}${WHITE}${BOLD} Security ${RESET}  ${RED}${BOLD}${sensitive}${RESET} ${DIM}sensitive detected${RESET}   ${RED}${BOLD}${firewalled}${RESET} ${DIM}firewall blocked${RESET}`);
+    lines.push("");
+  }
+
+  // Build all chart blocks
+  const etData = Object.fromEntries((parsed["ihub_entries_count"] || []).map((e) => [e.labels.type || "?", e.value]));
+  const epData = group("ihub_entries_by_project_count", "project");
+  const puData = group("ihub_push_total", "user");
+  const paData = groupTwo("ihub_push_total", "type", "name");
+  const pluData = group("ihub_pull_total", "user");
+  const plaData = groupTwo("ihub_pull_total", "type", "name");
+  const vuData = group("ihub_view_total", "user");
+  const vaData = groupTwo("ihub_view_total", "type", "name");
+  const cuData = group("ihub_comments_by_user_count", "user");
+  const caObj = {};
+  for (const e of (parsed["ihub_comments_by_artifact_count"] || [])) caObj[`${e.labels.type || "?"}/${e.labels.name || "?"}`] = e.value;
+  const ruData = group("ihub_remove_total", "user");
+  const hmData = group("ihub_http_requests_total", "method");
+
+  // Pair charts by theme
+  addCharts(
+    makeChart("Entries by Type", etData, YELLOW),
+    makeChart("Entries by Project", epData, CYAN)
+  );
+  addCharts(
+    makeChart("Pushes by User", puData, YELLOW),
+    makeChart("Pushes by Artifact", paData, YELLOW, 8)
+  );
+  addCharts(
+    makeChart("Pulls by User", pluData, GREEN),
+    makeChart("Pulls by Artifact", plaData, GREEN, 8)
+  );
+  addCharts(
+    makeChart("Views by User", vuData, BLUE),
+    makeChart("Views by Artifact", vaData, BLUE, 8)
+  );
+  addCharts(
+    makeChart("Comments by User", cuData, MAGENTA),
+    makeChart("Comments by Artifact", caObj, MAGENTA, 8)
+  );
+  addCharts(
+    makeChart("Removes by User", ruData, RED),
+    makeChart("HTTP Requests", hmData, WHITE)
+  );
+
+  // Admin stats
+  const regs = sum("ihub_register_total");
+  const backups = sum("ihub_backup_total");
+  const roleChanges = sum("ihub_role_change_total");
+  if (regs > 0 || backups > 0 || roleChanges > 0) {
+    lines.push(`  ${BOLD}Admin${RESET}  ${DIM}Registrations:${RESET} ${regs}   ${DIM}Backups:${RESET} ${backups}   ${DIM}Role changes:${RESET} ${roleChanges}`);
+    lines.push("");
+  }
+
   lines.push(`  ${DIM}/api/metrics  |  ${new Date().toISOString()}${RESET}`);
   return scrollView(lines, state.scrollOffset, maxRows, state);
 }
@@ -1632,7 +1769,12 @@ function scrollView(lines, offset, maxRows, state) {
   }
   const visible = lines.slice(clampedOffset, clampedOffset + maxRows);
   let out = visible.join("\n") + "\n";
-  if (lines.length > maxRows) out += `\n  ${DIM}${clampedOffset + 1}-${Math.min(clampedOffset + maxRows, lines.length)} of ${lines.length}${RESET}`;
+  // Store pagination info for footer display
+  if (state && lines.length > maxRows) {
+    state._scrollInfo = `${clampedOffset + 1}-${Math.min(clampedOffset + maxRows, lines.length)} of ${lines.length}`;
+  } else if (state) {
+    state._scrollInfo = null;
+  }
   return out;
 }
 
