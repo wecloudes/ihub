@@ -74,9 +74,10 @@ async function loadList(){
   $('list').style.display='grid';
   try{
     const r=await fetch('/api/'+currentType);
+    if(!r.ok) throw new Error('HTTP '+r.status);
     const d=await r.json();
     allItems=Array.isArray(d)?d:[];
-  }catch{allItems=[];}
+  }catch(e){allItems=[];console.error('loadList error:',e);}
   renderList();
 }
 
@@ -114,7 +115,7 @@ async function showDetail(name){
     }catch{}
     det.innerHTML='<span class="back">&larr; Back to list</span><h2>'+esc(d.name||name)+'</h2><div class="meta">'+(d.version?'v'+esc(d.version)+' · ':'')+esc(d.owner||'')+' '+tags+' '+stars+'</div><div class="body">'+renderMd(d.body||'')+'</div>'+comments;
     det.querySelector('.back').onclick=()=>{det.style.display='none';$('list').style.display='grid'};
-  }catch(e){det.innerHTML='<span class="back">&larr; Back</span><p>Error loading artifact</p>';det.querySelector('.back').onclick=()=>{det.style.display='none';$('list').style.display='grid'};}
+  }catch(e){det.innerHTML='<span class="back">&larr; Back</span><p>Error loading artifact: '+esc(e.message)+'</p>';det.querySelector('.back').onclick=()=>{det.style.display='none';$('list').style.display='grid'};}
 }
 
 function renderMd(text){
@@ -124,8 +125,8 @@ function renderMd(text){
     .replace(/^# (.+)$/gm,'<h1>$1</h1>')
     .replace(/\`\`\`([\\s\\S]*?)\`\`\`/g,'<pre><code>$1</code></pre>')
     .replace(/\`([^\`]+)\`/g,'<code>$1</code>')
-    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g,'<em>$1</em>')
+    .replace(/\\*\\*(.+?)\\*\\*/g,'<strong>$1</strong>')
+    .replace(/\\*(.+?)\\*/g,'<em>$1</em>')
     .replace(/^- (.+)$/gm,'&bull; $1<br>')
     .replace(/\\n/g,'<br>');
 }
