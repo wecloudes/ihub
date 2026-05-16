@@ -12,6 +12,7 @@ import {
   getUserCount,
   setUserRole,
   backupDb,
+  restoreDb,
   addComment,
   getComments,
   deleteComment,
@@ -41,7 +42,7 @@ import { runBeforePush, runAfterPush, runBeforePull } from "./plugins.js";
 import { enforcePolicy } from "./versioning.js";
 import { handleUiRequest } from "./ui.js";
 import { randomBytes } from "crypto";
-import { createReadStream, unlinkSync } from "fs";
+import { createReadStream, unlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { syncFromUpstream, listUpstreams } from "./federation.js";
@@ -292,6 +293,42 @@ export async function handleRequest(req, res) {
       stream.on("end", () => { try { unlinkSync(tmpPath); } catch {} });
       stream.on("error", () => { try { unlinkSync(tmpPath); } catch {} });
     }).catch((err) => sendError(res, 500, `Backup failed: ${err.message}`));
+  }
+
+  // POST /api/backup — admin only, restore DB from uploaded file
+  if (parts[0] === "backup" && req.method === "POST") {
+    const user = await authenticate(req);
+    if (!user) return sendError(res, 401, "Invalid or missing API key");
+    if (user.role !== "admin") return sendError(res, 403, "Admin access required");
+
+    return new Promise((resolve) => {
+      const chunks = [];
+      req.on("data", (chunk) => chunks.push(chunk));
+      req.on("end", () => {
+        const buf = Buffer.concat(chunks);
+        if (buf.length < 100) {
+          resolve(sendError(res, 400, "Invalid backup file — too small"));
+          return;
+        }
+        // SQLite magic bytes: "SQLite format 3\0"
+        const header = buf.slice(0, 16).toString("ascii");
+        if (!header.startsWith("SQLite format 3")) {
+          resolve(sendError(res, 400, "Invalid backup file — not a SQLite database"));
+          return;
+        }
+        const tmpPath = join(tmpdir(), `ihub-restore-${Date.now()}.db`);
+        writeFileSync(tmpPath, buf);
+        try {
+          restoreDb(tmpPath);
+          try { unlinkSync(tmpPath); } catch {}
+          logAction({ ip: getClientIp(req), action: "restore", username: user.username, role: user.role, detail: `${buf.length} bytes` });
+          resolve(sendJson(res, 200, { ok: true, message: "Database restored", size: buf.length }));
+        } catch (err) {
+          try { unlinkSync(tmpPath); } catch {}
+          resolve(sendError(res, 500, `Restore failed: ${err.message}`));
+        }
+      });
+    });
   }
 
   // POST /api/users/:username/role — admin only, set user role

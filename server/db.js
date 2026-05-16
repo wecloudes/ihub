@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { join } from "path";
+import { copyFileSync } from "fs";
 
 const DB_PATH = process.env.IHUB_DB_PATH || join(process.cwd(), "ihub.db");
 
@@ -151,6 +152,15 @@ export function setUserRole(username, role) {
 export function backupDb(destPath) {
   const db = getDb();
   return db.backup(destPath);
+}
+
+export function restoreDb(sourcePath) {
+  const currentDb = getDb();
+  currentDb.close();
+  db = null;
+  copyFileSync(sourcePath, DB_PATH);
+  // Reopen and re-init
+  getDb();
 }
 
 // --- Entries ---

@@ -166,6 +166,7 @@ const commands = {
   metrics,
   audit,
   backup,
+  restore,
   admin,
   register,
   login,
@@ -1744,6 +1745,38 @@ async function backup(args) {
   console.log(`Backup saved to: ${outputPath}`);
 }
 
+async function restore(args) {
+  const filePath = args[0];
+  if (!filePath) {
+    console.error("Usage: ihub restore <backup-file.db>");
+    console.error("  Restores the server database from a backup file.");
+    process.exit(1);
+  }
+  if (!existsSync(filePath)) {
+    console.error(`File not found: ${filePath}`);
+    process.exit(1);
+  }
+  const { base, authHeaders } = loadConfig();
+  const buf = readFileSync(filePath);
+  const header = buf.slice(0, 16).toString("ascii");
+  if (!header.startsWith("SQLite format 3")) {
+    console.error("Invalid backup file — not a SQLite database.");
+    process.exit(1);
+  }
+  console.log(`Restoring from ${filePath} (${buf.length} bytes)...`);
+  const res = await fetch(`${base}/api/backup`, {
+    method: "POST",
+    headers: { ...authHeaders, "Content-Type": "application/octet-stream" },
+    body: buf,
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    console.error(`Restore failed: ${data.error}`);
+    process.exit(1);
+  }
+  console.log(`Database restored successfully (${data.size} bytes).`);
+}
+
 async function admin(args) {
   const [subcommand, ...subArgs] = args;
 
@@ -2289,10 +2322,13 @@ Commands:
   preview <type> <name>       Render an entry with markdown formatting
   validate                    Check all entries for missing fields and broken refs
   projects [name]             Tree view of all projects and their artifacts
-  create <type> <name> [-i]   Create a new entry (-i for interactive)
+  create <type> <name> [-i] [--from <template>]
+                              Create a new entry (-i for interactive, --from to use registry template)
   import <type> <path> [-i]  Import from external path (auto-push, -i for metadata prompts)
   push <type> <name>          Publish a local entry to the registry
   pull <type> <name[:ver]>    Download an entry (--local or --global)
+  pull <url>                  Pull artifact directly from any registry URL
+  watch                       Watch local dirs and auto-push on save
   remove <type> <name>        Remove an entry (owner only)
   comment <type> <name>       Add a comment with rating (1-5)
   comments <type> <name>      View comments and average rating
