@@ -14,6 +14,7 @@ const DEFAULTS = {
   audit: { enabled: true, log_anonymous: true },
   firewall: { enabled: false, whitelist: [] },
   security: { notify_via: "terminal", email: "", slack_webhook_url: "" },
+  storage: { adapter: "sqlite" },
 };
 
 let _config = null;
@@ -69,6 +70,11 @@ export function loadServerConfig() {
       email: process.env.IHUB_SECURITY_EMAIL || fileConfig.security?.email || DEFAULTS.security.email,
       slack_webhook_url: process.env.IHUB_SECURITY_SLACK_WEBHOOK || fileConfig.security?.slack_webhook_url || DEFAULTS.security.slack_webhook_url,
     },
+    storage: {
+      adapter: process.env.IHUB_STORAGE_ADAPTER || fileConfig.storage?.adapter || DEFAULTS.storage.adapter,
+      ...(fileConfig.storage || {}),
+      ...(process.env.IHUB_STORAGE_ADAPTER ? { adapter: process.env.IHUB_STORAGE_ADAPTER } : {}),
+    },
     firewall: {
       enabled: envBool("IHUB_FIREWALL_WHITELIST")
         ?? fileConfig.firewall?.enabled
@@ -96,6 +102,7 @@ export function printConfig(config) {
   console.log(`  Slack:      ${config.slack.enabled ? "enabled" : "disabled"}`);
   console.log(`  Metrics:    ${config.metrics.enabled ? "enabled" : "disabled"}`);
   console.log(`  Audit:      ${config.audit.enabled ? "enabled" : "disabled"} (anonymous: ${config.audit.log_anonymous})`);
+  console.log(`  Storage:    ${config.storage.adapter}${config.storage.adapter !== "sqlite" ? ` (${config.storage.bucket || config.storage.root || ""})` : ""}`);
   console.log(`  Security:   notify via ${config.security.notify_via}`);
   console.log(`  Firewall:   ${config.firewall.enabled ? `enabled (${config.firewall.whitelist.length} IPs)` : "disabled"}`);
 }

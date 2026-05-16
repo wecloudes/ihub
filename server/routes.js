@@ -341,7 +341,7 @@ export async function handleRequest(req, res) {
 
     const artType = parts[0];
     const artName = parts[1];
-    const entry = getEntry(artType, artName);
+    const entry = await getEntry(artType, artName);
     if (!entry) return sendError(res, 404, `Not found: ${artType}/${artName}`);
     if (entry.status === "available") return sendJson(res, 200, { ok: true, message: "Already available" });
 
@@ -413,7 +413,7 @@ export async function handleRequest(req, res) {
     const user = await authenticate(req);
     if (!user) return sendError(res, 401, "Invalid or missing API key");
 
-    const entry = getEntry(type, name);
+    const entry = await getEntry(type, name);
     if (!entry) return sendError(res, 404, `Not found: ${type}/${name}`);
 
     return readBody(req).then((data) => {
@@ -446,10 +446,10 @@ export async function handleRequest(req, res) {
     const filepath = parts.slice(3).join("/");
     if (!filepath) {
       // List attachments
-      const attachments = getAttachments(type, name);
+      const attachments = await getAttachments(type, name);
       return sendJson(res, 200, { attachments });
     }
-    const content = getAttachmentContent(type, name, filepath);
+    const content = await getAttachmentContent(type, name, filepath);
     if (!content) return sendError(res, 404, `Attachment not found: ${filepath}`);
     res.writeHead(200, {
       "Content-Type": "application/octet-stream",
@@ -462,7 +462,7 @@ export async function handleRequest(req, res) {
   // GET /api/:type/:name
   if (req.method === "GET") {
     const version = url.searchParams.get("version");
-    const entry = getEntry(type, name, version);
+    const entry = await getEntry(type, name, version);
     if (!entry) return sendError(res, 404, `Not found: ${type}/${name}`);
     const user = await authenticate(req);
 
@@ -479,7 +479,7 @@ export async function handleRequest(req, res) {
     if (isPull) inc("ihub_pull_total", { type, name, user: user?.username || "anonymous" });
     logAction({ ip: getClientIp(req), action, username: user?.username || "anonymous", role: user?.role, type, name });
 
-    const attachments = getAttachments(type, name);
+    const attachments = await getAttachments(type, name);
     return sendJson(res, 200, { ...entry, attachments });
   }
 
@@ -488,7 +488,7 @@ export async function handleRequest(req, res) {
     const user = await authenticate(req);
     if (!user) return sendError(res, 401, "Invalid or missing API key");
 
-    return readBody(req).then((data) => {
+    return readBody(req).then(async (data) => {
       if (!data.version) return sendError(res, 400, "Missing version");
 
       // Server-side sensitive data scan and mask
@@ -507,7 +507,7 @@ export async function handleRequest(req, res) {
         }
       }
 
-      const result = upsertEntry({
+      const result = await upsertEntry({
         type,
         name,
         version: data.version,
@@ -527,7 +527,7 @@ export async function handleRequest(req, res) {
       if (data.attachments) {
         for (const att of data.attachments) {
           if (!att.filepath || !att.content) continue;
-          upsertAttachment({ type, name, filepath: att.filepath, content: att.content });
+          await upsertAttachment({ type, name, filepath: att.filepath, content: att.content });
         }
       }
 
@@ -571,9 +571,9 @@ export async function handleRequest(req, res) {
       return sendError(res, 403, `Only the owner "${owner}" can remove ${type}/${name}`);
     }
 
-    const deleted = deleteEntry(type, name);
+    const deleted = await deleteEntry(type, name);
     if (!deleted) return sendError(res, 404, `Not found: ${type}/${name}`);
-    deleteAttachments(type, name);
+    await deleteAttachments(type, name);
     inc("ihub_remove_total", { type, name, user: user.username });
     logAction({ ip: getClientIp(req), action: "remove", username: user.username, role: user.role, type, name });
     return sendJson(res, 200, { ok: true, deleted: `${type}/${name}` });

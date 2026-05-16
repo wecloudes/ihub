@@ -88,21 +88,21 @@ describe("database", () => {
 
   // --- Entries with ownership ---
 
-  it("upserts and retrieves an entry with owner", () => {
-    const result = upsertEntry({
+  it("upserts and retrieves an entry with owner", async () => {
+    const result = await upsertEntry({
       type: "agents", name: "test-agent", version: "0.1.0",
       description: "A test agent", tags: ["test"], meta: { name: "test-agent" },
       body: "# Test", author: "tester", owner: "alice",
     });
     assert.equal(result.ok, true);
 
-    const entry = getEntry("agents", "test-agent");
+    const entry = await getEntry("agents", "test-agent");
     assert.equal(entry.name, "test-agent");
     assert.equal(entry.owner, "alice");
   });
 
-  it("owner can update their own entry", () => {
-    const result = upsertEntry({
+  it("owner can update their own entry", async () => {
+    const result = await upsertEntry({
       type: "agents", name: "test-agent", version: "0.2.0",
       description: "Updated", tags: ["test", "v2"], meta: { name: "test-agent" },
       body: "# Test v2", author: "tester", owner: "alice",
@@ -110,9 +110,9 @@ describe("database", () => {
     assert.equal(result.ok, true);
   });
 
-  it("non-owner cannot push new version", () => {
+  it("non-owner cannot push new version", async () => {
     registerUser("bob", "bob-key-456");
-    const result = upsertEntry({
+    const result = await upsertEntry({
       type: "agents", name: "test-agent", version: "0.3.0",
       description: "Hijacked", tags: [], meta: {},
       body: "", author: "bob", owner: "bob",
@@ -121,8 +121,8 @@ describe("database", () => {
     assert.equal(result.existingOwner, "alice");
   });
 
-  it("non-owner cannot overwrite existing version", () => {
-    const result = upsertEntry({
+  it("non-owner cannot overwrite existing version", async () => {
+    const result = await upsertEntry({
       type: "agents", name: "test-agent", version: "0.1.0",
       description: "Overwritten", tags: [], meta: {},
       body: "", author: "bob", owner: "bob",
@@ -138,23 +138,23 @@ describe("database", () => {
     assert.equal(getEntryOwner("agents", "nonexistent"), null);
   });
 
-  it("retrieves by specific version", () => {
-    const v1 = getEntry("agents", "test-agent", "0.1.0");
+  it("retrieves by specific version", async () => {
+    const v1 = await getEntry("agents", "test-agent", "0.1.0");
     assert.equal(v1.version, "0.1.0");
-    const v2 = getEntry("agents", "test-agent", "0.2.0");
+    const v2 = await getEntry("agents", "test-agent", "0.2.0");
     assert.equal(v2.version, "0.2.0");
   });
 
-  it("returns null for nonexistent entry", () => {
-    assert.equal(getEntry("agents", "nonexistent"), null);
+  it("returns null for nonexistent entry", async () => {
+    assert.equal(await getEntry("agents", "nonexistent"), null);
   });
 
-  it("lists entries (latest version per name)", () => {
-    upsertEntry({
+  it("lists entries (latest version per name)", async () => {
+    await upsertEntry({
       type: "skills", name: "skill-a", version: "1.0.0",
       description: "Skill A", tags: [], meta: {}, body: "", author: "", owner: "alice",
     });
-    upsertEntry({
+    await upsertEntry({
       type: "skills", name: "skill-b", version: "1.0.0",
       description: "Skill B", tags: [], meta: {}, body: "", author: "", owner: "bob",
     });
@@ -173,25 +173,25 @@ describe("database", () => {
     assert.ok(results.some((r) => r.name === "test-agent"));
   });
 
-  it("deletes an entry (all versions)", () => {
-    assert.equal(deleteEntry("skills", "skill-b"), true);
-    assert.equal(getEntry("skills", "skill-b"), null);
+  it("deletes an entry (all versions)", async () => {
+    assert.equal(await deleteEntry("skills", "skill-b"), true);
+    assert.equal(await getEntry("skills", "skill-b"), null);
   });
 
-  it("returns false when deleting nonexistent entry", () => {
-    assert.equal(deleteEntry("skills", "nonexistent"), false);
+  it("returns false when deleting nonexistent entry", async () => {
+    assert.equal(await deleteEntry("skills", "nonexistent"), false);
   });
 
-  it("upserts same version (updates in place)", () => {
-    upsertEntry({
+  it("upserts same version (updates in place)", async () => {
+    await upsertEntry({
       type: "rules", name: "test-rule", version: "1.0.0",
       description: "Original", tags: [], meta: {}, body: "", author: "", owner: "alice",
     });
-    upsertEntry({
+    await upsertEntry({
       type: "rules", name: "test-rule", version: "1.0.0",
       description: "Updated", tags: [], meta: {}, body: "", author: "", owner: "alice",
     });
-    const entry = getEntry("rules", "test-rule", "1.0.0");
+    const entry = await getEntry("rules", "test-rule", "1.0.0");
     assert.equal(entry.description, "Updated");
     assert.equal(listVersions("rules", "test-rule").length, 1);
   });

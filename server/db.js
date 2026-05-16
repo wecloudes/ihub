@@ -147,34 +147,44 @@ export function backupDb(destPath) {
 
 // --- Entries ---
 
-export function upsertEntry({ type, name, version, description, tags, meta, body, author, owner }) {
+export async function upsertEntry({ type, name, version, description, tags, meta, body, author, owner }) {
+  const { getStorage } = await import("./storage.js");
+  const storage = getStorage();
   const db = getDb();
   const existing = db.prepare(
     "SELECT id, owner FROM entries WHERE type = ? AND name = ? AND version = ?"
   ).get(type, name, version);
 
   if (existing) {
-    // Only the owner (or entries with no owner) can update
     if (existing.owner && owner && existing.owner !== owner) {
       return { error: "forbidden", existingOwner: existing.owner };
     }
+    const storeBody = storage.isExternal ? null : body;
+    const storeMeta = storage.isExternal ? null : JSON.stringify(meta);
     db.prepare(`
       UPDATE entries SET description = ?, tags = ?, meta = ?, body = ?, author = ?, owner = COALESCE(?, owner), created_at = datetime('now')
       WHERE type = ? AND name = ? AND version = ?
-    `).run(description, JSON.stringify(tags), JSON.stringify(meta), body, author, owner, type, name, version);
+    `).run(description, JSON.stringify(tags), storeMeta, storeBody, author, owner, type, name, version);
   } else {
-    // New entry — check if another version exists with a different owner
     const anyVersion = db.prepare(
       "SELECT owner FROM entries WHERE type = ? AND name = ? AND owner IS NOT NULL LIMIT 1"
     ).get(type, name);
     if (anyVersion && owner && anyVersion.owner !== owner) {
       return { error: "forbidden", existingOwner: anyVersion.owner };
     }
+    const storeBody = storage.isExternal ? null : body;
+    const storeMeta = storage.isExternal ? null : JSON.stringify(meta);
     db.prepare(`
       INSERT INTO entries (type, name, version, description, tags, meta, body, author, owner)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(type, name, version, description, JSON.stringify(tags), JSON.stringify(meta), body, author, owner);
+    `).run(type, name, version, description, JSON.stringify(tags), storeMeta, storeBody, author, owner);
   }
+
+  // Store content externally if configured
+  if (storage.isExternal) {
+    await storage.putEntry({ type, name, version, body, meta });
+  }
+
   return { ok: true };
 }
 
@@ -186,16 +196,27 @@ export function getEntryOwner(type, name) {
   return row ? row.owner : null;
 }
 
-export function getEntry(type, name, version) {
+export async function getEntry(type, name, version) {
+  const { getStorage } = await import("./storage.js");
+  const storage = getStorage();
   const db = getDb();
   let row;
   if (version) {
     row = db.prepare("SELECT * FROM entries WHERE type = ? AND name = ? AND version = ?").get(type, name, version);
   } else {
-    // latest version
     row = db.prepare("SELECT * FROM entries WHERE type = ? AND name = ? ORDER BY created_at DESC LIMIT 1").get(type, name);
   }
-  return row ? deserializeRow(row) : null;
+  if (!row) return null;
+  const entry = deserializeRow(row);
+  // Hydrate body/meta from external storage
+  if (storage.isExternal) {
+    const content = await storage.getEntryContent(type, name, entry.version);
+    if (content) {
+      entry.body = content.body;
+      entry.meta = content.meta || entry.meta;
+    }
+  }
+  return entry;
 }
 
 export function listEntries(type, includeBlocked = false) {
@@ -229,9 +250,14 @@ export function listVersions(type, name) {
   return rows;
 }
 
-export function deleteEntry(type, name) {
+export async function deleteEntry(type, name) {
+  const { getStorage } = await import("./storage.js");
+  const storage = getStorage();
   const db = getDb();
   const result = db.prepare("DELETE FROM entries WHERE type = ? AND name = ?").run(type, name);
+  if (result.changes > 0 && storage.isExternal) {
+    await storage.deleteEntryContent(type, name);
+  }
   return result.changes > 0;
 }
 
@@ -280,44 +306,30 @@ export function getAverageRating(type, name) {
   return { average: row.avg ? Math.round(row.avg * 10) / 10 : null, count: row.count };
 }
 
-// --- Attachments ---
+// --- Attachments (delegated to storage adapter) ---
 
-export function upsertAttachment({ type, name, filepath, content }) {
-  const db = getDb();
-  const buf = Buffer.isBuffer(content) ? content : Buffer.from(content, "base64");
-  const existing = db.prepare(
-    "SELECT id FROM attachments WHERE type = ? AND name = ? AND filepath = ?"
-  ).get(type, name, filepath);
-
-  if (existing) {
-    db.prepare(
-      "UPDATE attachments SET content = ?, size = ?, created_at = datetime('now') WHERE id = ?"
-    ).run(buf, buf.length, existing.id);
-  } else {
-    db.prepare(
-      "INSERT INTO attachments (type, name, filepath, content, size) VALUES (?, ?, ?, ?, ?)"
-    ).run(type, name, filepath, buf, buf.length);
-  }
+export async function upsertAttachment({ type, name, filepath, content }) {
+  const { getStorage } = await import("./storage.js");
+  const storage = getStorage();
+  await storage.putAttachment({ type, name, filepath, content });
 }
 
-export function getAttachments(type, name) {
-  const db = getDb();
-  return db.prepare(
-    "SELECT id, filepath, size, created_at FROM attachments WHERE type = ? AND name = ? ORDER BY filepath"
-  ).all(type, name);
+export async function getAttachments(type, name) {
+  const { getStorage } = await import("./storage.js");
+  const storage = getStorage();
+  return await storage.getAttachments(type, name);
 }
 
-export function getAttachmentContent(type, name, filepath) {
-  const db = getDb();
-  const row = db.prepare(
-    "SELECT content FROM attachments WHERE type = ? AND name = ? AND filepath = ?"
-  ).get(type, name, filepath);
-  return row ? row.content : null;
+export async function getAttachmentContent(type, name, filepath) {
+  const { getStorage } = await import("./storage.js");
+  const storage = getStorage();
+  return await storage.getAttachmentContent(type, name, filepath);
 }
 
-export function deleteAttachments(type, name) {
-  const db = getDb();
-  db.prepare("DELETE FROM attachments WHERE type = ? AND name = ?").run(type, name);
+export async function deleteAttachments(type, name) {
+  const { getStorage } = await import("./storage.js");
+  const storage = getStorage();
+  await storage.deleteAttachments(type, name);
 }
 
 // --- Audit log ---
