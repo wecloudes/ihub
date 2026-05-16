@@ -103,12 +103,14 @@ async function showDetail(name){
   try{
     const r=await fetch('/api/'+currentType+'/'+encodeURIComponent(name));
     const d=await r.json();
-    const meta=d.meta?JSON.parse(d.meta):{};
-    const tags=(meta.tags||[]).map(t=>'<span class="tag">'+esc(t)+'</span>').join(' ');
-    const stars=d.avg_rating?'<span class="stars">'+'★'.repeat(Math.round(d.avg_rating))+'☆'.repeat(5-Math.round(d.avg_rating))+'</span>':'';
+    const tags=(d.tags||[]).map(t=>'<span class="tag">'+esc(t)+'</span>').join(' ');
+    let stars='';
     let comments='';
     try{const cr=await fetch('/api/'+currentType+'/'+encodeURIComponent(name)+'/comments');const cs=await cr.json();
-      if(cs.length)comments='<div id="comments"><h3>Comments</h3>'+cs.map(c=>'<div class="comment">'+esc(c.body)+(c.rating?' <span class="stars">'+'★'.repeat(c.rating)+'</span>':'')+'<div class="cmeta">'+esc(c.username||'anon')+' · '+new Date(c.created_at).toLocaleDateString()+'</div></div>').join('')+'</div>';
+      const cmts=cs.comments||cs||[];
+      const rating=cs.rating||{};
+      if(rating.average)stars='<span class="stars">'+'★'.repeat(Math.round(rating.average))+'☆'.repeat(5-Math.round(rating.average))+' '+rating.average+'/5</span>';
+      if(cmts.length)comments='<div id="comments"><h3>Comments ('+cmts.length+')</h3>'+cmts.map(c=>'<div class="comment">'+esc(c.body)+(c.rating?' <span class="stars">'+'★'.repeat(c.rating)+'</span>':'')+'<div class="cmeta">'+esc(c.username||'anon')+' · '+(c.created_at||'')+'</div></div>').join('')+'</div>';
     }catch{}
     det.innerHTML='<span class="back">&larr; Back to list</span><h2>'+esc(d.name||name)+'</h2><div class="meta">'+(d.version?'v'+esc(d.version)+' · ':'')+esc(d.owner||'')+' '+tags+' '+stars+'</div><div class="body">'+renderMd(d.body||'')+'</div>'+comments;
     det.querySelector('.back').onclick=()=>{det.style.display='none';$('list').style.display='grid'};
