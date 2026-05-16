@@ -26,17 +26,26 @@ import {
   setEntryStatus,
   listBlockedEntries,
   getDb,
+  addWebhook,
+  getWebhooks,
+  deleteWebhook,
 } from "./db.js";
+import { sendWebhook } from "./webhooks.js";
 import { inc, gauge, serialize } from "./metrics.js";
 import { loadServerConfig } from "./config.js";
 import { maskSensitiveData } from "./sensitive.js";
 import { isAuth0Enabled, verifyAuth0Token, getAuth0Username } from "./auth0.js";
 import { notifyPush, sendWeeklyDigest, isSlackEnabled } from "./slack.js";
 import { sendSecurityAlert } from "./security-alert.js";
+import { runBeforePush, runAfterPush, runBeforePull } from "./plugins.js";
+import { enforcePolicy } from "./versioning.js";
+import { handleUiRequest } from "./ui.js";
 import { randomBytes } from "crypto";
 import { createReadStream, unlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { syncFromUpstream, listUpstreams } from "./federation.js";
+import { signArtifact, verifySignature, getSignatureHeader, getSigningKey, isSigningEnabled } from "./signing.js";
 
 function logAction(entry) {
   const cfg = loadServerConfig();
@@ -185,6 +194,11 @@ export async function handleRequest(req, res) {
     return send(res, 204);
   }
 
+  // Web UI
+  if (url.pathname.startsWith("/ui")) {
+    return handleUiRequest(req, res, url);
+  }
+
   // GET /api/config — admin only, show active server config
   if (parts[0] === "config" && req.method === "GET") {
     const user = await authenticate(req);
@@ -232,6 +246,7 @@ export async function handleRequest(req, res) {
       registerUser(data.username, apiKey, role);
       inc("ihub_register_total", { role });
       logAction({ ip: getClientIp(req), action: "register", username: data.username, role });
+      sendWebhook("register", { type: null, name: null, version: null, username: data.username });
       return sendJson(res, 201, { ok: true, username: data.username, api_key: apiKey, role });
     }).catch(() => sendError(res, 400, "Invalid JSON body"));
   }
@@ -325,6 +340,73 @@ export async function handleRequest(req, res) {
     return sendJson(res, 200, { ok: true, message: "Weekly digest sent to Slack" });
   }
 
+  // POST /api/federation/sync — admin only, trigger manual federation sync
+  if (parts[0] === "federation" && parts[1] === "sync" && req.method === "POST") {
+    const user = await authenticate(req);
+    if (!user) return sendError(res, 401, "Invalid or missing API key");
+    if (user.role !== "admin") return sendError(res, 403, "Admin access required");
+
+    const cfg = loadServerConfig();
+    if (!cfg.federation.enabled) return sendError(res, 400, "Federation not enabled");
+
+    const upstreams = listUpstreams();
+    if (upstreams.length === 0) return sendError(res, 400, "No upstreams configured");
+
+    const results = [];
+    for (const upstream of upstreams) {
+      const result = await syncFromUpstream(upstream.url, upstream.types);
+      results.push({ url: upstream.url, ...result });
+    }
+    logAction({ ip: getClientIp(req), action: "federation-sync", username: user.username, role: user.role, detail: `${results.reduce((s, r) => s + r.synced, 0)} synced` });
+    return sendJson(res, 200, { ok: true, results });
+  }
+
+  // GET /api/federation/status — admin only, show upstream status
+  if (parts[0] === "federation" && parts[1] === "status" && req.method === "GET") {
+    const user = await authenticate(req);
+    if (!user) return sendError(res, 401, "Invalid or missing API key");
+    if (user.role !== "admin") return sendError(res, 403, "Admin access required");
+
+    const cfg = loadServerConfig();
+    return sendJson(res, 200, { enabled: cfg.federation.enabled, upstreams: listUpstreams() });
+  }
+
+  // GET /api/webhooks — admin only, list webhooks
+  if (parts[0] === "webhooks" && req.method === "GET") {
+    const user = await authenticate(req);
+    if (!user) return sendError(res, 401, "Invalid or missing API key");
+    if (user.role !== "admin") return sendError(res, 403, "Admin access required");
+    return sendJson(res, 200, getWebhooks());
+  }
+
+  // POST /api/webhooks — admin only, create webhook
+  if (parts[0] === "webhooks" && req.method === "POST") {
+    const user = await authenticate(req);
+    if (!user) return sendError(res, 401, "Invalid or missing API key");
+    if (user.role !== "admin") return sendError(res, 403, "Admin access required");
+
+    return readBody(req).then((data) => {
+      if (!data.url) return sendError(res, 400, "Missing url");
+      if (!data.events || !Array.isArray(data.events) || data.events.length === 0) {
+        return sendError(res, 400, "Missing or invalid events array");
+      }
+      const id = addWebhook(data.url, data.events, data.secret);
+      return sendJson(res, 201, { ok: true, id, url: data.url, events: data.events });
+    }).catch(() => sendError(res, 400, "Invalid JSON body"));
+  }
+
+  // DELETE /api/webhooks/:id — admin only, delete webhook
+  if (parts[0] === "webhooks" && parts[1] && req.method === "DELETE") {
+    const user = await authenticate(req);
+    if (!user) return sendError(res, 401, "Invalid or missing API key");
+    if (user.role !== "admin") return sendError(res, 403, "Admin access required");
+
+    const id = parseInt(parts[1], 10);
+    const deleted = deleteWebhook(id);
+    if (!deleted) return sendError(res, 404, "Webhook not found");
+    return sendJson(res, 200, { ok: true, deleted: id });
+  }
+
   // GET /api/blocked — admin only, list blocked artifacts
   if (parts[0] === "blocked" && req.method === "GET") {
     const user = await authenticate(req);
@@ -355,6 +437,7 @@ export async function handleRequest(req, res) {
       name: artName,
       detail: "UNBLOCKED — admin approved",
     });
+    sendWebhook("approve", { type: artType, name: artName, version: entry.version, username: user.username });
     return sendJson(res, 200, { ok: true, type: artType, name: artName, status: "available" });
   }
 
@@ -424,6 +507,7 @@ export async function handleRequest(req, res) {
       addComment({ type, name, username: user.username, rating, body: data.body });
       inc("ihub_comment_total", { type, name, user: user.username });
       logAction({ ip: getClientIp(req), action: "comment", username: user.username, role: user.role, type, name, detail: `${rating}/5` });
+      sendWebhook("comment", { type, name, version: null, username: user.username });
       return sendJson(res, 201, { ok: true, username: user.username, rating });
     }).catch(() => sendError(res, 400, "Invalid JSON body"));
   }
@@ -476,11 +560,32 @@ export async function handleRequest(req, res) {
     const isPull = req.headers["x-ihub-action"] === "pull";
     const action = isPull ? "pull" : "view";
     inc("ihub_view_total", { type, name, user: user?.username || "anonymous" });
-    if (isPull) inc("ihub_pull_total", { type, name, user: user?.username || "anonymous" });
+    if (isPull) {
+      inc("ihub_pull_total", { type, name, user: user?.username || "anonymous" });
+      sendWebhook("pull", { type, name, version: entry.version, username: user?.username || "anonymous" });
+    }
     logAction({ ip: getClientIp(req), action, username: user?.username || "anonymous", role: user?.role, type, name });
 
+    // Plugin: beforePull hook — may transform body/meta
+    const transformed = await runBeforePull({ type, name, body: entry.body, meta: entry.meta });
+    const responseEntry = { ...entry, body: transformed.body, meta: transformed.meta };
+
+    // Signing: verify signature if enabled
+    let verified;
+    if (isSigningEnabled()) {
+      const sigKey = getSigningKey();
+      const signature = getSignatureHeader(responseEntry);
+      if (signature) {
+        verified = verifySignature(responseEntry.body, signature, sigKey).valid;
+      } else {
+        verified = false; // No signature present but signing is enabled
+      }
+    }
+
     const attachments = await getAttachments(type, name);
-    return sendJson(res, 200, { ...entry, attachments });
+    const response = { ...responseEntry, attachments };
+    if (verified !== undefined) response.verified = verified;
+    return sendJson(res, 200, response);
   }
 
   // POST /api/:type/:name — push
@@ -490,6 +595,22 @@ export async function handleRequest(req, res) {
 
     return readBody(req).then(async (data) => {
       if (!data.version) return sendError(res, 400, "Missing version");
+
+      // Plugin: beforePush hook
+      const pluginResult = await runBeforePush({ type, name, version: data.version, body: data.body || "", meta: data.meta || {}, tags: data.tags || [] });
+      if (pluginResult.error) return sendError(res, 400, pluginResult.error);
+
+      // Versioning policy enforcement
+      const cfg = loadServerConfig();
+      let versioningWarnings;
+      if (cfg.versioning.enforce_semver || cfg.versioning.require_major_for_breaking) {
+        const currentEntry = await getEntry(type, name);
+        const policyResult = enforcePolicy(currentEntry, { version: data.version, body: data.body || "" }, cfg.versioning);
+        if (policyResult.error) return sendError(res, 400, policyResult.error);
+        if (policyResult.warnings && policyResult.warnings.length > 0) {
+          versioningWarnings = policyResult.warnings;
+        }
+      }
 
       // Server-side sensitive data scan and mask
       let body = data.body || "";
@@ -507,13 +628,21 @@ export async function handleRequest(req, res) {
         }
       }
 
+      // Signing: compute HMAC signature and store in meta
+      let meta = data.meta || {};
+      if (isSigningEnabled()) {
+        const sigKey = getSigningKey();
+        const signature = signArtifact(body, sigKey);
+        meta = { ...meta, _signature: signature };
+      }
+
       const result = await upsertEntry({
         type,
         name,
         version: data.version,
         description: data.description || "",
         tags: data.tags || [],
-        meta: data.meta || {},
+        meta,
         body,
         author: data.author || "",
         owner: user.username,
@@ -551,12 +680,18 @@ export async function handleRequest(req, res) {
         sendSecurityAlert({ type, name, username: user.username, findings }).catch(() => {});
       }
 
+      sendWebhook("push", { type, name, version: data.version, username: user.username });
       notifyPush({ type, name, version: data.version, owner: user.username });
+
+      // Plugin: afterPush hook (fire-and-forget)
+      runAfterPush({ type, name, version: data.version, owner: user.username });
+
       return sendJson(res, 200, {
         ok: true, type, name, version: data.version, owner: user.username,
         attachments: attachmentCount,
         status: sensitiveCount > 0 ? "blocked" : "available",
         sensitive: sensitiveCount > 0 ? { masked: sensitiveCount, types: sensitiveTypes } : undefined,
+        warnings: versioningWarnings || undefined,
       });
     }).catch(() => sendError(res, 400, "Invalid JSON body"));
   }
@@ -576,6 +711,7 @@ export async function handleRequest(req, res) {
     await deleteAttachments(type, name);
     inc("ihub_remove_total", { type, name, user: user.username });
     logAction({ ip: getClientIp(req), action: "remove", username: user.username, role: user.role, type, name });
+    sendWebhook("remove", { type, name, version: null, username: user.username });
     return sendJson(res, 200, { ok: true, deleted: `${type}/${name}` });
   }
 

@@ -2,7 +2,7 @@
 
 import { resolve, dirname, join, basename } from "path";
 import { fileURLToPath } from "url";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, readdirSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, readdirSync, watch as fsWatch } from "fs";
 import { createInterface } from "readline";
 import { homedir } from "os";
 import { CODING_AGENTS, AGENT_NAMES, getInstallPath } from "./agents-config.js";
@@ -30,6 +30,13 @@ import {
   loadConfig,
   saveConfig,
 } from "./registry.js";
+import {
+  pin as pinCmd,
+  unpin as unpinCmd,
+  pins as pinsCmd,
+  exportBundle as exportBundleCmd,
+  importBundle as importBundleCmd,
+} from "./pinning.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -163,6 +170,16 @@ const commands = {
   register,
   login,
   whoami,
+  watch,
+  outdated,
+  doctor,
+  pin,
+  unpin,
+  pins,
+  export: exportBundle,
+  webhook,
+  federation,
+  verify,
   version,
   help,
 };
@@ -269,11 +286,49 @@ async function browse() {
 
 // --- Local Commands ---
 
-function list(args) {
-  const type = args[0];
+async function list(args) {
+  const jsonMode = args.includes("--json");
+  const filtered = args.filter((a) => a !== "--json");
+  const type = filtered[0];
   const registry = loadRegistry(ROOT);
 
   const types = type ? [type] : ["agents", "skills", "rules", "memories", "prompts"];
+
+  if (jsonMode) {
+    const data = {};
+    for (const t of types) {
+      const entries = registry[t];
+      if (!entries) continue;
+      data[t] = entries.map(({ body, path, ...rest }) => rest);
+    }
+    console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+
+  // Fetch ratings for all entries (best-effort)
+  const config = loadConfig();
+  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
+  const ratingsMap = {};
+
+  for (const t of types) {
+    const entries = registry[t];
+    if (!entries) continue;
+    for (const e of entries) {
+      const name = e.name || e.file;
+      try {
+        const res = await fetch(`${base}/api/${t}/${name}/comments`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.rating && data.rating.count > 0) {
+            ratingsMap[`${t}/${name}`] = data.rating.average;
+          }
+        }
+      } catch {
+        // ignore — registry may be unavailable
+      }
+    }
+  }
+
   for (const t of types) {
     const entries = registry[t];
     if (!entries) {
@@ -282,9 +337,12 @@ function list(args) {
     }
     console.log(`\n${t.toUpperCase()} (${entries.length})`);
     for (const e of entries) {
+      const name = e.name || e.file;
       const desc = e.description || "";
       const tags = Array.isArray(e.tags) ? e.tags.join(", ") : "";
-      console.log(`  ${e.name || e.file}  ${desc ? "— " + desc : ""}`);
+      const rating = ratingsMap[`${t}/${name}`];
+      const ratingStr = rating ? `  \u2605${rating}` : "";
+      console.log(`  ${name}${ratingStr}  ${desc ? "— " + desc : ""}`);
       if (tags) console.log(`    tags: ${tags}`);
     }
   }
@@ -292,10 +350,13 @@ function list(args) {
 }
 
 function search(args) {
-  const isRemote = args[0] === "--remote";
-  if (isRemote) args.shift();
+  const jsonMode = args.includes("--json");
+  const filteredArgs = args.filter((a) => a !== "--json");
 
-  const query = args.join(" ").toLowerCase();
+  const isRemote = filteredArgs[0] === "--remote";
+  if (isRemote) filteredArgs.shift();
+
+  const query = filteredArgs.join(" ").toLowerCase();
   if (!query) {
     console.error("Usage: ihub search [--remote] <query>");
     process.exit(1);
@@ -303,6 +364,10 @@ function search(args) {
 
   if (isRemote) {
     return remoteSearch(query).then((results) => {
+      if (jsonMode) {
+        console.log(JSON.stringify(results, null, 2));
+        return;
+      }
       if (results.length === 0) {
         console.log("No remote results found.");
         return;
@@ -336,6 +401,12 @@ function search(args) {
     }
   }
 
+  if (jsonMode) {
+    const data = results.map(({ body, path, ...rest }) => rest);
+    console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+
   if (results.length === 0) {
     console.log("No results found.");
     return;
@@ -349,7 +420,9 @@ function search(args) {
 }
 
 function show(args) {
-  const [type, name] = args;
+  const jsonMode = args.includes("--json");
+  const filtered = args.filter((a) => a !== "--json");
+  const [type, name] = filtered;
   if (!type || !name) {
     console.error("Usage: ihub show <type> <name>");
     process.exit(1);
@@ -366,6 +439,12 @@ function show(args) {
   if (!entry) {
     console.error(`Not found: ${name}`);
     process.exit(1);
+  }
+
+  if (jsonMode) {
+    const { path: _p, file: _f, ...data } = entry;
+    console.log(JSON.stringify(data, null, 2));
+    return;
   }
 
   console.log(`\n--- ${entry.name || entry.file} ---`);
@@ -463,7 +542,9 @@ function validate() {
 }
 
 function projects(args) {
-  const [projectName] = args;
+  const jsonMode = args.includes("--json");
+  const filtered = args.filter((a) => a !== "--json");
+  const [projectName] = filtered;
   const registry = loadRegistry(ROOT);
   const TYPES = ["agents", "skills", "rules", "memories", "prompts"];
 
@@ -484,6 +565,26 @@ function projects(args) {
   }
 
   const projectNames = Object.keys(projectMap).sort();
+
+  if (jsonMode) {
+    const stripEntry = ({ body, path, ...rest }) => rest;
+    const result = {};
+    for (const pn of projectNames) {
+      result[pn] = {};
+      for (const t of TYPES) {
+        if (projectMap[pn][t].length > 0) result[pn][t] = projectMap[pn][t].map(stripEntry);
+      }
+    }
+    const hasUn = TYPES.some((t) => unassigned[t].length > 0);
+    if (hasUn) {
+      result['(unassigned)'] = {};
+      for (const t of TYPES) {
+        if (unassigned[t].length > 0) result['(unassigned)'][t] = unassigned[t].map(stripEntry);
+      }
+    }
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
 
   // If a specific project is requested
   if (projectName) {
@@ -546,7 +647,15 @@ function printProjectTree(name, data) {
 
 async function create(args) {
   const interactive = args.includes("--interactive") || args.includes("-i");
-  const filtered = args.filter((a) => a !== "--interactive" && a !== "-i");
+
+  // Parse --from flag
+  let fromName = null;
+  const filtered = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--interactive" || args[i] === "-i") continue;
+    if (args[i] === "--from" && args[i + 1]) { fromName = args[++i]; continue; }
+    filtered.push(args[i]);
+  }
 
   let [type, name] = filtered;
 
@@ -576,6 +685,12 @@ async function create(args) {
   if (existsSync(targetPath)) {
     console.error(`Already exists: ${targetPath}`);
     process.exit(1);
+  }
+
+  // --from: create from registry template
+  if (fromName) {
+    await createFromTemplate(type, name, fromName, targetPath, interactive);
+    return;
   }
 
   if (!interactive) {
@@ -698,6 +813,12 @@ function mapSourceFields(sourceAgent, type, sourceMeta) {
 }
 
 async function importArtifact(args) {
+  // Route to bundle import if first non-flag arg is a .json file
+  const nonFlagArgs = args.filter((a) => !a.startsWith("-"));
+  if (nonFlagArgs.length >= 1 && nonFlagArgs[0].endsWith(".json")) {
+    return importBundleCmd(args, ROOT);
+  }
+
   const interactive = args.includes("-i") || args.includes("--interactive");
   const noPush = args.includes("--no-push");
   const filtered = args.filter((a) => a !== "-i" && a !== "--interactive" && a !== "--no-push");
@@ -944,6 +1065,20 @@ async function push(args) {
     Object.assign(entry, meta);
   }
 
+  // Diff on push: fetch current version and show changes
+  if (!force) {
+    const diffShown = await showPushDiff(pluralType, name, entry);
+    if (diffShown) {
+      const answer = await prompt("Proceed with push? [y/N]: ", "n");
+      if (answer.toLowerCase() !== "y" && answer.toLowerCase() !== "yes") {
+        closeReadline();
+        console.log("Push cancelled.");
+        return;
+      }
+      closeReadline();
+    }
+  }
+
   const result = await pushEntry(pluralType, entry);
   const ver = result.version;
   console.log(`Pushed ${pluralType}/${name}@${ver}`);
@@ -954,6 +1089,126 @@ async function push(args) {
   }
 }
 
+async function showPushDiff(pluralType, name, localEntry) {
+  const config = loadConfig();
+  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
+  const token = config.token || process.env.IHUB_TOKEN || "";
+
+  try {
+    const hdrs = { "Content-Type": "application/json" };
+    if (token) hdrs["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${base}/api/${pluralType}/${name}`, { headers: hdrs });
+    if (!res.ok) {
+      if (res.status === 404) {
+        console.log(`\n\x1b[32mNew artifact\x1b[0m — ${pluralType}/${name} does not exist on registry yet.\n`);
+        return false;
+      }
+      return false;
+    }
+
+    const remote = await res.json();
+    let hasDiff = false;
+
+    // Compare metadata
+    const metaChanges = [];
+    if (remote.description !== (localEntry.description || "")) {
+      metaChanges.push(`  description: "${remote.description || ""}" -> "${localEntry.description || ""}"`);
+    }
+    const remoteTags = Array.isArray(remote.tags) ? remote.tags.join(", ") : "";
+    const localTags = Array.isArray(localEntry.tags) ? localEntry.tags.join(", ") : "";
+    if (remoteTags !== localTags) {
+      metaChanges.push(`  tags: [${remoteTags}] -> [${localTags}]`);
+    }
+    if (remote.version !== (localEntry.version || "0.1.0")) {
+      metaChanges.push(`  version: ${remote.version} -> ${localEntry.version || "0.1.0"}`);
+    }
+
+    if (metaChanges.length > 0) {
+      hasDiff = true;
+      console.log(`\n\x1b[1mMetadata changes:\x1b[0m`);
+      for (const change of metaChanges) {
+        console.log(`\x1b[33m~${change}\x1b[0m`);
+      }
+    }
+
+    // Compare body content line by line
+    const remoteLines = (remote.body || "").split("\n");
+    const localLines = (localEntry.body || "").split("\n");
+    const diffLines = computeSimpleDiff(remoteLines, localLines);
+
+    if (diffLines.length > 0) {
+      hasDiff = true;
+      console.log(`\n\x1b[1mBody changes:\x1b[0m`);
+      for (const line of diffLines) {
+        if (line.startsWith("+")) {
+          console.log(`\x1b[32m${line}\x1b[0m`);
+        } else if (line.startsWith("-")) {
+          console.log(`\x1b[31m${line}\x1b[0m`);
+        } else {
+          console.log(line);
+        }
+      }
+    }
+
+    if (!hasDiff) {
+      console.log(`\n\x1b[2mNo changes detected — content is identical to remote.\x1b[0m\n`);
+    } else {
+      console.log("");
+    }
+
+    return hasDiff;
+  } catch {
+    return false;
+  }
+}
+
+function computeSimpleDiff(oldLines, newLines) {
+  const result = [];
+  let oi = 0;
+  let ni = 0;
+
+  while (oi < oldLines.length || ni < newLines.length) {
+    if (oi >= oldLines.length) {
+      result.push(`+ ${newLines[ni]}`);
+      ni++;
+    } else if (ni >= newLines.length) {
+      result.push(`- ${oldLines[oi]}`);
+      oi++;
+    } else if (oldLines[oi] === newLines[ni]) {
+      oi++;
+      ni++;
+    } else {
+      let foundInNew = -1;
+      for (let k = ni + 1; k < Math.min(ni + 5, newLines.length); k++) {
+        if (newLines[k] === oldLines[oi]) { foundInNew = k; break; }
+      }
+      let foundInOld = -1;
+      for (let k = oi + 1; k < Math.min(oi + 5, oldLines.length); k++) {
+        if (oldLines[k] === newLines[ni]) { foundInOld = k; break; }
+      }
+
+      if (foundInNew !== -1 && (foundInOld === -1 || foundInNew - ni <= foundInOld - oi)) {
+        while (ni < foundInNew) {
+          result.push(`+ ${newLines[ni]}`);
+          ni++;
+        }
+      } else if (foundInOld !== -1) {
+        while (oi < foundInOld) {
+          result.push(`- ${oldLines[oi]}`);
+          oi++;
+        }
+      } else {
+        result.push(`- ${oldLines[oi]}`);
+        result.push(`+ ${newLines[ni]}`);
+        oi++;
+        ni++;
+      }
+    }
+  }
+
+  return result;
+}
+
 function globalPath(pluralType) {
   return resolve(homedir(), ".claude", pluralType);
 }
@@ -962,17 +1217,27 @@ async function pull(args) {
   // Parse flags
   let destination;
   let agentFlags = [];
+  let noDeps = false;
   const filtered = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--local" || args[i] === "-l") destination = "local";
     else if (args[i] === "--global" || args[i] === "-g") destination = "global";
     else if (args[i] === "--agent" && args[i + 1]) agentFlags.push(args[++i]);
+    else if (args[i] === "--no-deps") noDeps = true;
     else filtered.push(args[i]);
+  }
+
+  // Handle URL-based pull: ihub pull https://registry.example.com/api/skills/lint-check
+  const firstArg = filtered[0];
+  if (firstArg && (firstArg.startsWith("http://") || firstArg.startsWith("https://"))) {
+    await pullFromUrl(firstArg, destination);
+    return;
   }
 
   const [type, nameArg] = filtered;
   if (!type || !nameArg) {
-    console.error("Usage: ihub pull <type> <name[:version]> [--local|--global] [--agent <name>...]");
+    console.error("Usage: ihub pull <type> <name[:version]> [--local|--global] [--agent <name>...] [--no-deps]");
+    console.error("  Or:    ihub pull <url>");
     console.error("  Agents: " + AGENT_NAMES.join(", "));
     console.error("  Multi-agent: --agent claude --agent cursor");
     process.exit(1);
@@ -998,9 +1263,27 @@ async function pull(args) {
     process.exit(1);
   }
 
-  const entry = await pullEntry(pluralType, name, version);
+  // Check if artifact is pinned (only if no explicit version given)
+  let pullVersion = version;
+  if (!version) {
+    const cfg = loadConfig();
+    const pinKey = `${pluralType}/${name}`;
+    if (cfg.pins && cfg.pins[pinKey]) {
+      pullVersion = cfg.pins[pinKey];
+      console.log(`Pinned to ${pullVersion} (use ihub unpin to get latest)`);
+    }
+  }
+
+  const entry = await pullEntry(pluralType, name, pullVersion);
   const markdown = entryToMarkdown(entry);
   const ver = entry.meta?.version || "latest";
+
+  // Show signature verification status if present
+  if (entry.verified === true) {
+    console.log("\x1b[32m✓ Signature verified\x1b[0m");
+  } else if (entry.verified === false) {
+    console.log("\x1b[33m⚠ Signature verification failed — artifact may have been tampered with\x1b[0m");
+  }
 
   // Memories always go to the local working directory — no agent paths, no prompt
   if (singularType === "memory") {
@@ -1092,6 +1375,49 @@ async function pull(args) {
 
     await downloadAttachmentsTo(pluralType, name, targetPath, entry.attachments);
   }
+
+  // Transitive dependency pulls for agents
+  if (!noDeps && singularType === "agent") {
+    const depMeta = entry.meta || {};
+    const depSkills = Array.isArray(depMeta.skills) ? depMeta.skills : [];
+    const depRules = Array.isArray(depMeta.rules) ? depMeta.rules : [];
+    const deps = [
+      ...depSkills.map((n) => ({ type: "skills", name: n })),
+      ...depRules.map((n) => ({ type: "rules", name: n })),
+    ];
+
+    if (deps.length > 0) {
+      const depLabels = deps.map((d) => `${d.type}/${d.name}`);
+      console.log(`Pulling ${singularType} ${name}... also pulling ${deps.length} dependencies: ${depLabels.join(", ")}`);
+
+      const pulled = new Set([`${pluralType}/${name}`]);
+      for (const dep of deps) {
+        const depKey = `${dep.type}/${dep.name}`;
+        if (pulled.has(depKey)) continue;
+        pulled.add(depKey);
+
+        const localDir = resolve(ROOT, dep.type);
+        const localFile = resolve(localDir, `${dep.name}.md`);
+        if (existsSync(localFile)) continue;
+
+        try {
+          let depVersion = undefined;
+          const cfg = loadConfig();
+          if (cfg.pins && cfg.pins[depKey]) {
+            depVersion = cfg.pins[depKey];
+          }
+          const depEntry = await pullEntry(dep.type, dep.name, depVersion);
+          const depMarkdown = entryToMarkdown(depEntry);
+          const depVer = depEntry.meta?.version || "latest";
+          mkdirSync(localDir, { recursive: true });
+          writeFileSync(localFile, depMarkdown);
+          console.log(`  Pulled dependency ${depKey}@${depVer} → ${localFile}`);
+        } catch (err) {
+          console.error(`  Warning: could not pull dependency ${depKey}: ${err.message}`);
+        }
+      }
+    }
+  }
 }
 
 function transformForAgent(agent, pluralType, entry, defaultMarkdown) {
@@ -1182,7 +1508,9 @@ async function comment(args) {
 }
 
 async function comments(args) {
-  const [type, name] = args;
+  const jsonMode = args.includes("--json");
+  const filtered = args.filter((a) => a !== "--json");
+  const [type, name] = filtered;
   if (!type || !name) {
     console.error("Usage: ihub comments <type> <name>");
     process.exit(1);
@@ -1190,6 +1518,11 @@ async function comments(args) {
 
   const pluralType = pluralize(type);
   const data = await getEntryComments(pluralType, name);
+
+  if (jsonMode) {
+    console.log(JSON.stringify(data, null, 2));
+    return;
+  }
 
   if (data.rating.count === 0) {
     console.log(`\nNo comments for ${type}/${name}\n`);
@@ -1293,8 +1626,10 @@ async function showConfig() {
 }
 
 async function audit(args) {
+  const jsonMode = args.includes("--json");
   const opts = { limit: 50, offset: 0 };
   for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--json") continue;
     if (args[i] === "--user" && args[i + 1]) opts.user = args[++i];
     else if (args[i] === "--action" && args[i + 1]) opts.action = args[++i];
     else if (args[i] === "--page" && args[i + 1]) {
@@ -1305,6 +1640,12 @@ async function audit(args) {
   }
 
   const data = await fetchAuditLog(opts);
+
+  if (jsonMode) {
+    console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+
   const totalPages = Math.ceil(data.total / data.limit);
   const currentPage = Math.floor(data.offset / data.limit) + 1;
 
@@ -1380,8 +1721,17 @@ function getActionColor(action) {
 }
 
 async function metrics(args) {
-  const filters = parseFilters(args);
+  const jsonMode = args.includes("--json");
+  const filteredMetricArgs = args.filter((a) => a !== "--json");
+  const filters = parseFilters(filteredMetricArgs);
   const raw = await fetchMetrics();
+
+  if (jsonMode) {
+    const parsed = parsePrometheus(raw);
+    console.log(JSON.stringify(parsed, null, 2));
+    return;
+  }
+
   const parsed = parsePrometheus(raw);
   console.log(renderDashboard(parsed, filters));
 }
@@ -1459,6 +1809,86 @@ async function admin(args) {
   console.error("  approve <type>/<name>        Approve a blocked artifact (admin only)");
   console.error("  blocked                      List blocked artifacts (admin only)");
   console.error("  digest                       Send weekly digest to Slack (admin only)");
+  process.exit(1);
+}
+
+async function webhook(args) {
+  const [subcommand, ...subArgs] = args;
+  const config = loadConfig();
+  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
+  const token = config.token || process.env.IHUB_TOKEN;
+
+  if (!token) {
+    console.error("Not logged in. Run: ihub login <url>");
+    process.exit(1);
+  }
+
+  const authHeaders = { "Content-Type": "application/json", "Authorization": `Bearer ${token}` };
+
+  if (subcommand === "list") {
+    const res = await fetch(`${base}/api/webhooks`, { headers: authHeaders });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to list webhooks");
+    if (data.length === 0) {
+      console.log("No webhooks configured.");
+      return;
+    }
+    console.log(`\n${data.length} webhook(s):\n`);
+    for (const wh of data) {
+      console.log(`  [${wh.id}] ${wh.url}  events: ${wh.events}  (${wh.created_at})`);
+    }
+    console.log("");
+    return;
+  }
+
+  if (subcommand === "add") {
+    const url = subArgs[0];
+    if (!url) {
+      console.error("Usage: ihub webhook add <url> [--events push,comment] [--secret s]");
+      process.exit(1);
+    }
+    let events = ["push", "pull", "comment", "remove", "approve", "register"];
+    let secret = null;
+    for (let i = 1; i < subArgs.length; i++) {
+      if (subArgs[i] === "--events" && subArgs[i + 1]) {
+        events = subArgs[++i].split(",").map((e) => e.trim());
+      } else if (subArgs[i] === "--secret" && subArgs[i + 1]) {
+        secret = subArgs[++i];
+      }
+    }
+    const body = { url, events };
+    if (secret) body.secret = secret;
+    const res = await fetch(`${base}/api/webhooks`, {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to add webhook");
+    console.log(`Webhook added (id: ${data.id}) — ${url} [${events.join(", ")}]`);
+    return;
+  }
+
+  if (subcommand === "remove") {
+    const id = subArgs[0];
+    if (!id) {
+      console.error("Usage: ihub webhook remove <id>");
+      process.exit(1);
+    }
+    const res = await fetch(`${base}/api/webhooks/${id}`, {
+      method: "DELETE",
+      headers: authHeaders,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to remove webhook");
+    console.log(`Webhook ${id} removed.`);
+    return;
+  }
+
+  console.error("Usage: ihub webhook <list|add|remove>");
+  console.error("  list                         List registered webhooks");
+  console.error("  add <url> [--events ...] [--secret s]  Add a webhook");
+  console.error("  remove <id>                  Remove a webhook");
   process.exit(1);
 }
 
@@ -1618,7 +2048,8 @@ async function loginAuth0(registryUrl) {
   throw new Error("Auth0 login timed out. Please try again.");
 }
 
-async function whoami() {
+async function whoami(args = []) {
+  const jsonMode = args.includes("--json");
   const config = loadConfig();
   if (!config.token) {
     console.error("Not logged in. Run: ihub register <url> or ihub login <url>");
@@ -1631,8 +2062,211 @@ async function whoami() {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Not authenticated");
+
+  if (jsonMode) {
+    console.log(JSON.stringify({ ...data, registry: base }, null, 2));
+    return;
+  }
+
   console.log(`Logged in as: ${data.username} (${data.role})`);
   console.log(`Registry: ${base}`);
+}
+
+async function outdated() {
+  const config = loadConfig();
+  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
+  const registry = loadRegistry(ROOT);
+  const TYPES = ["agents", "skills", "rules", "memories", "prompts"];
+
+  let found = 0;
+  console.log("");
+
+  for (const type of TYPES) {
+    for (const entry of registry[type]) {
+      const name = entry.name || entry.file;
+      const localVersion = entry.version || "0.0.0";
+
+      try {
+        const res = await fetch(`${base}/api/${type}/${name}`);
+        if (!res.ok) continue;
+        const remote = await res.json();
+        const remoteVersion = remote.meta?.version || remote.version || "0.0.0";
+
+        if (remoteVersion !== localVersion && remoteVersion > localVersion) {
+          console.log(`  ${name}  local: ${localVersion}  registry: ${remoteVersion}  ⬆ update available`);
+          found++;
+        }
+      } catch {
+        // registry unavailable — skip
+      }
+    }
+  }
+
+  if (found === 0) {
+    console.log("  All local artifacts are up to date.");
+  } else {
+    console.log(`\n  ${found} artifact(s) have updates available.`);
+  }
+  console.log("");
+}
+
+async function doctor() {
+  const config = loadConfig();
+  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
+  const token = config.token || process.env.IHUB_TOKEN || "";
+  const TYPES = ["agents", "skills", "rules", "memories", "prompts"];
+
+  console.log("\nihub doctor\n");
+
+  // 1. Server reachable
+  try {
+    const res = await fetch(`${base}/api/ping`);
+    if (res.ok) {
+      console.log("  ✓ Server reachable ("+base+")");
+    } else {
+      console.log("  ✗ Server reachable (status "+res.status+")");
+    }
+  } catch (err) {
+    console.log("  ✗ Server reachable (" + err.message + ")");
+  }
+
+  // 2. Auth valid
+  if (token) {
+    try {
+      const res = await fetch(`${base}/api/whoami`, {
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        console.log("  ✓ Auth valid (" + data.username + ", " + data.role + ")");
+      } else {
+        console.log("  ✗ Auth valid (invalid token)");
+      }
+    } catch (err) {
+      console.log("  ✗ Auth valid (" + err.message + ")");
+    }
+  } else {
+    console.log("  ✗ Auth valid (no token configured)");
+  }
+
+  // 3. Local artifacts valid
+  try {
+    const registry = loadRegistry(ROOT);
+    let errors = 0;
+    for (const [type, entries] of Object.entries(registry)) {
+      for (const entry of entries) {
+        if (!entry.name) errors++;
+        if (!entry.description) errors++;
+        if (!entry.version) errors++;
+      }
+    }
+    if (errors === 0) {
+      console.log("  ✓ Local artifacts valid");
+    } else {
+      console.log("  ✗ Local artifacts valid (" + errors + " issue(s))");
+    }
+  } catch (err) {
+    console.log("  ✗ Local artifacts valid (" + err.message + ")");
+  }
+
+  // 4. Storage writable
+  const allExist = TYPES.every((t) => existsSync(resolve(ROOT, t)));
+  if (allExist) {
+    console.log("  ✓ Storage writable");
+  } else {
+    const missing = TYPES.filter((t) => !existsSync(resolve(ROOT, t)));
+    console.log("  ✗ Storage writable (missing: " + missing.join(", ") + ")");
+  }
+
+  // 5. Config file found
+  const rcPath = join(homedir(), ".ihubrc");
+  if (existsSync(rcPath)) {
+    console.log("  ✓ Config file found (~/.ihubrc)");
+  } else {
+    console.log("  ✗ Config file found (~/.ihubrc not found)");
+  }
+
+  console.log("");
+}
+
+
+async function federation(args) {
+  const [subcommand] = args;
+  const config = loadConfig();
+  const base = config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000";
+  const token = config.token || process.env.IHUB_TOKEN;
+
+  if (subcommand === "sync") {
+    const res = await fetch(`${base.replace(/\/+$/, "")}/api/federation/sync`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Federation sync failed");
+    console.log("\x1b[32m✓ Federation sync complete\x1b[0m");
+    for (const r of data.results) {
+      console.log(`  ${r.url}: ${r.synced} synced, ${r.errors.length} errors`);
+      for (const err of r.errors) {
+        console.log(`    \x1b[31m✗\x1b[0m ${err}`);
+      }
+    }
+    return;
+  }
+
+  if (subcommand === "status") {
+    const res = await fetch(`${base.replace(/\/+$/, "")}/api/federation/status`, {
+      headers: { "Authorization": `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to get federation status");
+    console.log(`Federation: ${data.enabled ? "\x1b[32menabled\x1b[0m" : "\x1b[33mdisabled\x1b[0m"}`);
+    if (data.upstreams.length === 0) {
+      console.log("  No upstreams configured.");
+    } else {
+      for (const u of data.upstreams) {
+        console.log(`  ${u.url}`);
+        console.log(`    Types: ${u.types.join(", ")}`);
+        console.log(`    Interval: ${u.interval_hours}h`);
+        console.log(`    Last sync: ${u.lastSync || "never"}`);
+        if (u.lastSynced) console.log(`    Last synced: ${u.lastSynced} artifacts`);
+        if (u.lastErrors) console.log(`    Last errors: ${u.lastErrors}`);
+      }
+    }
+    return;
+  }
+
+  console.error("Usage: ihub federation sync|status");
+  process.exit(1);
+}
+
+async function verify(args) {
+  const [type, name] = args;
+  if (!type || !name) {
+    console.error("Usage: ihub verify <type> <name>");
+    process.exit(1);
+  }
+
+  const singularType = singularize(type);
+  const pluralType = pluralize(singularType);
+  const config = loadConfig();
+  const base = config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000";
+  const token = config.token || process.env.IHUB_TOKEN;
+
+  const res = await fetch(`${base.replace(/\/+$/, "")}/api/${pluralType}/${name}`, {
+    headers: token ? { "Authorization": `Bearer ${token}` } : {},
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `Not found: ${pluralType}/${name}`);
+
+  if (data.verified === true) {
+    console.log(`\x1b[32m✓ ${pluralType}/${name} — signature verified\x1b[0m`);
+  } else if (data.verified === false) {
+    console.log(`\x1b[31m✗ ${pluralType}/${name} — signature verification FAILED\x1b[0m`);
+    console.log("  The artifact may have been tampered with.");
+    process.exit(1);
+  } else {
+    console.log(`\x1b[33m⚠ ${pluralType}/${name} — no signature (signing not enabled on server)\x1b[0m`);
+  }
 }
 
 function version() {
@@ -1690,4 +2324,200 @@ Type-first syntax (equivalent):
 
 Types: agent(s), skill(s), rule(s), memory/memories, prompt(s)
 `);
+}
+
+// --- Watch Command ---
+
+async function watch() {
+  const config = loadConfig();
+  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
+  const token = config.token || process.env.IHUB_TOKEN || "";
+
+  if (!token) {
+    console.error("Not logged in. Run: ihub register <url> or ihub login <url>");
+    process.exit(1);
+  }
+
+  const dirs = ["agents", "skills", "rules", "memories", "prompts"];
+  const debounceTimers = {};
+
+  function timestamp() {
+    const now = new Date();
+    return `[${now.toLocaleTimeString("en-GB", { hour12: false })}]`;
+  }
+
+  console.log(`${timestamp()} Watching for changes in: ${dirs.join(", ")}`);
+  console.log(`${timestamp()} Registry: ${base}`);
+  console.log(`${timestamp()} Press Ctrl+C to stop.\n`);
+
+  for (const dir of dirs) {
+    const dirPath = resolve(ROOT, dir);
+    if (!existsSync(dirPath)) continue;
+
+    fsWatch(dirPath, { recursive: true }, (eventType, filename) => {
+      if (!filename || !filename.endsWith(".md")) return;
+
+      const filePath = resolve(dirPath, filename);
+      const key = filePath;
+
+      // Debounce: wait 500ms after last change
+      if (debounceTimers[key]) clearTimeout(debounceTimers[key]);
+      debounceTimers[key] = setTimeout(async () => {
+        delete debounceTimers[key];
+
+        try {
+          if (!existsSync(filePath)) return;
+
+          const content = readFileSync(filePath, "utf-8");
+          const { parseFrontmatter } = await import("./parse.js");
+          const { meta, body } = parseFrontmatter(content);
+
+          if (!meta.name) {
+            console.log(`${timestamp()} \u2717 Skipped ${dir}/${filename}: Missing name`);
+            return;
+          }
+          if (!meta.version) {
+            console.log(`${timestamp()} \u2717 Push failed: Missing version in ${dir}/${filename}`);
+            return;
+          }
+
+          console.log(`${timestamp()} Detected change in ${dir}/${filename} \u2192 pushing...`);
+
+          const entry = { ...meta, body, path: filePath, file: basename(filePath, ".md") };
+          const result = await pushEntry(dir, entry);
+          console.log(`${timestamp()} \u2713 Pushed ${dir}/${meta.name} v${result.version}`);
+        } catch (err) {
+          console.log(`${timestamp()} \u2717 Push failed: ${err.message}`);
+        }
+      }, 500);
+    });
+  }
+
+  // Keep process alive until Ctrl+C
+  await new Promise(() => {});
+}
+
+// --- Pull from URL ---
+
+async function pullFromUrl(url, destination) {
+  // Parse URL to extract type and name: .../api/<type>/<name>
+  const parsed = new URL(url);
+  const pathParts = parsed.pathname.split("/").filter(Boolean);
+
+  // Look for /api/<type>/<name> pattern
+  let pluralType = null;
+  let name = null;
+  const validTypes = ["agents", "skills", "rules", "memories", "prompts"];
+
+  for (let i = 0; i < pathParts.length - 1; i++) {
+    if (pathParts[i] === "api" && i + 2 < pathParts.length) {
+      const candidate = pathParts[i + 1];
+      if (validTypes.includes(candidate)) {
+        pluralType = candidate;
+        name = pathParts[i + 2];
+        break;
+      }
+    }
+  }
+
+  // Fallback: last two segments as type/name
+  if (!pluralType && pathParts.length >= 2) {
+    const candidate = pathParts[pathParts.length - 2];
+    if (validTypes.includes(candidate)) {
+      pluralType = candidate;
+      name = pathParts[pathParts.length - 1];
+    }
+  }
+
+  if (!pluralType || !name) {
+    console.error(`Could not parse type and name from URL: ${url}`);
+    console.error("Expected format: https://registry.example.com/api/<type>/<name>");
+    process.exit(1);
+  }
+
+  // Fetch from the URL (no auth)
+  const res = await fetch(url);
+  if (!res.ok) {
+    const text = await res.text();
+    let errMsg;
+    try { errMsg = JSON.parse(text).error; } catch { errMsg = `HTTP ${res.status}`; }
+    throw new Error(`Pull from URL failed: ${errMsg}`);
+  }
+  const entry = await res.json();
+  const markdown = entryToMarkdown(entry);
+
+  const targetPath = resolve(ROOT, pluralType, `${name}.md`);
+  mkdirSync(dirname(targetPath), { recursive: true });
+  writeFileSync(targetPath, markdown);
+  const ver = entry.meta?.version || "latest";
+  console.log(`Pulled ${pluralType}/${name}@${ver} from ${parsed.host} \u2192 ${targetPath}`);
+
+  if (entry.attachments && entry.attachments.length > 0) {
+    console.log(`  (${entry.attachments.length} attachment(s) not downloaded \u2014 use registry pull for full sync)`);
+  }
+}
+
+// --- Create from Registry Template ---
+
+// --- Pinning & Bundle Wrappers ---
+function pin(args) { return pinCmd(args, ROOT); }
+function unpin(args) { return unpinCmd(args); }
+function pins() { return pinsCmd(); }
+async function exportBundle(args) { return exportBundleCmd(args, ROOT); }
+
+async function createFromTemplate(type, name, fromName, targetPath, interactive) {
+  const pluralType = pluralize(type);
+
+  // Fetch the template artifact from registry
+  let entry;
+  try {
+    entry = await pullEntry(pluralType, fromName);
+  } catch (err) {
+    console.error(`Failed to fetch template "${fromName}" from registry: ${err.message}`);
+    process.exit(1);
+  }
+
+  const templateMeta = entry.meta || {};
+  const templateBody = entry.body || "";
+
+  // Build new metadata: keep everything from template but replace name and reset version
+  const values = { ...templateMeta, name, version: "0.1.0" };
+
+  if (interactive) {
+    const fields = TYPE_FIELDS[type];
+    console.log(`\nCreating ${type}: ${name} (from template: ${fromName})\n`);
+
+    for (const field of fields) {
+      const currentVal = values[field.key];
+      const defaultVal = currentVal
+        ? (Array.isArray(currentVal) ? currentVal.join(", ") : String(currentVal))
+        : (field.default || "");
+      const hint = defaultVal ? ` (${defaultVal})` : "";
+      const requiredHint = field.required ? " *" : "";
+      const answer = await prompt(`${field.label}${requiredHint}${hint}: `, defaultVal);
+
+      if (field.type === "array") {
+        values[field.key] = answer ? answer.split(",").map((s) => s.trim()).filter(Boolean) : [];
+      } else {
+        values[field.key] = answer || field.default || "";
+      }
+    }
+    closeReadline();
+  }
+
+  // Build frontmatter
+  const frontmatter = ["---"];
+  for (const [key, value] of Object.entries(values)) {
+    if (Array.isArray(value)) {
+      frontmatter.push(`${key}: [${value.join(", ")}]`);
+    } else {
+      frontmatter.push(`${key}: ${value}`);
+    }
+  }
+  frontmatter.push("---");
+
+  const content = frontmatter.join("\n") + "\n\n" + templateBody + "\n";
+  mkdirSync(dirname(targetPath), { recursive: true });
+  writeFileSync(targetPath, content);
+  console.log(`Created: ${targetPath} (from template: ${fromName})`);
 }

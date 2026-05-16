@@ -15,6 +15,10 @@ const DEFAULTS = {
   firewall: { enabled: false, whitelist: [] },
   security: { notify_via: "terminal", email: "", slack_webhook_url: "" },
   storage: { adapter: "sqlite" },
+  plugins: [],
+  versioning: { enforce_semver: false, require_major_for_breaking: false },
+  federation: { enabled: false, upstreams: [] },
+  signing: { enabled: false, key: "" },
 };
 
 let _config = null;
@@ -85,6 +89,21 @@ export function loadServerConfig() {
         DEFAULTS.firewall.whitelist
       ),
     },
+    plugins: fileConfig.plugins || DEFAULTS.plugins,
+    versioning: {
+      enforce_semver: fileConfig.versioning?.enforce_semver ?? DEFAULTS.versioning.enforce_semver,
+      require_major_for_breaking: fileConfig.versioning?.require_major_for_breaking ?? DEFAULTS.versioning.require_major_for_breaking,
+    },
+    federation: {
+      enabled: fileConfig.federation?.enabled ?? DEFAULTS.federation.enabled,
+      upstreams: fileConfig.federation?.upstreams || DEFAULTS.federation.upstreams,
+    },
+    signing: {
+      enabled: envBool("IHUB_SIGNING_KEY")
+        ?? fileConfig.signing?.enabled
+        ?? DEFAULTS.signing.enabled,
+      key: process.env.IHUB_SIGNING_KEY || fileConfig.signing?.key || DEFAULTS.signing.key,
+    },
   };
 
   return _config;
@@ -105,6 +124,8 @@ export function printConfig(config) {
   console.log(`  Storage:    ${config.storage.adapter}${config.storage.adapter !== "sqlite" ? ` (${config.storage.bucket || config.storage.root || ""})` : ""}`);
   console.log(`  Security:   notify via ${config.security.notify_via}`);
   console.log(`  Firewall:   ${config.firewall.enabled ? `enabled (${config.firewall.whitelist.length} IPs)` : "disabled"}`);
+  console.log(`  Federation: ${config.federation?.enabled ? `enabled (${config.federation.upstreams.length} upstreams)` : "disabled"}`);
+  console.log(`  Signing:    ${config.signing?.enabled ? "enabled" : "disabled"}`);
 }
 
 const VALID_NOTIFY = ["terminal", "slack", "email"];

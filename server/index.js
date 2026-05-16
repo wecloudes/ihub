@@ -4,6 +4,7 @@ import { createServer } from "http";
 import { loadServerConfig, printConfig, validateConfig } from "./config.js";
 import { handleRequest } from "./routes.js";
 import { sendWeeklyDigest } from "./slack.js";
+import { syncAll } from "./federation.js";
 import { getDb, getUser, registerUser, getUserCount } from "./db.js";
 import { randomBytes } from "crypto";
 
@@ -57,5 +58,15 @@ server.listen(config.server.port, () => {
       sendWeeklyDigest(getDb()).catch((err) => console.error("Digest error:", err));
     }, intervalMs);
     console.log(`Slack digest scheduled (every ${config.slack.digest_interval_hours}h)`);
+  }
+
+  if (config.federation.enabled && config.federation.upstreams.length > 0) {
+    // Use the minimum interval among upstreams, default 24h
+    const minInterval = Math.min(...config.federation.upstreams.map((u) => u.interval_hours || 24));
+    const intervalMs = minInterval * 3600000;
+    setInterval(() => {
+      syncAll().catch((err) => console.error("Federation sync error:", err));
+    }, intervalMs);
+    console.log(`Federation sync scheduled (every ${minInterval}h, ${config.federation.upstreams.length} upstream(s))`);
   }
 });

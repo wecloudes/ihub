@@ -76,6 +76,14 @@ function init(db) {
       created_at TEXT DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS webhooks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      url TEXT NOT NULL,
+      events TEXT NOT NULL,
+      secret TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_entries_type_name ON entries(type, name);
     CREATE INDEX IF NOT EXISTS idx_entries_tags ON entries(tags);
     CREATE INDEX IF NOT EXISTS idx_comments_type_name ON comments(type, name);
@@ -357,6 +365,37 @@ export function getAuditLog({ limit = 50, offset = 0, username, action } = {}) {
   const countRow = db.prepare(`SELECT COUNT(*) as total FROM audit_log ${where}`).get(...params);
 
   return { entries: rows, total: countRow.total, limit, offset };
+}
+
+// --- Webhooks ---
+
+export function addWebhook(url, events, secret) {
+  const db = getDb();
+  const eventsStr = Array.isArray(events) ? events.join(",") : events;
+  const result = db.prepare(
+    "INSERT INTO webhooks (url, events, secret) VALUES (?, ?, ?)"
+  ).run(url, eventsStr, secret || null);
+  return result.lastInsertRowid;
+}
+
+export function getWebhooks() {
+  const db = getDb();
+  return db.prepare("SELECT id, url, events, created_at FROM webhooks ORDER BY created_at DESC").all();
+}
+
+export function deleteWebhook(id) {
+  const db = getDb();
+  const result = db.prepare("DELETE FROM webhooks WHERE id = ?").run(id);
+  return result.changes > 0;
+}
+
+export function getWebhooksForEvent(event) {
+  const db = getDb();
+  const rows = db.prepare("SELECT id, url, events, secret FROM webhooks").all();
+  return rows.filter((row) => {
+    const events = row.events.split(",").map((e) => e.trim());
+    return events.includes(event) || events.includes("*");
+  });
 }
 
 function deserializeRow(row) {

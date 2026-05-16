@@ -16,19 +16,22 @@ const SHOW_CURSOR = `${ESC}[?25h`;
 const BOLD = `${ESC}[1m`;
 const DIM = `${ESC}[2m`;
 const RESET = `${ESC}[0m`;
+
+const THEME = process.env.IHUB_THEME || "dark";
+
 const CYAN = `${ESC}[36m`;
 const YELLOW = `${ESC}[33m`;
 const GREEN = `${ESC}[32m`;
 const MAGENTA = `${ESC}[35m`;
 const BLUE = `${ESC}[34m`;
 const RED = `${ESC}[31m`;
-const WHITE = `${ESC}[37m`;
-const GRAY = `${ESC}[90m`;
-const BG_CYAN = `${ESC}[46m`;
-const BLACK = `${ESC}[30m`;
+const WHITE = THEME === "light" ? `${ESC}[90m` : `${ESC}[37m`;
+const GRAY = THEME === "light" ? `${ESC}[37m` : `${ESC}[90m`;
+const BG_CYAN = THEME === "light" ? `${ESC}[106m` : `${ESC}[46m`;
+const BLACK = THEME === "light" ? `${ESC}[30m` : `${ESC}[30m`;
 const INVERSE = `${ESC}[7m`;
-const BG_YELLOW = `${ESC}[43m`;
-const BG_GREEN = `${ESC}[42m`;
+const BG_YELLOW = THEME === "light" ? `${ESC}[103m` : `${ESC}[43m`;
+const BG_GREEN = THEME === "light" ? `${ESC}[102m` : `${ESC}[42m`;
 const BG_RED = `${ESC}[41m`;
 
 const TYPE_COLORS = { agents: CYAN, skills: GREEN, rules: YELLOW, memories: MAGENTA, prompts: BLUE };
@@ -86,6 +89,8 @@ export async function startTui(baseUrl, token) {
   };
 
   process.stdout.write(CLEAR + HIDE_CURSOR);
+  // Enable SGR mouse tracking
+  process.stdout.write("\x1b[?1000h\x1b[?1006h");
   process.stdout.write(`${DIM}Loading registry...${RESET}`);
 
   for (const type of TYPES) {
@@ -129,6 +134,96 @@ export async function startTui(baseUrl, token) {
 
   stdin.on("data", async (key) => {
     if (key === "\x03") { cleanup(); process.exit(0); }
+
+    // --- Mouse event parsing (SGR mode) ---
+    const mouseMatch = key.match(/\x1b\[<(\d+);(\d+);(\d+)([Mm])/);
+    if (mouseMatch) {
+      const button = parseInt(mouseMatch[1], 10);
+      const col = parseInt(mouseMatch[2], 10);
+      const row = parseInt(mouseMatch[3], 10);
+      const isPress = mouseMatch[4] === "M";
+
+      // Scroll wheel works in all views
+      if (button === 64) {
+        // Scroll up
+        if (state.view === "list") {
+          state.selectedItem = Math.max(0, state.selectedItem - 1);
+          state.previewScroll = 0;
+          adjustScroll(state);
+        } else {
+          state.scrollOffset = Math.max(0, state.scrollOffset - 3);
+        }
+        render(state);
+        return;
+      }
+      if (button === 65) {
+        // Scroll down
+        if (state.view === "list") {
+          const items = getVisibleItems(state);
+          state.selectedItem = Math.min(items.length - 1, state.selectedItem + 1);
+          state.previewScroll = 0;
+          adjustScroll(state);
+        } else {
+          const maxOffset = Math.max(0, (state._contentLines || 0) - (state._contentVisibleRows || 1));
+          state.scrollOffset = Math.min(state.scrollOffset + 3, maxOffset);
+        }
+        render(state);
+        return;
+      }
+
+      // Left click (press only)
+      if (button === 0 && isPress) {
+        if (state.view === "list") {
+          // Check if click is on tab bar (row 3, where tabs are rendered)
+          if (!state.isSearch && !state.isBlockedView && row === 3) {
+            // Estimate tab positions — tabs are "  type1  type2  ..."
+            let pos = 2;
+            for (let i = 0; i < TYPES.length; i++) {
+              const tabLen = TYPES[i].length + 2; // " type "
+              if (col >= pos && col < pos + tabLen) {
+                state.selectedType = i;
+                state.selectedItem = 0;
+                state.scrollOffset = 0;
+                state.filter = "";
+                state.breadcrumb = buildBreadcrumb(state);
+                break;
+              }
+              pos += tabLen + 2; // gap between tabs
+            }
+          } else {
+            // Click on a list row — header takes ~5 lines (header + breadcrumb + tabs + title + blank)
+            const listStartRow = 6;
+            const clickedIdx = (row - listStartRow) + state.scrollOffset;
+            const items = getVisibleItems(state);
+            if (clickedIdx >= 0 && clickedIdx < items.length) {
+              state.selectedItem = clickedIdx;
+              state.previewScroll = 0;
+            }
+          }
+        } else if (state.view === "guide") {
+          // Click on guide tab bar (row 3)
+          if (row === 3) {
+            const guideTabs = ["overview", "memories", "mapping"];
+            let pos = 2;
+            for (let i = 0; i < guideTabs.length; i++) {
+              const tabLen = guideTabs[i].length + 2;
+              if (col >= pos && col < pos + tabLen) {
+                state.guideTab = i;
+                state.scrollOffset = 0;
+                break;
+              }
+              pos += tabLen + 2;
+            }
+          }
+        }
+        render(state);
+        return;
+      }
+
+      // Consume any other mouse event without processing
+      render(state);
+      return;
+    }
 
     // Ignore main handler while search input is active
     if (state._searchMode) return;
@@ -431,7 +526,7 @@ export async function startTui(baseUrl, token) {
       }
 
       // Fuzzy filter — printable chars (#2)
-      const reserved = "aApPsfFjBmticrqdgvyG?/{}";
+      const reserved = "aApPsfFjBmticrqdgvyG?/{}>";
 
       // { and } — scroll preview pane
       if (key === "{") {
@@ -574,6 +669,41 @@ export async function startTui(baseUrl, token) {
         state.breadcrumb = buildBreadcrumb(state, state.detail.name, "versions");
         render(state);
         return;
+      }
+
+      // > — navigate to related artifact
+      if (key === ">") {
+        const meta = state.detail.meta || {};
+        const related = meta.related || state.detail.related;
+        if (Array.isArray(related) && related.length > 0) {
+          // Navigate to the first related artifact — try each type until found
+          const targetName = related[0];
+          let found = null;
+          for (const t of TYPES) {
+            const entry = await fetchJson(`${baseUrl}/api/${t}/${targetName}`, token);
+            if (entry && entry.name) {
+              found = entry;
+              state.selectedType = TYPES.indexOf(t);
+              break;
+            }
+          }
+          if (found) {
+            state.detail = found;
+            const type = TYPES[state.selectedType];
+            state.comments = await fetchJson(`${baseUrl}/api/${type}/${found.name}/comments`);
+            state.scrollOffset = 0;
+            state.breadcrumb = buildBreadcrumb(state, found.name);
+            state.statusMsg = `Navigated to ${found.name}`;
+          } else {
+            state.statusMsg = `Related artifact "${targetName}" not found`;
+          }
+          render(state);
+          return;
+        } else {
+          state.statusMsg = "No related artifacts";
+          render(state);
+          return;
+        }
       }
     }
 
@@ -958,7 +1088,7 @@ function getFooter(state) {
   const f = {
     types: ` ↑↓ navigate  ⏎ select  j projects  G guide  F bookmarks  / search  ${state.isAdmin ? "m metrics  t audit  i config  B blocked  " : ""}? help  q quit`,
     list: ` ↑↓ nav  ←→ type  ⏎ view  space select  a all  ${state.marked.size > 0 ? "p pull  " : ""}P pull one  s sort  / search  j projects  G guide  F bookmarks  ${(process.stdout.columns || 80) >= 120 ? "{} preview scroll  " : ""}${state.isAdmin ? "m metrics  t audit  i config  B blocked  " : ""}${state.filter ? `filter: ${state.filter}  ` : ""}? help  q quit`,
-    detail: ` ↑↓ scroll  c comments  w review  f bookmark  y copy  g graph  v versions  d remove  ? help  esc back`,
+    detail: ` ↑↓ scroll  c comments  w review  f bookmark  y copy  g graph  v versions  > related  d remove  ? help  esc back`,
     comments: ` ↑↓ scroll  c back  esc back`,
     metrics: ` ↑↓ scroll  r refresh  esc back`,
     audit: ` ↑↓ scroll  n next  b prev  r refresh  esc back`,
@@ -1218,7 +1348,16 @@ function renderDetail(state, maxRows, cols) {
 
   const metaObj = entry.meta || {};
   const tf = { agents: ["inputs", "outputs", "skills", "rules"], skills: ["triggers", "args", "compatible_agents"], rules: ["scope", "severity", "applies_to"], memories: ["scope", "context_type", "related"], prompts: ["model", "compatible_agents"] };
-  for (const field of (tf[type] || [])) { const val = metaObj[field] || entry[field]; if (val && (!Array.isArray(val) || val.length)) lines.push(`  ${CYAN}${field}:${RESET} ${Array.isArray(val) ? val.join(", ") : val}`); }
+  for (const field of (tf[type] || [])) {
+    const val = metaObj[field] || entry[field];
+    if (val && (!Array.isArray(val) || val.length)) {
+      if (field === "related" && Array.isArray(val)) {
+        lines.push(`  ${CYAN}${field}:${RESET} ${val.map((r) => `${MAGENTA}\u2192 ${r}${RESET}`).join("  ")}`);
+      } else {
+        lines.push(`  ${CYAN}${field}:${RESET} ${Array.isArray(val) ? val.join(", ") : val}`);
+      }
+    }
+  }
 
   if (entry.attachments?.length) {
     lines.push(""); lines.push(`  ${YELLOW}${BOLD}Attachments (${entry.attachments.length})${RESET}`);
@@ -1785,6 +1924,8 @@ function adjustScroll(state) {
 }
 
 function cleanup() {
+  // Disable mouse tracking
+  process.stdout.write("\x1b[?1000l\x1b[?1006l");
   process.stdout.write(SHOW_CURSOR + CLEAR);
   try { process.stdin.setRawMode(false); } catch {}
 }
