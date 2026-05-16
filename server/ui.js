@@ -29,7 +29,7 @@ input,textarea,select{font-family:inherit;font-size:inherit}
 /* Layout */
 .app{display:flex;min-height:100vh}
 .sidebar{width:var(--nav-width);background:var(--header-bg);border-right:1px solid var(--border);position:fixed;top:0;left:0;height:100vh;display:flex;flex-direction:column;z-index:100;transition:transform .3s}
-.sidebar .logo{padding:1.2rem 1.5rem;font-size:1.3rem;font-weight:700;color:var(--accent);border-bottom:1px solid var(--border)}
+.sidebar .logo{padding:.8rem 1.5rem;font-size:1.3rem;font-weight:700;color:var(--accent);border-bottom:1px solid var(--border);height:49px;display:flex;align-items:center}
 .sidebar nav{flex:1;padding:.5rem 0;overflow-y:auto}
 .sidebar nav a{display:flex;align-items:center;gap:.75rem;padding:.7rem 1.5rem;color:var(--muted);text-decoration:none;font-size:.9rem;transition:all .15s;border-left:3px solid transparent}
 .sidebar nav a:hover{color:var(--text);background:var(--surface)}
@@ -40,7 +40,7 @@ input,textarea,select{font-family:inherit;font-size:inherit}
 .sidebar .user-section .role-badge{display:inline-block;padding:1px 6px;border-radius:3px;font-size:.7rem;background:var(--accent2);color:var(--accent);margin-left:.5rem}
 
 .main-content{margin-left:var(--nav-width);flex:1;display:flex;flex-direction:column;min-height:100vh}
-.top-bar{position:sticky;top:0;background:var(--header-bg);border-bottom:1px solid var(--border);padding:.8rem 1.5rem;display:flex;align-items:center;gap:1rem;z-index:50;flex-wrap:wrap}
+.top-bar{position:sticky;top:0;background:var(--header-bg);border-bottom:1px solid var(--border);padding:.8rem 1.5rem;display:flex;align-items:center;gap:1rem;z-index:50;flex-wrap:wrap;height:49px}
 .top-bar .search-box{flex:1;min-width:200px;max-width:400px;position:relative}
 .top-bar .search-box input{width:100%;padding:.5rem 1rem .5rem 2.2rem;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.9rem;outline:none;transition:border-color .2s}
 .top-bar .search-box input:focus{border-color:var(--accent)}
@@ -164,12 +164,14 @@ input,textarea,select{font-family:inherit;font-size:inherit}
 .bar-row .bar-value{position:absolute;right:6px;top:2px;font-size:.75rem;color:var(--text)}
 
 /* Projects */
-.project-group{margin-bottom:1.5rem}
-.project-group h4{padding:.5rem .8rem;background:var(--bg);border-radius:6px;margin-bottom:.5rem;font-size:.9rem;color:var(--accent);cursor:pointer}
-.project-items{padding-left:1rem}
-.project-item{padding:.4rem .6rem;font-size:.85rem;cursor:pointer;border-radius:4px;transition:background .15s}
-.project-item:hover{background:var(--card)}
-.project-item .p-type{color:var(--muted);font-size:.75rem;margin-left:.5rem}
+.project-group{margin-bottom:1.5rem;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.project-group h4{padding:.7rem 1rem;background:var(--bg);font-size:.95rem;color:var(--text);border-bottom:1px solid var(--border)}
+.project-group h4 span{color:var(--muted);font-weight:normal;font-size:.82rem}
+.project-type-group{padding:.5rem 1rem}
+.project-type-label{font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:.3rem 0;margin-top:.3rem}
+.project-items{display:flex;flex-wrap:wrap;gap:.3rem;padding:.2rem 0 .5rem}
+.project-item{padding:.3rem .7rem;font-size:.84rem;cursor:pointer;border-radius:5px;transition:all .15s;background:var(--surface);border:1px solid var(--border)}
+.project-item:hover{border-color:var(--accent);color:var(--accent)}
 
 /* Guide */
 .guide-content{max-width:100%}
@@ -602,6 +604,7 @@ window.doDelete=async function(name){
 
 // --- Projects ---
 async function renderProjects(el){
+  const typeColors={agents:'var(--info)',skills:'var(--success)',rules:'var(--warning)',memories:'var(--accent)',prompts:'#9b59b6'};
   const allEntries=[];
   for(const t of TYPES)(state.allItems[t]||[]).forEach(e=>allEntries.push({...e,_type:t}));
   const projects={};
@@ -613,22 +616,27 @@ async function renderProjects(el){
   });
   const pnames=Object.keys(projects).sort();
   let html='<h2>Projects</h2>';
-  if(!pnames.length&&!unassigned.length){html+='<div class="empty-state"><div class="icon">\\ud83d\\udcc2</div><p>No projects found</p></div>';el.innerHTML=html;return;}
-  pnames.forEach(p=>{
-    const items=projects[p];
-    html+='<div class="project-group"><h4>'+esc(p)+' ('+items.length+')</h4><div class="project-items">';
-    items.forEach(i=>{
-      html+='<div class="project-item" onclick="navToArtifact(\\''+esc(i._type)+'\\',\\''+esc(i.name).replace(/'/g,"\\\\'")+'\\')"">'+esc(i.name)+'<span class="p-type">'+i._type+'</span></div>';
+  if(!pnames.length&&!unassigned.length){html+='<div class="empty-state"><p>No projects found</p></div>';el.innerHTML=html;return;}
+
+  function renderProjectGroup(title,items){
+    const byType={};
+    items.forEach(i=>{if(!byType[i._type])byType[i._type]=[];byType[i._type].push(i)});
+    html+='<div class="project-group"><h4>'+esc(title)+' <span>('+items.length+' artifacts)</span></h4>';
+    TYPES.forEach(t=>{
+      const group=byType[t];
+      if(!group||!group.length)return;
+      const color=typeColors[t]||'var(--muted)';
+      html+='<div class="project-type-group"><div class="project-type-label" style="color:'+color+'">'+t+' ('+group.length+')</div><div class="project-items">';
+      group.forEach(i=>{
+        html+='<div class="project-item" style="border-left:3px solid '+color+'" onclick="navToArtifact(\\''+esc(i._type)+'\\',\\''+esc(i.name).replace(/'/g,"\\\\'")+'\\')"">'+esc(i.name)+'</div>';
+      });
+      html+='</div></div>';
     });
-    html+='</div></div>';
-  });
-  if(unassigned.length){
-    html+='<div class="project-group"><h4>Unassigned ('+unassigned.length+')</h4><div class="project-items">';
-    unassigned.slice(0,20).forEach(i=>{
-      html+='<div class="project-item" onclick="navToArtifact(\\''+esc(i._type)+'\\',\\''+esc(i.name).replace(/'/g,"\\\\'")+'\\')"">'+esc(i.name)+'<span class="p-type">'+i._type+'</span></div>';
-    });
-    html+='</div></div>';
+    html+='</div>';
   }
+
+  pnames.forEach(p=>renderProjectGroup(p,projects[p]));
+  if(unassigned.length)renderProjectGroup('Unassigned',unassigned);
   el.innerHTML=html;
 }
 
