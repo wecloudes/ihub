@@ -152,7 +152,8 @@ input,textarea,select{font-family:inherit;font-size:inherit}
 .metric-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.2rem;text-align:center}
 .metric-card .value{font-size:2rem;font-weight:700;color:var(--accent)}
 .metric-card .label{font-size:.82rem;color:var(--muted);margin-top:.3rem}
-.bar-chart{margin-top:1.5rem}
+.charts-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:1rem;margin:1rem 0}
+.bar-chart{margin-top:.5rem;background:var(--card);padding:1rem;border-radius:var(--radius);border:1px solid var(--border)}
 .bar-chart h4{margin-bottom:.8rem;font-size:.9rem}
 .bar-row{display:flex;align-items:center;gap:.8rem;margin-bottom:.5rem;font-size:.82rem}
 .bar-row .bar-label{width:120px;text-align:right;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -169,7 +170,7 @@ input,textarea,select{font-family:inherit;font-size:inherit}
 .project-item .p-type{color:var(--muted);font-size:.75rem;margin-left:.5rem}
 
 /* Guide */
-.guide-content{max-width:800px}
+.guide-content{max-width:100%}
 .guide-content h2{color:var(--accent);margin:1.5rem 0 .5rem;font-size:1.2rem}
 .guide-content h3{margin:1rem 0 .5rem}
 .guide-content p{margin-bottom:.8rem;color:var(--muted)}
@@ -676,65 +677,77 @@ async function renderMetrics(el){
     const r=await api('/metrics');
     if(!r.ok)throw new Error('HTTP '+r.status);
     const text=await r.text();
-    const metrics=parsePrometheus(text);
+    const parsed=parsePrometheus(text);
+    const sum=(n)=>(parsed[n]||[]).reduce((s,e)=>s+e.value,0);
+    const group=(n,label)=>{const r={};(parsed[n]||[]).forEach(e=>{const k=e.labels[label]||'?';r[k]=(r[k]||0)+e.value});return r};
+    const groupTwo=(n,l1,l2)=>{const r={};(parsed[n]||[]).forEach(e=>{const k=(e.labels[l1]||'?')+'/'+(e.labels[l2]||'?');r[k]=(r[k]||0)+e.value});return r};
+
     let html='<h2>Metrics Dashboard</h2>';
-    // Summary cards
-    html+='<div class="metrics-grid">';
-    const cards=[
-      {label:'Total Entries',key:'ihub_entries_total'},
-      {label:'Total Users',key:'ihub_users_total'},
-      {label:'Total Comments',key:'ihub_comments_total'},
-      {label:'Total Pushes',key:'ihub_pushes_total'},
-      {label:'Total Views',key:'ihub_views_total'}
+    // Stats cards
+    const stats=[
+      {label:'Users',value:sum('ihub_users_count'),color:'var(--info)'},
+      {label:'Entries',value:sum('ihub_entries_count'),color:'var(--success)'},
+      {label:'Comments',value:sum('ihub_comments_count'),color:'var(--accent)'},
+      {label:'Pushes',value:sum('ihub_push_total'),color:'var(--warning)'},
+      {label:'Pulls',value:sum('ihub_pull_total'),color:'var(--success)'},
+      {label:'Views',value:sum('ihub_view_total'),color:'var(--info)'},
+      {label:'Searches',value:sum('ihub_search_total'),color:'var(--muted)'},
+      {label:'Removes',value:sum('ihub_remove_total'),color:'var(--danger)'},
     ];
-    cards.forEach(c=>{
-      const v=metrics.gauges[c.key]||metrics.counters[c.key]||'0';
-      html+='<div class="metric-card"><div class="value">'+esc(String(v))+'</div><div class="label">'+c.label+'</div></div>';
-    });
+    html+='<div class="metrics-grid">';
+    stats.forEach(s=>{html+='<div class="metric-card"><div class="value" style="color:'+s.color+'">'+s.value+'</div><div class="label">'+s.label+'</div></div>'});
     html+='</div>';
 
-    // Bar charts
-    const byType=metrics.labeled['ihub_entries_by_type']||{};
-    if(Object.keys(byType).length){
-      html+=renderBarChart('Entries by Type',byType);
+    // Security
+    const sensitive=sum('ihub_sensitive_detected_total');
+    const firewalled=sum('ihub_firewall_blocked_total');
+    if(sensitive>0||firewalled>0){
+      html+='<div style="display:flex;gap:1rem;margin:1rem 0;flex-wrap:wrap">';
+      html+='<div class="metric-card" style="border-color:var(--danger)"><div class="value" style="color:var(--danger)">'+sensitive+'</div><div class="label">Sensitive Detected</div></div>';
+      html+='<div class="metric-card" style="border-color:var(--danger)"><div class="value" style="color:var(--danger)">'+firewalled+'</div><div class="label">Firewall Blocked</div></div>';
+      html+='</div>';
     }
-    const byUser=metrics.labeled['ihub_pushes_by_user']||{};
-    if(Object.keys(byUser).length){
-      html+=renderBarChart('Pushes by User',byUser);
-    }
-    const byTypeViews=metrics.labeled['ihub_views_by_type']||{};
-    if(Object.keys(byTypeViews).length){
-      html+=renderBarChart('Views by Type',byTypeViews);
-    }
+
+    // Charts in 2-column grid
+    html+='<div class="charts-grid">';
+    const charts=[
+      ['Entries by Type',group('ihub_entries_count','type')],
+      ['Entries by Project',group('ihub_entries_by_project_count','project')],
+      ['Pushes by User',group('ihub_push_total','user')],
+      ['Pushes by Artifact',groupTwo('ihub_push_total','type','name')],
+      ['Views by User',group('ihub_view_total','user')],
+      ['Views by Artifact',groupTwo('ihub_view_total','type','name')],
+      ['Comments by User',group('ihub_comments_by_user_count','user')],
+      ['Comments by Artifact',groupTwo('ihub_comments_by_artifact_count','type','name')],
+      ['Pulls by User',group('ihub_pull_total','user')],
+      ['HTTP Requests',group('ihub_http_requests_total','method')],
+    ];
+    charts.forEach(([title,data])=>{
+      if(Object.keys(data).length)html+=renderBarChart(title,data);
+    });
+    html+='</div>';
     el.innerHTML=html;
   }catch(e){el.innerHTML='<div class="empty-state"><div class="icon">\\u26a0</div><p>Could not load metrics: '+esc(e.message)+'</p></div>';}
 }
 
 function parsePrometheus(text){
-  const gauges={},counters={},labeled={};
+  const parsed={};
   text.split('\\n').forEach(line=>{
-    if(line.startsWith('#')||!line.trim())return;
-    // labeled metric: name{label="value"} number
-    const lm=line.match(/^(\\w+)\\{(\\w+)="([^"]+)"\\}\\s+([\\d.]+)/);
-    if(lm){
-      const[,name,,lval,val]=lm;
-      if(!labeled[name])labeled[name]={};
-      labeled[name][lval]=parseFloat(val);
-      return;
-    }
-    // simple metric
-    const sm=line.match(/^(\\w+)\\s+([\\d.]+)/);
-    if(sm){
-      const[,name,val]=sm;
-      if(name.includes('total'))counters[name]=parseFloat(val);
-      else gauges[name]=parseFloat(val);
-    }
+    if(!line||line.startsWith('#'))return;
+    const m=line.match(/^([a-zA-Z_]+)(?:\\{(.+?)\\})?\\s+([\\d.]+)/);
+    if(!m)return;
+    const[,name,labelStr,val]=m;
+    if(!parsed[name])parsed[name]=[];
+    const labels={};
+    if(labelStr)(labelStr.match(/[a-zA-Z_]+="[^"]*"/g)||[]).forEach(p=>{const eq=p.indexOf('=');labels[p.slice(0,eq)]=p.slice(eq+2,-1)});
+    parsed[name].push({labels,value:parseFloat(val)});
   });
-  return{gauges,counters,labeled};
+  return parsed;
 }
 
 function renderBarChart(title,data){
-  const entries=Object.entries(data).sort((a,b)=>b[1]-a[1]);
+  const entries=Object.entries(data).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).slice(0,12);
+  if(!entries.length)return'';
   const max=Math.max(...entries.map(e=>e[1]),1);
   let html='<div class="bar-chart"><h4>'+esc(title)+'</h4>';
   entries.forEach(([label,val])=>{
@@ -758,9 +771,13 @@ async function renderAudit(el){
     const total=d.total||entries.length;
     let html='<h2>Audit Trail</h2>';
     if(!entries.length){html+='<div class="empty-state"><p>No audit entries</p></div>';el.innerHTML=html;return;}
-    html+='<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Type</th><th>Name</th><th>Detail</th></tr></thead><tbody>';
+    html+='<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>Time</th><th>IP</th><th>User</th><th>Role</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead><tbody>';
+    const actionColors={push:'var(--success)',pull:'var(--success)',view:'var(--info)',list:'var(--info)',search:'var(--info)',comment:'var(--accent)',remove:'var(--danger)',backup:'var(--warning)','set-role':'var(--warning)',approve:'var(--success)',register:'var(--warning)','sensitive-blocked':'var(--danger)','change-password':'var(--warning)'};
     entries.forEach(e=>{
-      html+='<tr><td>'+esc(e.timestamp||e.created_at||'')+'</td><td>'+esc(e.username||'')+'</td><td>'+esc(e.action||'')+'</td><td>'+esc(e.type||'')+'</td><td>'+esc(e.name||'')+'</td><td>'+esc((e.detail||'').substring(0,60))+'</td></tr>';
+      const ac=actionColors[e.action]||'var(--muted)';
+      const roleBadge=e.role==='admin'?'<span style="background:var(--danger);color:#fff;padding:1px 6px;border-radius:3px;font-size:.7rem">ADM</span>':'<span style="background:var(--info);color:#fff;padding:1px 6px;border-radius:3px;font-size:.7rem">USR</span>';
+      const target=(e.type&&e.name)?'<span style="color:var(--warning)">'+esc(e.type)+'/'+esc(e.name)+'</span>':'';
+      html+='<tr><td style="white-space:nowrap;color:var(--muted);font-size:.8rem">'+esc(e.created_at||'')+'</td><td style="color:var(--muted);font-size:.8rem">'+esc(e.ip||'')+'</td><td style="color:var(--accent);font-weight:600">'+esc(e.username||'anon')+'</td><td>'+roleBadge+'</td><td><span style="color:'+ac+';font-weight:600;text-transform:uppercase">'+esc(e.action||'')+'</span></td><td>'+target+'</td><td style="color:var(--muted);font-size:.82rem">'+esc((e.detail||'').substring(0,80))+'</td></tr>';
     });
     html+='</tbody></table></div>';
     html+='<div class="pagination"><button class="btn btn-sm" onclick="auditPrev()" '+(auditPage<=1?'disabled':'')+'>\\u2190 Prev</button><span>Page '+auditPage+'</span><button class="btn btn-sm" onclick="auditNext()" '+(entries.length<50?'disabled':'')+'>Next \\u2192</button></div>';
@@ -799,25 +816,60 @@ window.approveArtifact=async function(type,name){
 
 // --- Guide ---
 function renderGuide(el){
-  let html='<div class="guide-content"><h2>Artifact Types Guide</h2>';
-  html+='<h3>Agents</h3><p>Autonomous coding agents that perform complex tasks. Define their capabilities, inputs/outputs, and which skills/rules they use.</p>';
-  html+='<h3>Skills</h3><p>Reusable capabilities that agents can invoke. Each skill defines triggers, arguments, and which agents can use it.</p>';
-  html+='<h3>Rules</h3><p>Coding standards, constraints, and guidelines. Rules have a scope (global, project, file) and severity level.</p>';
-  html+='<h3>Memories</h3><p>Persistent context and knowledge. Memories carry context between sessions and can be scoped to projects or global.</p>';
-  html+='<p><strong>Context types:</strong></p><ul>';
-  html+='<li><code>architecture</code> - System design decisions</li>';
-  html+='<li><code>decision</code> - Key choices and rationale</li>';
-  html+='<li><code>pattern</code> - Recurring code patterns</li>';
-  html+='<li><code>preference</code> - User/team preferences</li>';
-  html+='<li><code>fact</code> - Factual information</li>';
-  html+='</ul>';
-  html+='<h3>Prompts</h3><p>Reusable prompt templates for specific models or tasks. Prompts specify compatible agents and target models.</p>';
-  html+='<h2>Boundaries</h2><ul>';
-  html+='<li><strong>Agent vs Skill:</strong> An agent orchestrates; a skill is a single capability.</li>';
-  html+='<li><strong>Rule vs Memory:</strong> Rules are prescriptive (what to do); memories are descriptive (what is).</li>';
-  html+='<li><strong>Skill vs Prompt:</strong> Skills define behavior/logic; prompts define text templates.</li>';
-  html+='</ul>';
-  html+='<h2>Cross-references</h2><p>Artifacts reference each other by <code>name</code>. The <code>validate</code> command checks all refs resolve. Agents reference skills and rules; memories reference related artifacts.</p>';
+  let html='<h2>Artifact Types Guide</h2>';
+  html+='<div class="charts-grid">';
+
+  // Artifact types
+  const types=[
+    {name:'Agent',icon:'\\u25c6',color:'var(--info)',q:'Who does the work?',desc:'An actor with capabilities, inputs, outputs. Orchestrates skills and follows rules.',ex:'code-reviewer, migration-assistant, security-scanner'},
+    {name:'Skill',icon:'\\u25b6',color:'var(--success)',q:'How to do X?',desc:'A reusable action or procedure. Has triggers, args, and can be shared across agents.',ex:'test-generator, db-migration, changelog-gen'},
+    {name:'Rule',icon:'\\u25a0',color:'var(--warning)',q:'What must be enforced?',desc:'A constraint or policy. Has scope (global/project) and severity (error/warning/info).',ex:'no-any-type, require-tests, semantic-commits'},
+    {name:'Memory',icon:'\\u25cf',color:'var(--accent)',q:'What do we know?',desc:'Knowledge and context that persists across sessions. NOT actions or constraints.',ex:'adr-001-database-choice, system-topology, incident-2026-04'},
+    {name:'Prompt',icon:'\\u25b2',color:'#9b59b6',q:'What should the AI say?',desc:'A reusable instruction template for AI models. Has variables and expected output.',ex:'code-review-feedback, debug-assistant, write-tests'},
+  ];
+  types.forEach(t=>{
+    html+='<div class="bar-chart" style="border:1px solid var(--border);padding:1.2rem;border-radius:var(--radius)">';
+    html+='<h4 style="color:'+t.color+'">'+t.icon+' '+t.name+' <span style="color:var(--muted);font-weight:normal;font-size:.85rem">\\u2014 \\u201c'+t.q+'\\u201d</span></h4>';
+    html+='<p style="margin:.5rem 0;font-size:.9rem">'+t.desc+'</p>';
+    html+='<p style="font-size:.82rem;color:var(--muted)">Examples: '+t.ex+'</p>';
+    html+='</div>';
+  });
+  html+='</div>';
+
+  // Boundaries table
+  html+='<h3 style="margin-top:1.5rem">Boundaries</h3>';
+  html+='<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>Type</th><th>Stores</th><th>Does NOT store</th></tr></thead><tbody>';
+  html+='<tr><td style="color:var(--info);font-weight:600">Agent</td><td>Actor, orchestration</td><td style="color:var(--muted)">Knowledge, constraints</td></tr>';
+  html+='<tr><td style="color:var(--success);font-weight:600">Skill</td><td>Procedures, how-to</td><td style="color:var(--muted)">Why we do X, what X must follow</td></tr>';
+  html+='<tr><td style="color:var(--warning);font-weight:600">Rule</td><td>Constraints, policies</td><td style="color:var(--muted)">Why it was decided, how to implement</td></tr>';
+  html+='<tr><td style="color:var(--accent);font-weight:600">Memory</td><td>Knowledge, evidence</td><td style="color:var(--muted)">Actions, constraints, instructions</td></tr>';
+  html+='<tr><td style="color:#9b59b6;font-weight:600">Prompt</td><td>AI instructions</td><td style="color:var(--muted)">Execution logic, actor definitions</td></tr>';
+  html+='</tbody></table></div>';
+
+  // Memory context types
+  html+='<h3 style="margin-top:1.5rem">Memory Context Types</h3>';
+  html+='<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>Type</th><th>Stores</th><th>Boundary</th><th>Examples</th></tr></thead><tbody>';
+  const ctypes=[
+    ['decision','Why we chose X over Y','Not a rule (rules enforce; decisions explain)','adr-001-database-choice, adr-002-monorepo'],
+    ['architecture','What the system looks like','Not a skill (skills do; architecture describes)','system-topology, data-model-orders'],
+    ['incident','What happened, root cause','Not a runbook (runbooks are skills)','incident-2026-04, incident-2026-03-redis'],
+    ['domain','What things mean in context','Not a constraint (rules constrain; domain informs)','domain-payments, domain-glossary'],
+    ['context','Who, when, where','Not an agent (agents act; context describes)','team-ownership, project-q2-priorities'],
+    ['learning','What we measured','Not a policy (rules prescribe; learnings evidence)','learning-caching-strategy, learning-testing-strategy'],
+  ];
+  ctypes.forEach(([name,stores,boundary,ex])=>{
+    html+='<tr><td><code style="color:var(--accent)">'+name+'</code></td><td>'+stores+'</td><td style="color:var(--muted);font-size:.82rem">'+boundary+'</td><td style="font-size:.82rem">'+ex+'</td></tr>';
+  });
+  html+='</tbody></table></div>';
+
+  // Decision tree
+  html+='<h3 style="margin-top:1.5rem">Decision Tree</h3>';
+  html+='<div style="background:var(--bg);padding:1.2rem;border-radius:var(--radius);border:1px solid var(--border);font-size:.9rem;line-height:2">';
+  html+='Is it a complete workflow? \\u2192 <strong style="color:var(--info)">Agent</strong><br>';
+  html+='Is it a reusable action? \\u2192 <strong style="color:var(--success)">Skill</strong><br>';
+  html+='Is it a constraint to enforce? \\u2192 <strong style="color:var(--warning)">Rule</strong><br>';
+  html+='Is it knowledge to recall? \\u2192 <strong style="color:var(--accent)">Memory</strong><br>';
+  html+='Is it an instruction for AI? \\u2192 <strong style="color:#9b59b6">Prompt</strong>';
   html+='</div>';
   el.innerHTML=html;
 }
