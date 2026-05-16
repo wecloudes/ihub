@@ -34,7 +34,7 @@ input,textarea,select{font-family:inherit;font-size:inherit}
 .sidebar nav a{display:flex;align-items:center;gap:.75rem;padding:.7rem 1.5rem;color:var(--muted);text-decoration:none;font-size:.9rem;transition:all .15s;border-left:3px solid transparent}
 .sidebar nav a:hover{color:var(--text);background:var(--surface)}
 .sidebar nav a.active{color:var(--accent);border-left-color:var(--accent);background:var(--surface)}
-.sidebar nav a .icon{font-size:1.1rem;width:1.4rem;text-align:center}
+.sidebar nav a .icon{font-size:.9rem;width:1.2rem;text-align:center;opacity:.6}
 .sidebar .user-section{padding:1rem 1.5rem;border-top:1px solid var(--border);font-size:.85rem}
 .sidebar .user-section .username{color:var(--accent);font-weight:600}
 .sidebar .user-section .role-badge{display:inline-block;padding:1px 6px;border-radius:3px;font-size:.7rem;background:var(--accent2);color:var(--accent);margin-left:.5rem}
@@ -79,19 +79,21 @@ input,textarea,select{font-family:inherit;font-size:inherit}
 .card-footer{display:flex;justify-content:space-between;align-items:center;margin-top:.6rem;font-size:.75rem;color:var(--muted)}
 
 /* Detail view */
-.detail-view{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:2rem;max-width:900px}
-.detail-header{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;margin-bottom:1rem;flex-wrap:wrap}
-.detail-header h2{font-size:1.4rem}
-.detail-meta{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-bottom:1.2rem;font-size:.85rem;color:var(--muted)}
-.detail-body{font-size:.9rem;line-height:1.8}
-.detail-body h1,.detail-body h2,.detail-body h3{margin:1.2rem 0 .5rem;color:var(--accent)}
-.detail-body h1{font-size:1.3rem}
-.detail-body h2{font-size:1.1rem}
-.detail-body h3{font-size:1rem}
+.detail-view{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem}
+.detail-header{display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:.5rem;flex-wrap:wrap}
+.detail-header h2{font-size:1.3rem}
+.detail-meta{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:1rem;font-size:.82rem;color:var(--muted)}
+.detail-body{font-size:.88rem;line-height:1.5}
+.detail-body h1,.detail-body h2,.detail-body h3{margin:.8rem 0 .3rem;color:var(--accent)}
+.detail-body h1{font-size:1.15rem}
+.detail-body h2{font-size:1.05rem}
+.detail-body h3{font-size:.95rem}
 .detail-body code{background:var(--bg);padding:2px 6px;border-radius:4px;font-size:.85em;font-family:'SF Mono',Monaco,monospace}
 .detail-body pre{background:var(--bg);padding:1rem;border-radius:var(--radius);overflow-x:auto;margin:.8rem 0;border:1px solid var(--border)}
 .detail-body pre code{background:none;padding:0}
-.detail-body ul,.detail-body ol{padding-left:1.5rem;margin:.5rem 0}
+.detail-body ul,.detail-body ol{padding-left:1.5rem;margin:.3rem 0}
+.detail-body li{margin-bottom:.1rem}
+.detail-body p{margin:.3rem 0}
 .detail-body a{color:var(--accent);text-decoration:none}
 .detail-body a:hover{text-decoration:underline}
 .detail-body blockquote{border-left:3px solid var(--accent);padding-left:1rem;color:var(--muted);margin:.5rem 0}
@@ -227,14 +229,14 @@ input,textarea,select{font-family:inherit;font-size:inherit}
   <aside class="sidebar" id="sidebar">
     <div class="logo">ihub</div>
     <nav>
-      <a href="#" data-view="browse" class="active"><span class="icon">&#9670;</span>Browse</a>
-      <a href="#" data-view="projects"><span class="icon">&#128194;</span>Projects</a>
-      <a href="#" data-view="push"><span class="icon">&#10514;</span>Push</a>
-      <a href="#" data-view="metrics"><span class="icon">&#9636;</span>Metrics</a>
-      <a href="#" data-view="audit" id="nav-audit"><span class="icon">&#128220;</span>Audit</a>
-      <a href="#" data-view="blocked" id="nav-blocked"><span class="icon">&#9940;</span>Blocked</a>
-      <a href="#" data-view="guide"><span class="icon">&#128218;</span>Guide</a>
-      <a href="#" data-view="admin" id="nav-admin"><span class="icon">&#9881;</span>Admin</a>
+      <a href="#" data-view="browse" class="active"><span class="icon">&#9633;</span>Browse</a>
+      <a href="#" data-view="projects"><span class="icon">&#9776;</span>Projects</a>
+      <a href="#" data-view="push"><span class="icon">&#8593;</span>Push</a>
+      <a href="#" data-view="metrics"><span class="icon">&#9707;</span>Metrics</a>
+      <a href="#" data-view="audit" id="nav-audit"><span class="icon">&#9998;</span>Audit</a>
+      <a href="#" data-view="blocked" id="nav-blocked"><span class="icon">&#9888;</span>Blocked</a>
+      <a href="#" data-view="guide"><span class="icon">&#9737;</span>Guide</a>
+      <a href="#" data-view="admin" id="nav-admin"><span class="icon">&#9656;</span>Admin</a>
     </nav>
     <div class="user-section" id="user-section"></div>
   </aside>
