@@ -643,11 +643,58 @@ The server stores artifacts in SQLite and exposes a REST API. Deploy with Docker
   "metrics": { "enabled": true },
   "audit": { "enabled": true, "log_anonymous": true },
   "firewall": { "enabled": false, "whitelist": [] },
-  "security": { "notify_via": "terminal", "email": "", "slack_webhook_url": "" }
+  "security": { "notify_via": "terminal", "email": "", "slack_webhook_url": "" },
+  "storage": { "adapter": "sqlite" }
 }
 ```
 
 Environment variables override config file values. Config file is optional.
+
+### Storage backends
+
+By default, ihub stores everything in SQLite. You can store artifact content and attachments on any of 30+ cloud storage providers via [files-sdk](https://files-sdk.dev/). SQLite always keeps index rows (name, version, tags, owner) for queries — only body content and attachment blobs move to external storage.
+
+```json
+// SQLite (default — no change needed)
+"storage": { "adapter": "sqlite" }
+
+// AWS S3
+"storage": { "adapter": "s3", "bucket": "ihub-artifacts", "region": "eu-west-1" }
+
+// Cloudflare R2
+"storage": { "adapter": "r2", "bucket": "ihub", "accountId": "abc123" }
+
+// Google Cloud Storage
+"storage": { "adapter": "gcs", "bucket": "ihub-artifacts" }
+
+// Azure Blob Storage
+"storage": { "adapter": "azure", "container": "ihub" }
+
+// Local filesystem (dev/test)
+"storage": { "adapter": "fs", "root": "./storage-data" }
+
+// MinIO (self-hosted S3)
+"storage": { "adapter": "minio", "bucket": "ihub", "endpoint": "http://minio:9000" }
+```
+
+**Authentication** — each adapter auto-loads credentials from standard environment variables. You don't configure credentials in `ihub.config.json`, you set them in your environment the same way you would for any cloud CLI tool:
+
+| Adapter | Credentials | Environment Variables |
+|---------|------------|----------------------|
+| `s3` | AWS credential chain | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` (or IAM role, `~/.aws/credentials`) |
+| `r2` | Cloudflare R2 | `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ACCOUNT_ID` |
+| `gcs` | Google ADC | `GOOGLE_APPLICATION_CREDENTIALS` (or `gcloud auth`, metadata server on GCE/GKE) |
+| `azure` | Connection string or key | `AZURE_STORAGE_CONNECTION_STRING` (or account name + key) |
+| `minio` | S3-compatible | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` + `endpoint` in config |
+| `fs` | None | Just set `root` directory path in config |
+
+All 30+ adapters: S3, R2, GCS, Azure, MinIO, DigitalOcean Spaces, Backblaze B2, Wasabi, Hetzner, Vultr, Scaleway, OVHcloud, Oracle Cloud, IBM COS, Storj, Tigris, Filebase, Akamai, iDrive e2, Exoscale, Vercel Blob, Netlify Blobs, Supabase, Google Drive, OneDrive, Dropbox, Box, UploadThing, Appwrite, local filesystem.
+
+If credentials are missing, the server fails to start with a clear error naming the required environment variable.
+
+**Trade-off**: full-text search on artifact body content only works with SQLite. Search by name, description, and tags works with all adapters.
+
+Or via env: `IHUB_STORAGE_ADAPTER=s3`
 
 ### Sensitive data protection
 

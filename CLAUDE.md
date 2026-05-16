@@ -26,6 +26,7 @@ server/    — registry API server
   slack.js    — Slack webhook (push notifications + digest)
   config.js   — config loader (ihub.config.json + env vars)
   db.js       — SQLite (users, entries, attachments, comments, audit_log)
+  storage.js  — storage abstraction (SQLite default, files-sdk for 30+ cloud providers)
   metrics.js  — Prometheus metrics collector
   sensitive.js — sensitive data detection and masking (80+ patterns)
   security-alert.js — security alert notifications (terminal/slack/email via notify_via config)
@@ -102,6 +103,7 @@ Run tests: `npm test` (307 tests)
 - Multi-agent pull: `--agent claude,cursor` installs to each agent's native path; Claude/Gemini/Qwen/Codex/OpenCode use `<name>/SKILL.md` dirs; Cursor uses `.mdc`
 - `transformForAgent()` rewrites frontmatter per agent on pull
 - `import` auto-detects source agent, maps fields, prompts for missing required fields
+- Storage: pluggable backends via `storage.adapter` config — SQLite (default), S3, R2, GCS, Azure, filesystem, MinIO, and 30+ more via files-sdk; credentials from standard env vars; SQLite keeps index rows for queries; body search only with SQLite
 - Sensitive data: scanned + masked on push (CLI + server-side); if found, artifact is **blocked** (status: "blocked", pulls return 403); admin must `ihub admin approve` to unblock; security alert sent via `security.notify_via` (terminal/slack/email); `sensitive-detected` audit action; `ihub_sensitive_detected_total` metric
 - Firewall: IP whitelist loaded once at startup (immutable); supports exact, CIDR, wildcard; blocked IPs logged + tracked
 - Memories always install to local `memories/`

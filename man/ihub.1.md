@@ -186,14 +186,22 @@ The server reads ihub.config.json on startup:
   "metrics": { "enabled": true },
   "audit": { "enabled": true, "log_anonymous": true },
   "firewall": { "enabled": false, "whitelist": [] },
-  "security": { "notify_via": "terminal", "email": "", "slack_webhook_url": "" }
+  "security": { "notify_via": "terminal", "email": "", "slack_webhook_url": "" },
+  "storage": { "adapter": "sqlite" }
 }
 ```
 
 Environment variables override config file values. Set IHUB_CONFIG for a custom path.
 
+### Storage backends
+
+Artifact content and attachments can be stored on any of 30+ providers via files-sdk. SQLite keeps index rows for queries. Credentials are loaded from standard environment variables (e.g., `AWS_ACCESS_KEY_ID` for S3, `GOOGLE_APPLICATION_CREDENTIALS` for GCS). If credentials are missing, the server fails to start with a clear error. Full-text body search only works with SQLite adapter.
+
+Example: `"storage": { "adapter": "s3", "bucket": "ihub-artifacts", "region": "eu-west-1" }`
+
 ## Environment variables
 
+- **IHUB_STORAGE_ADAPTER** — Storage adapter: sqlite (default), s3, r2, gcs, azure, fs, minio, etc.
 - **IHUB_PORT** — Server port (default: 3000)
 - **IHUB_DB_PATH** — SQLite database path (default: ./ihub.db)
 - **IHUB_CONFIG** — Path to config file (default: ./ihub.config.json)
