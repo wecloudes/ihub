@@ -6,7 +6,7 @@ const HTML = `<!DOCTYPE html>
 <title>ihub Registry</title>
 <style>
 :root{--bg:#1a1a2e;--surface:#16213e;--card:#0f3460;--text:#e0e0e0;--muted:#8a8a9a;--accent:#e94560;--accent2:#0f3460;--border:#2a2a4a;--radius:8px}
-@media(prefers-color-scheme:light){:root{--bg:#f5f5f5;--surface:#fff;--card:#fff;--text:#222;--muted:#666;--accent:#d63031;--border:#ddd}}
+@media(prefers-color-scheme:light){:root{--bg:#f5f5f5;--surface:#fff;--card:#fff;--text:#222;--muted:#555;--accent:#c0392b;--accent2:#e8f0fe;--border:#ddd}}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.6}
 header{background:var(--surface);border-bottom:1px solid var(--border);padding:1rem 2rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
@@ -22,7 +22,7 @@ main{max-width:1200px;margin:0 auto;padding:1.5rem}
 .card h3{font-size:1rem;margin-bottom:.3rem}
 .card p{font-size:.8rem;color:var(--muted);margin-bottom:.5rem;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .card-meta{display:flex;gap:.5rem;flex-wrap:wrap;font-size:.75rem}
-.tag{background:var(--accent2);padding:2px 6px;border-radius:4px;color:var(--muted)}
+.tag{background:var(--accent2);padding:2px 8px;border-radius:4px;color:var(--text);font-weight:500}
 .stars{color:#f9ca24}
 .owner{color:var(--muted);margin-left:auto}
 #detail{display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:2rem;margin-top:1rem}
