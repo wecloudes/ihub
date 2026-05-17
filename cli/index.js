@@ -1738,18 +1738,35 @@ async function metrics(args) {
 }
 
 async function backup(args) {
+  const isFull = args.includes("--full");
+  const filtered = args.filter(a => a !== "--full");
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const outputPath = args[0] || `ihub-backup-${timestamp}.db`;
 
-  await downloadBackup(outputPath);
-  console.log(`Backup saved to: ${outputPath}`);
+  if (isFull) {
+    // Full JSON backup — works with any storage adapter (S3, R2, etc.)
+    const outputPath = filtered[0] || `ihub-backup-${timestamp}.json`;
+    const { base, authHeaders } = loadConfig();
+    const res = await fetch(`${base}/api/backup/full`, { headers: authHeaders });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); console.error(`Backup failed: ${e.error || res.status}`); process.exit(1); }
+    const data = await res.text();
+    writeFileSync(outputPath, data);
+    const bundle = JSON.parse(data);
+    console.log(`Full backup saved to: ${outputPath}`);
+    console.log(`  ${bundle.artifacts?.length || 0} artifacts, ${bundle.comments?.length || 0} comments, ${bundle.users?.length || 0} users`);
+  } else {
+    // SQLite backup — only works when storage adapter is sqlite
+    const outputPath = filtered[0] || `ihub-backup-${timestamp}.db`;
+    await downloadBackup(outputPath);
+    console.log(`Backup saved to: ${outputPath}`);
+    console.log(`  (Use --full for a complete backup that works with any storage adapter)`);
+  }
 }
 
 async function restore(args) {
   const filePath = args[0];
   if (!filePath) {
-    console.error("Usage: ihub restore <backup-file.db>");
-    console.error("  Restores the server database from a backup file.");
+    console.error("Usage: ihub restore <backup-file>");
+    console.error("  Supports .db (SQLite) and .json (full) backups.");
     process.exit(1);
   }
   if (!existsSync(filePath)) {
@@ -1758,23 +1775,41 @@ async function restore(args) {
   }
   const { base, authHeaders } = loadConfig();
   const buf = readFileSync(filePath);
-  const header = buf.slice(0, 16).toString("ascii");
-  if (!header.startsWith("SQLite format 3")) {
-    console.error("Invalid backup file — not a SQLite database.");
+
+  // Detect format
+  const isJson = filePath.endsWith(".json") || buf.slice(0, 1).toString() === "{";
+  const isSqlite = buf.slice(0, 16).toString("ascii").startsWith("SQLite format 3");
+
+  if (isJson) {
+    // Full JSON restore — works with any storage adapter
+    let bundle;
+    try { bundle = JSON.parse(buf.toString()); } catch { console.error("Invalid JSON backup file."); process.exit(1); }
+    if (!bundle.artifacts) { console.error("Invalid backup — missing artifacts."); process.exit(1); }
+    console.log(`Restoring full backup from ${filePath}...`);
+    console.log(`  ${bundle.artifacts.length} artifacts, ${bundle.comments?.length || 0} comments`);
+    const res = await fetch(`${base}/api/backup/full`, {
+      method: "POST",
+      headers: { ...authHeaders, "Content-Type": "application/json" },
+      body: buf,
+    });
+    const data = await res.json();
+    if (!res.ok) { console.error(`Restore failed: ${data.error}`); process.exit(1); }
+    console.log(`Restored: ${data.imported} artifacts, ${data.comments} comments${data.errors ? `, ${data.errors} errors` : ""}`);
+  } else if (isSqlite) {
+    // SQLite restore — only works when storage adapter is sqlite
+    console.log(`Restoring SQLite backup from ${filePath} (${buf.length} bytes)...`);
+    const res = await fetch(`${base}/api/backup`, {
+      method: "POST",
+      headers: { ...authHeaders, "Content-Type": "application/octet-stream" },
+      body: buf,
+    });
+    const data = await res.json();
+    if (!res.ok) { console.error(`Restore failed: ${data.error}`); process.exit(1); }
+    console.log(`Database restored successfully (${data.size} bytes).`);
+  } else {
+    console.error("Unrecognized backup format. Use a .db (SQLite) or .json (full) file.");
     process.exit(1);
   }
-  console.log(`Restoring from ${filePath} (${buf.length} bytes)...`);
-  const res = await fetch(`${base}/api/backup`, {
-    method: "POST",
-    headers: { ...authHeaders, "Content-Type": "application/octet-stream" },
-    body: buf,
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    console.error(`Restore failed: ${data.error}`);
-    process.exit(1);
-  }
-  console.log(`Database restored successfully (${data.size} bytes).`);
 }
 
 async function admin(args) {

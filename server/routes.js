@@ -274,7 +274,80 @@ export async function handleRequest(req, res) {
     }).catch(() => sendError(res, 400, "Invalid JSON body"));
   }
 
-  // GET /api/backup — admin only, download DB
+  // GET /api/backup/full — admin only, full JSON export (works with any storage adapter)
+  if (parts[0] === "backup" && parts[1] === "full" && req.method === "GET") {
+    const user = await authenticate(req);
+    if (!user) return sendError(res, 401, "Invalid or missing API key");
+    if (user.role !== "admin") return sendError(res, 403, "Admin access required");
+
+    const bundle = { ihub_version: "0.3.0", exported_at: new Date().toISOString(), artifacts: [], comments: [], users: [] };
+    // Export all artifacts with full body (hydrated from storage)
+    for (const type of VALID_TYPES) {
+      const entries = listEntries(type, true); // include blocked
+      for (const entry of entries) {
+        const full = await getEntry(type, entry.name);
+        if (!full) continue;
+        const attachments = await getAttachments(type, entry.name);
+        const attachmentData = [];
+        for (const att of attachments) {
+          const content = await getAttachmentContent(type, entry.name, att.filepath);
+          if (content) attachmentData.push({ filepath: att.filepath, content: content.toString("base64"), size: att.size });
+        }
+        bundle.artifacts.push({ type, name: full.name, version: full.version, description: full.description, tags: full.tags, meta: full.meta, body: full.body, author: full.author, owner: full.owner, status: full.status, attachments: attachmentData });
+      }
+    }
+    // Export comments
+    for (const type of VALID_TYPES) {
+      const entries = listEntries(type, true);
+      for (const entry of entries) {
+        const comments = getComments(type, entry.name);
+        for (const c of comments) bundle.comments.push({ type, name: entry.name, username: c.username, rating: c.rating, body: c.body });
+      }
+    }
+    // Export users
+    const db = getDb();
+    bundle.users = db.prepare("SELECT username, role, created_at FROM users").all();
+
+    inc("ihub_backup_total", { user: user.username });
+    logAction({ ip: getClientIp(req), action: "backup", username: user.username, role: user.role, detail: "full JSON export" });
+    res.writeHead(200, { "Content-Type": "application/json", "Content-Disposition": `attachment; filename="ihub-backup-full.json"` });
+    return res.end(JSON.stringify(bundle));
+  }
+
+  // POST /api/backup/full — admin only, restore from full JSON export
+  if (parts[0] === "backup" && parts[1] === "full" && req.method === "POST") {
+    const user = await authenticate(req);
+    if (!user) return sendError(res, 401, "Invalid or missing API key");
+    if (user.role !== "admin") return sendError(res, 403, "Admin access required");
+
+    return readBody(req).then(async (bundle) => {
+      if (!bundle.artifacts || !Array.isArray(bundle.artifacts)) return sendError(res, 400, "Invalid bundle — missing artifacts array");
+      let imported = 0, errors = 0;
+      for (const art of bundle.artifacts) {
+        try {
+          await upsertEntry({ type: art.type, name: art.name, version: art.version, description: art.description || "", tags: art.tags || [], meta: art.meta || {}, body: art.body || "", author: art.author || "", owner: art.owner || user.username });
+          if (art.status === "blocked") setEntryStatus(art.type, art.name, "blocked");
+          if (art.attachments) {
+            for (const att of art.attachments) {
+              if (att.filepath && att.content) await upsertAttachment({ type: art.type, name: art.name, filepath: att.filepath, content: att.content });
+            }
+          }
+          imported++;
+        } catch { errors++; }
+      }
+      // Restore comments
+      let commentsRestored = 0;
+      if (bundle.comments) {
+        for (const c of bundle.comments) {
+          try { addComment({ type: c.type, name: c.name, username: c.username, rating: c.rating, body: c.body }); commentsRestored++; } catch {}
+        }
+      }
+      logAction({ ip: getClientIp(req), action: "restore", username: user.username, role: user.role, detail: `full: ${imported} artifacts, ${commentsRestored} comments` });
+      return sendJson(res, 200, { ok: true, imported, errors, comments: commentsRestored });
+    });
+  }
+
+  // GET /api/backup — admin only, download DB (SQLite only)
   if (parts[0] === "backup" && req.method === "GET") {
     const user = await authenticate(req);
     if (!user) return sendError(res, 401, "Invalid or missing API key");
