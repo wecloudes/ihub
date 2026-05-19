@@ -827,9 +827,15 @@ async function importArtifact(args) {
   const [type, sourcePath] = filtered;
   if (!type || !sourcePath) {
     console.error("Usage: ihub import <type> <path> [-i] [--no-push]");
-    console.error("  Example: ihub import skill ~/.claude/skills/docx/");
-    console.error("  Example: ihub import rule .cursor/rules/my-rule.mdc");
-    console.error("  Example: ihub import skill ~/.qwen/skills/my-skill/");
+    console.error("       ihub import <bundle.json> [--no-push]");
+    console.error("");
+    console.error("  Import from coding agent:");
+    console.error("    ihub import skill ~/.claude/skills/docx/");
+    console.error("    ihub import rule .cursor/rules/my-rule.mdc");
+    console.error("");
+    console.error("  Import from JSON bundle (created by ihub export):");
+    console.error("    ihub import bundle.json");
+    console.error("    ihub import bundle.json --no-push");
     process.exit(1);
   }
 
@@ -2365,7 +2371,8 @@ Commands:
   projects [name]             Tree view of all projects and their artifacts
   create <type> <name> [-i] [--from <template>]
                               Create a new entry (-i for interactive, --from to use registry template)
-  import <type> <path> [-i]  Import from external path (auto-push, -i for metadata prompts)
+  import <type> <path> [-i]  Import from coding agent (auto-push, -i for metadata prompts)
+  import <bundle.json>        Import from JSON bundle (created by ihub export)
   push <type> <name>          Publish a local entry to the registry
   pull <type> <name[:ver]>    Download an entry (--local or --global, --no-deps)
   pull <url>                  Pull artifact directly from any registry URL
@@ -2384,8 +2391,9 @@ Commands:
   pin <type> <name> [ver]     Lock artifact to a specific version
   unpin <type> <name>         Remove version pin
   pins                       List all pinned artifacts
-  export [--project P] [--type T]
-                              Export artifacts as JSON bundle to stdout
+  export [--project P] [--type T] [--name N] [-o file]
+                              Export artifacts as JSON bundle
+  export --from <url>         Export from another registry
   config                     Show server config and enabled features (admin)
   audit [--user U] [--action A] [--page N] [--limit N]
                               View audit trail (admin only, paginated)

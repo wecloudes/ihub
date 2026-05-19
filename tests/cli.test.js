@@ -672,6 +672,78 @@ describe("CLI end-to-end", () => {
     assert.ok(err.includes("Not pinned"));
   });
 
+  // --- Export ---
+
+  it("export outputs JSON to stdout", () => {
+    const out = ihub(["export"]);
+    const bundle = JSON.parse(out);
+    assert.ok(bundle.ihub_version);
+    assert.ok(bundle.exported_at);
+    assert.ok(Array.isArray(bundle.artifacts));
+    assert.ok(bundle.artifacts.length > 0);
+  });
+
+  it("export --output writes to file", () => {
+    const exportPath = join(tmpDir, "export-test.json");
+    const out = ihub(["export", "--output", exportPath]);
+    assert.ok(out.includes("Exported"));
+    assert.ok(existsSync(exportPath));
+    const bundle = JSON.parse(readFileSync(exportPath, "utf-8"));
+    assert.ok(bundle.artifacts.length > 0);
+  });
+
+  it("export -o shorthand writes to file", () => {
+    const exportPath = join(tmpDir, "export-short.json");
+    const out = ihub(["export", "-o", exportPath]);
+    assert.ok(out.includes("Exported"));
+    assert.ok(existsSync(exportPath));
+  });
+
+  it("export --type filters by type", () => {
+    const out = ihub(["export", "--type", "agents"]);
+    const bundle = JSON.parse(out);
+    assert.ok(bundle.artifacts.every((a) => a.type === "agents"));
+  });
+
+  it("export --name filters by name", () => {
+    const out = ihub(["export", "--name", "code-reviewer"]);
+    const bundle = JSON.parse(out);
+    assert.ok(bundle.artifacts.length > 0);
+    assert.ok(bundle.artifacts.every((a) => a.name === "code-reviewer"));
+  });
+
+  it("export --from reads from another registry", () => {
+    // Use the same test registry — just verifying the flag works
+    const out = ihub(["export", "--from", REGISTRY, "--type", "agents"]);
+    const bundle = JSON.parse(out);
+    assert.ok(bundle.source === REGISTRY);
+    assert.ok(Array.isArray(bundle.artifacts));
+  });
+
+  it("export includes filter metadata", () => {
+    const out = ihub(["export", "--project", "ci-toolkit", "--type", "skills"]);
+    const bundle = JSON.parse(out);
+    assert.ok(bundle.filters);
+    assert.equal(bundle.filters.project, "ci-toolkit");
+    assert.equal(bundle.filters.type, "skills");
+  });
+
+  // --- Import bundle ---
+
+  it("import JSON bundle saves locally and pushes", () => {
+    const exportPath = join(tmpDir, "export-test.json");
+    // File was created by the export --output test above
+    assert.ok(existsSync(exportPath));
+    const out = ihub(["import", exportPath]);
+    assert.ok(out.includes("Import complete") || out.includes("Saved"));
+  });
+
+  it("import JSON bundle with --no-push skips push", () => {
+    const exportPath = join(tmpDir, "export-test.json");
+    const out = ihub(["import", exportPath, "--no-push"]);
+    assert.ok(out.includes("Import complete") || out.includes("Saved"));
+  });
+
   // --- Backup --full (JSON) ---
 
   it("backup --full downloads JSON", () => {

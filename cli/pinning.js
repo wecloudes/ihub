@@ -97,16 +97,26 @@ export function pins() {
 export async function exportBundle(args, ROOT) {
   let projectFilter = null;
   let typeFilter = null;
+  let outputPath = null;
+  let nameFilters = [];
+  let fromUrl = null;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--project" && args[i + 1]) projectFilter = args[++i];
     else if (args[i] === "--type" && args[i + 1]) typeFilter = args[++i];
+    else if ((args[i] === "--output" || args[i] === "-o") && args[i + 1]) outputPath = args[++i];
+    else if (args[i] === "--name" && args[i + 1]) nameFilters.push(args[++i]);
+    else if (args[i] === "--from" && args[i + 1]) fromUrl = args[++i];
   }
 
   const config = loadConfig();
-  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
-  const token = config.token || process.env.IHUB_TOKEN || "";
+  const base = (fromUrl || config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
+  const token = fromUrl ? "" : (config.token || process.env.IHUB_TOKEN || "");
   const validTypes = ["agents", "skills", "rules", "memories", "prompts"];
   const types = typeFilter ? [pluralize(singularize(typeFilter))] : validTypes;
+
+  if (fromUrl) {
+    console.error(`Exporting from: ${base}`);
+  }
 
   const artifacts = [];
 
@@ -134,6 +144,7 @@ export async function exportBundle(args, ROOT) {
       if (!entryName) continue;
 
       if (projectFilter && e.meta?.project !== projectFilter && e.project !== projectFilter) continue;
+      if (nameFilters.length > 0 && !nameFilters.includes(entryName)) continue;
 
       try {
         const fullEntry = await pullEntry(type, entryName);
@@ -157,10 +168,23 @@ export async function exportBundle(args, ROOT) {
   const bundle = {
     ihub_version: pkg.version,
     exported_at: new Date().toISOString(),
+    source: base,
+    filters: {
+      ...(projectFilter && { project: projectFilter }),
+      ...(typeFilter && { type: typeFilter }),
+      ...(nameFilters.length > 0 && { names: nameFilters }),
+    },
     artifacts,
   };
 
-  console.log(JSON.stringify(bundle, null, 2));
+  const json = JSON.stringify(bundle, null, 2);
+
+  if (outputPath) {
+    writeFileSync(outputPath, json + "\n");
+    console.log(`Exported ${artifacts.length} artifact(s) to ${outputPath}`);
+  } else {
+    console.log(json);
+  }
 }
 
 export async function importBundle(args, ROOT) {
