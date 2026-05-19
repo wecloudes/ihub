@@ -1745,7 +1745,10 @@ async function backup(args) {
   if (isFull) {
     // Full JSON backup — works with any storage adapter (S3, R2, etc.)
     const outputPath = filtered[0] || `ihub-backup-${timestamp}.json`;
-    const { base, authHeaders } = loadConfig();
+    const config = loadConfig();
+    const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
+    const token = config.token || process.env.IHUB_TOKEN || "";
+    const authHeaders = token ? { "Authorization": `Bearer ${token}` } : {};
     const res = await fetch(`${base}/api/backup/full`, { headers: authHeaders });
     if (!res.ok) { const e = await res.json().catch(() => ({})); console.error(`Backup failed: ${e.error || res.status}`); process.exit(1); }
     const data = await res.text();
@@ -1773,7 +1776,10 @@ async function restore(args) {
     console.error(`File not found: ${filePath}`);
     process.exit(1);
   }
-  const { base, authHeaders } = loadConfig();
+  const config = loadConfig();
+  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
+  const token = config.token || process.env.IHUB_TOKEN || "";
+  const authHeaders = token ? { "Content-Type": "application/json", "Authorization": `Bearer ${token}` } : {};
   const buf = readFileSync(filePath);
 
   // Detect format

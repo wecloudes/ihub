@@ -510,7 +510,210 @@ describe("CLI end-to-end", () => {
     assert.ok(out.includes("testuser"));
   });
 
-  // --- Remote: remove ---
+  // --- Doctor ---
+
+  it("doctor runs all checks", () => {
+    const out = ihub(["doctor"]);
+    assert.ok(out.includes("ihub doctor"));
+    assert.ok(out.includes("Server reachable"));
+    assert.ok(out.includes("Auth valid"));
+    assert.ok(out.includes("Local artifacts valid"));
+    assert.ok(out.includes("Storage writable"));
+  });
+
+  // --- Outdated ---
+
+  it("outdated compares local vs registry", () => {
+    const out = ihub(["outdated"]);
+    // Either "up to date" or shows updates — both are valid
+    assert.ok(out.includes("up to date") || out.includes("update available") || out.includes("artifact"));
+  });
+
+  // --- Verify ---
+
+  it("verify checks artifact signature", () => {
+    // Re-push an agent first so it exists on registry
+    ihub(["push", "agent", "code-reviewer"]);
+    const out = ihub(["verify", "agent", "code-reviewer"]);
+    // Signing not enabled on test server, so should show "no signature"
+    assert.ok(out.includes("no signature") || out.includes("verified"));
+  });
+
+  it("verify fails for nonexistent", () => {
+    const err = ihubFail(["verify", "agent", "nonexistent"]);
+    assert.ok(err.includes("Not found") || err.includes("404") || err.includes("error"));
+  });
+
+  // --- JSON output ---
+
+  it("list --json outputs valid JSON", () => {
+    const out = ihub(["list", "agents", "--json"]);
+    const data = JSON.parse(out);
+    // list outputs { agents: [...] } when filtered by type
+    assert.ok(data.agents || typeof data === "object");
+  });
+
+  it("show --json outputs valid JSON", () => {
+    const out = ihub(["show", "agent", "code-reviewer", "--json"]);
+    const data = JSON.parse(out);
+    assert.ok(data.name || data.meta);
+  });
+
+  it("comments --json outputs valid JSON", () => {
+    const out = ihub(["comments", "agent", "code-reviewer", "--json"]);
+    const data = JSON.parse(out);
+    assert.ok(data.comments !== undefined || Array.isArray(data));
+  });
+
+  it("whoami --json outputs valid JSON", () => {
+    // whoami reads ~/.ihubrc, so we need to write one in the fake home
+    const rcPath = join(fakeHome, ".ihubrc");
+    writeFileSync(rcPath, JSON.stringify({ registry: REGISTRY, token: userToken, username: "testuser" }));
+    const out = ihub(["whoami", "--json"]);
+    const data = JSON.parse(out);
+    assert.equal(data.username, "testuser");
+    assert.ok(data.role);
+  });
+
+  it("search --remote --json outputs valid JSON", () => {
+    const out = ihub(["search", "--remote", "code", "--json"]);
+    const data = JSON.parse(out);
+    assert.ok(Array.isArray(data));
+  });
+
+  it("audit --json outputs valid JSON", () => {
+    const out = ihub(["audit", "--json"]);
+    const data = JSON.parse(out);
+    assert.ok(data.entries || data.total !== undefined);
+  });
+
+  // --- Webhooks CLI ---
+
+  it("webhook list shows empty initially", () => {
+    const out = ihub(["webhook", "list"]);
+    assert.ok(out.includes("No webhooks") || out.includes("webhook"));
+  });
+
+  it("webhook add creates a webhook", () => {
+    const out = ihub(["webhook", "add", "https://example.com/hook", "--events", "push,pull"]);
+    assert.ok(out.includes("Webhook added"));
+    assert.ok(out.includes("example.com"));
+  });
+
+  it("webhook list shows created webhook", () => {
+    const out = ihub(["webhook", "list"]);
+    assert.ok(out.includes("example.com/hook"));
+    assert.ok(out.includes("webhook"));
+  });
+
+  it("webhook remove deletes it", () => {
+    // Get the webhook list to find the ID
+    const listOut = ihub(["webhook", "list"]);
+    const match = listOut.match(/\[(\d+)\]/);
+    assert.ok(match, "Should find webhook ID in list output");
+    const id = match[1];
+    const out = ihub(["webhook", "remove", id]);
+    assert.ok(out.includes("removed"));
+  });
+
+  it("webhook add without url fails", () => {
+    const err = ihubFail(["webhook", "add"]);
+    assert.ok(err.includes("Usage") || err.includes("url"));
+  });
+
+  // --- Federation CLI ---
+
+  it("federation status shows config", () => {
+    const out = ihub(["federation", "status"]);
+    assert.ok(out.includes("Federation") || out.includes("disabled") || out.includes("enabled"));
+  });
+
+  it("federation without subcommand fails", () => {
+    const err = ihubFail(["federation"]);
+    assert.ok(err.includes("Usage") || err.includes("sync|status"));
+  });
+
+  // --- Pinning ---
+
+  it("pins shows empty initially", () => {
+    const out = ihub(["pins"]);
+    assert.ok(out.includes("No pinned"));
+  });
+
+  it("pin locks artifact to version", () => {
+    const out = ihub(["pin", "agent", "code-reviewer", "1.0.0"]);
+    assert.ok(out.includes("Pinned"));
+    assert.ok(out.includes("1.0.0"));
+  });
+
+  it("pins shows pinned artifact", () => {
+    const out = ihub(["pins"]);
+    assert.ok(out.includes("agents/code-reviewer"));
+    assert.ok(out.includes("1.0.0"));
+  });
+
+  it("unpin removes the pin", () => {
+    const out = ihub(["unpin", "agent", "code-reviewer"]);
+    assert.ok(out.includes("Unpinned"));
+  });
+
+  it("pins is empty after unpin", () => {
+    const out = ihub(["pins"]);
+    assert.ok(out.includes("No pinned"));
+  });
+
+  it("pin without args fails", () => {
+    const err = ihubFail(["pin"]);
+    assert.ok(err.includes("Usage"));
+  });
+
+  it("unpin non-pinned fails", () => {
+    const err = ihubFail(["unpin", "agent", "nonexistent"]);
+    assert.ok(err.includes("Not pinned"));
+  });
+
+  // --- Backup --full (JSON) ---
+
+  it("backup --full downloads JSON", () => {
+    const backupPath = join(tmpDir, "cli-full-backup.json");
+    const out = ihub(["backup", "--full", backupPath]);
+    assert.ok(out.includes("Full backup saved"));
+    assert.ok(existsSync(backupPath));
+    const bundle = JSON.parse(readFileSync(backupPath, "utf-8"));
+    assert.ok(bundle.artifacts);
+    assert.ok(bundle.users);
+    assert.ok(bundle.ihub_version);
+  });
+
+  // --- Restore ---
+
+  it("restore from JSON backup", () => {
+    const backupPath = join(tmpDir, "cli-full-backup.json");
+    // The backup was created above
+    assert.ok(existsSync(backupPath));
+    const out = ihub(["restore", backupPath]);
+    assert.ok(out.includes("Restored") || out.includes("artifacts"));
+  });
+
+  it("restore from SQLite backup", () => {
+    const backupPath = join(tmpDir, "cli-backup.db");
+    // The .db backup was created in the earlier "backup downloads DB" test
+    assert.ok(existsSync(backupPath));
+    const out = ihub(["restore", backupPath]);
+    assert.ok(out.includes("restored") || out.includes("Database"));
+  });
+
+  it("restore without args fails", () => {
+    const err = ihubFail(["restore"]);
+    assert.ok(err.includes("Usage"));
+  });
+
+  it("restore nonexistent file fails", () => {
+    const err = ihubFail(["restore", "/tmp/nonexistent-backup-file.db"]);
+    assert.ok(err.includes("not found") || err.includes("File not found"));
+  });
+
+  // --- Remote: remove (must be last since it deletes) ---
 
   it("remove deletes from remote", () => {
     const out = ihub(["remove", "agent", "code-reviewer"]);
