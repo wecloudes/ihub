@@ -2367,7 +2367,7 @@ Commands:
                               Create a new entry (-i for interactive, --from to use registry template)
   import <type> <path> [-i]  Import from external path (auto-push, -i for metadata prompts)
   push <type> <name>          Publish a local entry to the registry
-  pull <type> <name[:ver]>    Download an entry (--local or --global)
+  pull <type> <name[:ver]>    Download an entry (--local or --global, --no-deps)
   pull <url>                  Pull artifact directly from any registry URL
   watch                       Watch local dirs and auto-push on save
   remove <type> <name>        Remove an entry (owner only)
@@ -2378,12 +2378,28 @@ Commands:
   login <url> [--auth0]       Log in with API key or Auth0 device flow
   passwd                     Change password (API key)
   whoami                      Show current user and registry
+  doctor                     Run diagnostic checks (server, auth, storage, config)
+  outdated                   Compare local vs registry versions
+  verify <type> <name>        Check artifact HMAC signature
+  pin <type> <name> [ver]     Lock artifact to a specific version
+  unpin <type> <name>         Remove version pin
+  pins                       List all pinned artifacts
+  export [--project P] [--type T]
+                              Export artifacts as JSON bundle to stdout
   config                     Show server config and enabled features (admin)
   audit [--user U] [--action A] [--page N] [--limit N]
                               View audit trail (admin only, paginated)
   metrics [--type T] [--user U] [--name N] [--project P]
                               Show server metrics dashboard (filterable)
-  backup [path]               Download a full DB backup (admin only)
+  backup [path]               Download SQLite backup (admin only)
+  backup --full [path]        Download full JSON backup (any storage adapter)
+  restore <file>              Restore from .db or .json backup (admin only)
+  webhook list                List registered webhooks (admin only)
+  webhook add <url> [--events push,pull] [--secret s]
+                              Add a webhook (admin only)
+  webhook remove <id>         Remove a webhook (admin only)
+  federation sync             Trigger manual upstream sync (admin only)
+  federation status           Show upstream registry status (admin only)
   admin set-role <user> <role> Set user role (admin only)
   admin approve <type>/<name> Approve a blocked artifact (admin only)
   admin blocked              List blocked artifacts (admin only)
@@ -2391,6 +2407,8 @@ Commands:
   completions [bash|zsh]      Output shell completions
   man                        Full manual page
   version                     Show version info
+
+Flags: --json on list, show, search, comments, whoami, projects, audit, metrics
 
 Type-first syntax (equivalent):
   ihub agents list            Same as: ihub list agents
