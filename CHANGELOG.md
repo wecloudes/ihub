@@ -2,6 +2,44 @@
 
 All notable changes to ihub are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Full backup/restore (JSON)**: `ihub backup --full` exports the entire registry as a portable JSON bundle (artifacts, comments, users, attachments base64-encoded) — works with any storage adapter (S3, R2, GCS, etc.), not just SQLite. `ihub restore <file.json>` imports it back. Server endpoints: `GET /api/backup/full`, `POST /api/backup/full`
+- **Database restore**: `ihub restore <file.db>` restores from a SQLite backup. Server endpoint: `POST /api/backup` (validates SQLite magic bytes). `restoreDb()` in `server/db.js` closes, copies, and reopens the database
+- **Webhooks**: admin-managed HTTP webhooks for registry events (push, pull, comment, remove, approve, register). CRUD via `ihub webhook list|add|remove` CLI commands and `GET/POST/DELETE /api/webhooks` endpoints. Payloads signed with HMAC-SHA256 (`X-Ihub-Signature` header) when a secret is configured. Server module: `server/webhooks.js`
+- **Federation**: subscribe to upstream registries and mirror artifacts. `ihub federation sync` triggers manual sync; `ihub federation status` shows upstream state. Server module: `server/federation.js` with periodic `syncAll()`. Synced artifacts have `owner: "federated:{url}"`. Endpoints: `POST /api/federation/sync`, `GET /api/federation/status`
+- **Artifact signing**: HMAC-SHA256 signing and verification. Artifacts signed on push, verified on pull when `signing.enabled: true` and `signing.key` (or `IHUB_SIGNING_KEY` env var) is set. `ihub verify <type> <name>` checks signature locally. Server module: `server/signing.js`
+- **Versioning policy**: enforce semver bumps and detect breaking changes (removed sections, >50% body shrinkage). Configure `versioning.enforce_semver` and `versioning.require_major_for_breaking` in config. Server module: `server/versioning.js`
+- **Plugin system**: extensible hooks for push/pull lifecycle. Plugins are JS modules listed in `ihub.config.json` under `plugins[]`. Each exports `{ name, beforePush?, afterPush?, beforePull? }`. `beforePush` can block; `afterPush` is fire-and-forget; `beforePull` can transform body/meta. Server module: `server/plugins.js`
+- **Version pinning**: `ihub pin <type> <name> [version]` locks an artifact to a specific version; `ihub unpin` removes the pin; `ihub pins` lists all pins. Stored in `~/.ihubrc` under `pins`
+- **Bundle export/import**: `ihub export [--project P] [--type T]` exports artifacts as a JSON bundle to stdout; `ihub import <file.json> [--no-push]` imports a bundle, saving locally and optionally pushing. CLI module: `cli/pinning.js`
+- **Watch mode**: `ihub watch` watches local artifact directories for `.md` file changes and auto-pushes on save (500ms debounce)
+- **Doctor command**: `ihub doctor` runs diagnostic checks — server reachability, auth validity, local artifact validation, storage writeability, config file existence
+- **Outdated command**: `ihub outdated` compares local artifact versions against the registry and lists available updates
+- **Verify command**: `ihub verify <type> <name>` validates HMAC-SHA256 signature stored in artifact `meta._signature`
+- **Create from template**: `ihub create <type> <name> --from <template>` downloads an existing registry artifact as a template for a new local artifact
+- **Pull from URL**: `ihub pull <url>` pulls an artifact directly from any registry URL (auto-detects type/name from URL path)
+- **Pull --no-deps**: `ihub pull <type> <name> --no-deps` skips transitive dependency resolution
+- **JSON output**: `--json` flag on `list`, `show`, `search`, `comments`, `whoami`, `projects`, `audit`, `metrics` for machine-readable output
+- **Web UI**: browser-based registry interface at `/ui` with full feature parity — artifact browsing, detail views, projects, comments, metrics, audit, guide. Server module: `server/ui.js`
+- **TUI mouse support**: click to select, scroll wheel navigation, tab clicking
+- **TUI light theme**: `IHUB_THEME=light` environment variable for light terminals
+- **TUI related navigation**: `>` key in detail view to navigate to referenced artifacts
+- **Test suite**: expanded with signing, versioning, federation, webhooks, plugins tests; backup/restore and webhook route tests added
+
+### Fixed
+
+- Web UI header alignment, projects view with type colors
+- Web UI sidebar icons, detail spacing, layout
+- Web UI metrics, audit colors, guide layout
+- Web UI light theme tags readability
+- Web UI regex escaping for asterisks in template literals
+- Web UI meta parsing when already deserialized
+
+---
+
 ## [0.3.0] - 2026-05-15
 
 ### Added

@@ -390,6 +390,9 @@ ihub create prompt my-prompt
 # Interactive — prompts for every field
 ihub create agent my-agent -i
 
+# Create from an existing registry artifact as template
+ihub create skill my-skill --from base-skill
+
 # Import from any coding agent — auto-detects source format
 ihub import skill ~/.claude/skills/docx/            # from Claude Code
 ihub import rule .cursor/rules/no-console.mdc       # from Cursor IDE
@@ -397,6 +400,10 @@ ihub import skill ~/.qwen/skills/my-skill/          # from Qwen Code
 ihub import skill ~/.config/opencode/skills/lint/   # from Open Code
 ihub import skill path/to/SKILL.md -i               # interactive (prompts for ihub metadata)
 ihub import skill path/to/skill/ --no-push          # save locally, push later
+
+# Import a JSON bundle
+ihub import bundle.json                   # import + push all artifacts
+ihub import bundle.json --no-push         # save locally only
 ```
 
 ### Publishing and pulling
@@ -418,6 +425,12 @@ ihub pull rule no-secrets --agent cursor -l                # Cursor project (.md
 ihub pull agent code-reviewer:1.0.0
 ihub pull skill lint-check:latest
 
+# Pull directly from any registry URL
+ihub pull https://other-registry.com/api/skills/lint-check
+
+# Pull without transitive dependencies
+ihub pull agent code-reviewer --no-deps
+
 # Skip prompts
 ihub pull agent code-reviewer -l          # project scope
 ihub pull skill lint-check -g             # personal scope
@@ -427,6 +440,9 @@ ihub pull memory api-versioning-strategy
 
 # Remove from registry (owner only)
 ihub remove agent old-agent
+
+# Watch local dirs and auto-push on save
+ihub watch
 ```
 
 ### Reviews
@@ -465,6 +481,20 @@ ihub passwd
 ihub whoami
 ```
 
+### Version pinning
+
+```bash
+# Pin an artifact to a specific version (pulls that version instead of latest)
+ihub pin skill lint-check 1.2.0
+ihub pin agent code-reviewer            # pin to current local version
+
+# Remove a pin
+ihub unpin skill lint-check
+
+# List all pinned artifacts
+ihub pins
+```
+
 ### Administration (admin only)
 
 ```bash
@@ -482,9 +512,27 @@ ihub metrics
 ihub metrics --type agents
 ihub metrics --user alice --project ci-toolkit
 
-# Download full database backup
+# Download SQLite database backup
 ihub backup
 ihub backup /backups/ihub-2026-05-14.db
+
+# Full JSON backup (works with any storage adapter — S3, R2, GCS, etc.)
+ihub backup --full
+ihub backup --full /backups/ihub-2026-05-14.json
+
+# Restore from backup (auto-detects format)
+ihub restore /backups/ihub-2026-05-14.json    # full JSON restore
+ihub restore /backups/ihub-2026-05-14.db      # SQLite restore
+
+# Manage webhooks
+ihub webhook list
+ihub webhook add https://example.com/hook --events push,pull
+ihub webhook add https://example.com/hook --secret my-hmac-secret
+ihub webhook remove <id>
+
+# Federation — sync from upstream registries
+ihub federation sync                    # trigger manual sync
+ihub federation status                  # show upstream state
 
 # Manage user roles
 ihub admin set-role bob admin
@@ -503,6 +551,25 @@ ihub admin digest
 ### Utilities
 
 ```bash
+# Diagnostic checks (server, auth, local artifacts, storage, config)
+ihub doctor
+
+# Check for outdated artifacts (local vs registry)
+ihub outdated
+
+# Verify artifact signature
+ihub verify skill lint-check
+
+# Export artifacts as JSON bundle
+ihub export                             # all artifacts
+ihub export --project ci-toolkit        # filter by project
+ihub export --type skills               # filter by type
+
+# JSON output on any command
+ihub list --json
+ihub show agent code-reviewer --json
+ihub search --remote "lint" --json
+
 # Shell completions
 eval "$(ihub completions bash)"     # add to ~/.bashrc
 eval "$(ihub completions zsh)"      # add to ~/.zshrc
@@ -644,7 +711,11 @@ The server stores artifacts in SQLite and exposes a REST API. Deploy with Docker
   "audit": { "enabled": true, "log_anonymous": true },
   "firewall": { "enabled": false, "whitelist": [] },
   "security": { "notify_via": "terminal", "email": "", "slack_webhook_url": "" },
-  "storage": { "adapter": "sqlite" }
+  "storage": { "adapter": "sqlite" },
+  "federation": { "enabled": false, "upstreams": [] },
+  "signing": { "enabled": false, "key": "" },
+  "versioning": { "enforce_semver": false, "require_major_for_breaking": false },
+  "plugins": []
 }
 ```
 
@@ -739,11 +810,19 @@ Set `firewall.enabled: true` with a whitelist of allowed IPs. Supports exact IPs
 | `GET` | `/api/:type/:name/attachments/:path` | No | Download attachment |
 | `GET` | `/api/config` | Admin | Server configuration |
 | `GET` | `/api/audit` | Admin | Audit log (paginated) |
-| `GET` | `/api/backup` | Admin | Download DB backup |
+| `GET` | `/api/backup` | Admin | Download SQLite DB backup |
+| `POST` | `/api/backup` | Admin | Restore from SQLite backup |
+| `GET` | `/api/backup/full` | Admin | Full JSON export (any storage adapter) |
+| `POST` | `/api/backup/full` | Admin | Restore from full JSON export |
 | `POST` | `/api/users/:username/role` | Admin | Set user role |
 | `POST` | `/api/digest` | Admin | Trigger Slack digest |
 | `GET` | `/api/blocked` | Admin | List blocked artifacts |
 | `POST` | `/api/:type/:name/approve` | Admin | Unblock artifact |
+| `GET` | `/api/webhooks` | Admin | List webhooks |
+| `POST` | `/api/webhooks` | Admin | Create webhook |
+| `DELETE` | `/api/webhooks/:id` | Admin | Delete webhook |
+| `POST` | `/api/federation/sync` | Admin | Trigger federation sync |
+| `GET` | `/api/federation/status` | Admin | Federation upstream status |
 | `GET` | `/api/metrics` | No | Prometheus metrics |
 
 ## Project structure
@@ -757,8 +836,31 @@ prompts/           working directory for prompt entries
 examples/          sample entries (4 agents, 6 skills, 4 rules, 3 memories, 5 prompts)
 templates/         scaffolding templates for each type
 cli/               CLI tool (ESM, zero external dependencies)
+  index.js         command dispatcher + all CLI commands
+  pinning.js       version pinning, bundle export/import
+  parse.js         frontmatter parser, registry loader
+  registry.js      HTTP client for remote registry
+  render.js        terminal markdown renderer (ANSI)
+  dashboard.js     terminal metrics dashboard
+  tui.js           interactive TUI browser
+  agents-config.js coding agent path configs (6 agents)
 server/            registry API server (Node.js + SQLite)
-tests/             307 tests (node:test)
+  routes.js        REST handlers (auth, CRUD, backup, webhooks, federation)
+  db.js            SQLite (users, entries, attachments, comments, audit, webhooks)
+  signing.js       HMAC-SHA256 artifact signing/verification
+  versioning.js    semver policy enforcement, breaking change detection
+  federation.js    upstream registry sync
+  webhooks.js      webhook notification delivery
+  plugins.js       extensible push/pull lifecycle hooks
+  ui.js            web UI handler
+  storage.js       pluggable storage (SQLite, S3, R2, GCS, Azure, 30+)
+  sensitive.js     sensitive data detection and masking (80+ patterns)
+  security-alert.js security alert notifications
+  metrics.js       Prometheus metrics collector
+  config.js        config loader (ihub.config.json + env vars)
+  auth0.js         Auth0 JWT verification (optional)
+  slack.js         Slack webhook (push notifications + digest)
+tests/             test suite (node:test)
 completions/       bash and zsh shell completions
 man/               manual page source
 grafana/           Grafana dashboard + Prometheus config

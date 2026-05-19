@@ -14,6 +14,7 @@ npm run server    # start the registry server locally
 ```
 cli/           CLI tool (ESM, no external dependencies)
   index.js       command dispatcher + all CLI commands
+  pinning.js     version pinning, bundle export/import
   parse.js       frontmatter parser, entry/registry loader
   registry.js    HTTP client for remote registry
   render.js      terminal markdown renderer (ANSI)
@@ -22,18 +23,26 @@ cli/           CLI tool (ESM, no external dependencies)
   agents-config.js  coding agent path configs (Claude, Gemini, Qwen, Cursor, Codex, Open Code)
 server/        registry API server
   index.js       native http server entrypoint
-  routes.js      REST route handlers (auth, CRUD, comments, attachments, backup, metrics, audit, firewall, blocked/approve)
+  routes.js      REST route handlers (auth, CRUD, comments, attachments, backup/restore, webhooks, federation, metrics, audit, firewall, blocked/approve)
   auth0.js       Auth0 JWT verification (RS256, JWKS, optional)
   slack.js       Slack webhook (push notifications + digest)
   config.js      unified config loader (ihub.config.json + env vars)
-  db.js          SQLite layer — users, entries, attachments, comments, audit_log
+  db.js          SQLite layer — users, entries, attachments, comments, audit_log, webhooks
+  storage.js     pluggable storage abstraction (SQLite, S3, R2, GCS, Azure, 30+)
+  signing.js     HMAC-SHA256 artifact signing and verification
+  versioning.js  semver policy enforcement, breaking change detection
+  federation.js  upstream registry sync
+  webhooks.js    webhook notification delivery (HMAC-signed)
+  plugins.js     extensible push/pull lifecycle hooks
+  ui.js          web UI handler (browser-based registry)
   metrics.js     in-memory Prometheus metrics collector
   sensitive.js   sensitive data detection and masking (80+ patterns)
   security-alert.js  security alert notifications (terminal/slack/email)
-tests/         all tests (307, node:test)
+tests/         test suite (node:test)
   parse.test.js, registry.test.js, render.test.js, dashboard.test.js
   config.test.js, metrics.test.js, slack.test.js
   db.test.js, routes.test.js, cli.test.js, tui.test.js, sensitive.test.js
+  signing.test.js, versioning.test.js, federation.test.js, webhooks.test.js, plugins.test.js
 agents/        working directory for agent entries (.md, gitignored)
 skills/        working directory for skill entries (.md, gitignored)
 rules/         working directory for rule entries (.md, gitignored)
@@ -52,7 +61,7 @@ docker-compose.yml  ihub + Prometheus + Grafana stack
 ## Running tests
 
 ```bash
-npm test                           # run all 307 tests
+npm test                           # run all tests
 node --test tests/parse.test.js    # run a single test file
 node --test --test-name-pattern "push" tests/cli.test.js  # run matching tests
 ```

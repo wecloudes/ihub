@@ -11,8 +11,9 @@ process.env.IHUB_DB_PATH = join(tmpDir, "test.db");
 const {
   getDb, upsertEntry, getEntry, getEntryOwner, listEntries, listVersions,
   deleteEntry, searchEntries, registerUser, authenticateKey, getUser,
-  getUserCount, setUserRole, changeApiKey, backupDb, logAction, getAuditLog,
+  getUserCount, setUserRole, changeApiKey, backupDb, restoreDb, logAction, getAuditLog,
   addComment, getComments, deleteComment, getAverageRating,
+  addWebhook, getWebhooks, deleteWebhook, getWebhooksForEvent,
 } = await import("../server/db.js");
 
 describe("database", () => {
@@ -277,5 +278,64 @@ describe("database", () => {
   it("audit entries have timestamps", () => {
     const result = getAuditLog({ limit: 1 });
     assert.ok(result.entries[0].created_at);
+  });
+
+  // --- Webhooks ---
+
+  it("adds webhook with array events", () => {
+    const id = addWebhook("https://example.com/hook1", ["push", "pull"], null);
+    assert.ok(id > 0);
+  });
+
+  it("adds webhook with string events", () => {
+    const id = addWebhook("https://example.com/hook2", "push,comment", "secret123");
+    assert.ok(id > 0);
+  });
+
+  it("lists all webhooks", () => {
+    const hooks = getWebhooks();
+    assert.ok(hooks.length >= 2);
+    assert.ok(hooks[0].url);
+    assert.ok(hooks[0].events);
+    assert.ok(hooks[0].created_at);
+  });
+
+  it("deletes existing webhook", () => {
+    const hooks = getWebhooks();
+    const result = deleteWebhook(hooks[0].id);
+    assert.equal(result, true);
+  });
+
+  it("returns false deleting nonexistent webhook", () => {
+    const result = deleteWebhook(99999);
+    assert.equal(result, false);
+  });
+
+  it("filters webhooks by event", () => {
+    const hooks = getWebhooksForEvent("comment");
+    assert.ok(hooks.length >= 1);
+    assert.ok(hooks.every((h) => h.events.includes("comment")));
+  });
+
+  it("returns empty for unmatched event", () => {
+    const hooks = getWebhooksForEvent("nonexistent-event");
+    assert.deepEqual(hooks, []);
+  });
+
+  it("matches wildcard event", () => {
+    addWebhook("https://example.com/wildcard", "*", null);
+    const hooks = getWebhooksForEvent("anything");
+    assert.ok(hooks.some((h) => h.url === "https://example.com/wildcard"));
+  });
+
+  // --- Restore DB ---
+
+  it("restores database from backup", async () => {
+    const backupPath = join(tmpDir, "backup-for-restore.db");
+    await backupDb(backupPath);
+    restoreDb(backupPath);
+    // DB should still be functional after restore
+    const count = getUserCount();
+    assert.ok(count >= 2);
   });
 });

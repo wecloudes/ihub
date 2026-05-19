@@ -697,4 +697,221 @@ describe("API routes", () => {
     assert.equal(data.pong, true);
     assert.ok(data.timestamp);
   });
+
+  // --- Full backup/restore (JSON) ---
+
+  it("admin can get full JSON backup", async () => {
+    const res = await fetch(`${baseUrl}/api/backup/full`, {
+      headers: { "Authorization": `Bearer ${aliceKey}` },
+    });
+    assert.equal(res.status, 200);
+    assert.ok(res.headers.get("content-type").includes("application/json"));
+    assert.ok(res.headers.get("content-disposition").includes("ihub-backup-full.json"));
+    const bundle = await res.json();
+    assert.ok(bundle.ihub_version);
+    assert.ok(bundle.exported_at);
+    assert.ok(Array.isArray(bundle.artifacts));
+    assert.ok(Array.isArray(bundle.comments));
+    assert.ok(Array.isArray(bundle.users));
+    assert.ok(bundle.artifacts.length > 0);
+    assert.ok(bundle.users.length >= 2); // alice + bob
+  });
+
+  it("non-admin cannot get full backup", async () => {
+    const { status, data } = await api("GET", "/api/backup/full", { token: bobKey });
+    assert.equal(status, 403);
+    assert.ok(data.error.includes("Admin"));
+  });
+
+  it("unauthenticated cannot get full backup", async () => {
+    const { status } = await api("GET", "/api/backup/full");
+    assert.equal(status, 401);
+  });
+
+  it("admin can restore from full JSON backup", async () => {
+    // First get a backup
+    const backupRes = await fetch(`${baseUrl}/api/backup/full`, {
+      headers: { "Authorization": `Bearer ${aliceKey}` },
+    });
+    const bundle = await backupRes.json();
+
+    // Now restore it
+    const { status, data } = await api("POST", "/api/backup/full", {
+      body: bundle,
+      token: aliceKey,
+    });
+    assert.equal(status, 200);
+    assert.equal(data.ok, true);
+    assert.ok(data.imported >= 0);
+    assert.ok(typeof data.errors === "number");
+    assert.ok(typeof data.comments === "number");
+  });
+
+  it("restore rejects invalid bundle", async () => {
+    const { status, data } = await api("POST", "/api/backup/full", {
+      body: { no_artifacts: true },
+      token: aliceKey,
+    });
+    assert.equal(status, 400);
+    assert.ok(data.error.includes("artifacts"));
+  });
+
+  it("non-admin cannot restore full backup", async () => {
+    const { status } = await api("POST", "/api/backup/full", {
+      body: { artifacts: [] },
+      token: bobKey,
+    });
+    assert.equal(status, 403);
+  });
+
+  // --- DB Restore (SQLite) ---
+
+  it("rejects restore of non-SQLite data", async () => {
+    const res = await fetch(`${baseUrl}/api/backup`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${aliceKey}`,
+        "Content-Type": "application/octet-stream",
+      },
+      body: Buffer.alloc(200, 0x41), // 200 bytes of 'A', not SQLite
+    });
+    const data = await res.json();
+    assert.equal(res.status, 400);
+    assert.ok(data.error.includes("not a SQLite"));
+  });
+
+  it("rejects restore of too-small file", async () => {
+    const res = await fetch(`${baseUrl}/api/backup`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${aliceKey}`,
+        "Content-Type": "application/octet-stream",
+      },
+      body: Buffer.alloc(10),
+    });
+    const data = await res.json();
+    assert.equal(res.status, 400);
+    assert.ok(data.error.includes("too small"));
+  });
+
+  it("non-admin cannot restore DB", async () => {
+    const res = await fetch(`${baseUrl}/api/backup`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${bobKey}` },
+      body: Buffer.alloc(200),
+    });
+    assert.equal(res.status, 403);
+  });
+
+  // --- Webhooks API ---
+
+  it("admin can create webhook", async () => {
+    const { status, data } = await api("POST", "/api/webhooks", {
+      body: { url: "https://example.com/hook", events: ["push", "pull"] },
+      token: aliceKey,
+    });
+    assert.equal(status, 201);
+    assert.equal(data.ok, true);
+    assert.ok(data.id);
+    assert.equal(data.url, "https://example.com/hook");
+    assert.deepEqual(data.events, ["push", "pull"]);
+  });
+
+  it("admin can list webhooks", async () => {
+    const { status, data } = await api("GET", "/api/webhooks", { token: aliceKey });
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(data));
+    assert.ok(data.length >= 1);
+    assert.ok(data[0].url);
+    assert.ok(data[0].events);
+  });
+
+  it("non-admin cannot list webhooks", async () => {
+    const { status } = await api("GET", "/api/webhooks", { token: bobKey });
+    assert.equal(status, 403);
+  });
+
+  it("non-admin cannot create webhook", async () => {
+    const { status } = await api("POST", "/api/webhooks", {
+      body: { url: "https://example.com/hook2", events: ["push"] },
+      token: bobKey,
+    });
+    assert.equal(status, 403);
+  });
+
+  it("rejects webhook without url", async () => {
+    const { status, data } = await api("POST", "/api/webhooks", {
+      body: { events: ["push"] },
+      token: aliceKey,
+    });
+    assert.equal(status, 400);
+    assert.ok(data.error.includes("url"));
+  });
+
+  it("rejects webhook without events", async () => {
+    const { status, data } = await api("POST", "/api/webhooks", {
+      body: { url: "https://example.com/hook3" },
+      token: aliceKey,
+    });
+    assert.equal(status, 400);
+    assert.ok(data.error.includes("events"));
+  });
+
+  it("rejects webhook with empty events array", async () => {
+    const { status } = await api("POST", "/api/webhooks", {
+      body: { url: "https://example.com/hook4", events: [] },
+      token: aliceKey,
+    });
+    assert.equal(status, 400);
+  });
+
+  it("admin can delete webhook", async () => {
+    // Create one to delete
+    const { data: created } = await api("POST", "/api/webhooks", {
+      body: { url: "https://example.com/to-delete", events: ["push"] },
+      token: aliceKey,
+    });
+    const { status, data } = await api("DELETE", `/api/webhooks/${created.id}`, {
+      token: aliceKey,
+    });
+    assert.equal(status, 200);
+    assert.equal(data.ok, true);
+    assert.equal(data.deleted, created.id);
+  });
+
+  it("returns 404 deleting nonexistent webhook", async () => {
+    const { status } = await api("DELETE", "/api/webhooks/99999", {
+      token: aliceKey,
+    });
+    assert.equal(status, 404);
+  });
+
+  it("non-admin cannot delete webhook", async () => {
+    const { data: wh } = await api("GET", "/api/webhooks", { token: aliceKey });
+    if (wh.length > 0) {
+      const { status } = await api("DELETE", `/api/webhooks/${wh[0].id}`, {
+        token: bobKey,
+      });
+      assert.equal(status, 403);
+    }
+  });
+
+  // --- Federation endpoints ---
+
+  it("federation status requires admin", async () => {
+    const { status } = await api("GET", "/api/federation/status", { token: bobKey });
+    assert.equal(status, 403);
+  });
+
+  it("federation status returns config", async () => {
+    const { status, data } = await api("GET", "/api/federation/status", { token: aliceKey });
+    assert.equal(status, 200);
+    assert.equal(typeof data.enabled, "boolean");
+    assert.ok(Array.isArray(data.upstreams));
+  });
+
+  it("federation sync requires admin", async () => {
+    const { status } = await api("POST", "/api/federation/sync", { token: bobKey });
+    assert.equal(status, 403);
+  });
 });
