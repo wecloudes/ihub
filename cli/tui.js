@@ -333,8 +333,14 @@ export async function startTui(baseUrl, token) {
       return;
     }
 
-    // q to quit from list (home) or types
-    if (key === "q" && (state.view === "list" || state.view === "types") && !state.showBookmarks && !state.detail) {
+    // q or Esc to quit from types (main view)
+    if ((key === "q" || key === ESC) && state.view === "types" && !state.showBookmarks) {
+      cleanup();
+      process.exit(0);
+    }
+
+    // q to quit from list
+    if (key === "q" && state.view === "list" && !state.showBookmarks && !state.detail) {
       cleanup();
       process.exit(0);
     }
