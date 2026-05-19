@@ -333,14 +333,8 @@ export async function startTui(baseUrl, token) {
       return;
     }
 
-    // q or Esc to quit from types (main view)
-    if ((key === "q" || key === ESC) && state.view === "types" && !state.showBookmarks) {
-      cleanup();
-      process.exit(0);
-    }
-
-    // q to quit from list
-    if (key === "q" && state.view === "list" && !state.showBookmarks && !state.detail) {
+    // q or Esc to quit from types or list (main views)
+    if ((key === "q" || key === ESC) && (state.view === "types" || state.view === "list") && !state.showBookmarks && !state.detail && !state.isSearch && !state.isBlockedView) {
       cleanup();
       process.exit(0);
     }
@@ -354,7 +348,7 @@ export async function startTui(baseUrl, token) {
         state.view = "detail";
         state.scrollOffset = 0;
       } else if (state.view === "metrics" || state.view === "projects" || state.view === "config" || state.view === "versions" || state.view === "guide") {
-        state.view = state.previousView || "types";
+        state.view = state.previousView || "list";
         state.previousView = null;
         state.scrollOffset = 0;
       } else if (state.view === "detail") {
@@ -362,21 +356,15 @@ export async function startTui(baseUrl, token) {
         state.detail = null;
         state.comments = null;
       } else if (state.view === "list") {
-        if (state.isSearch || state.isBlockedView) {
-          // Clear search/blocked and go back to normal list
-          state.isSearch = false;
-          state.isBlockedView = false;
-          state.searchResults = null;
-          state.blockedList = null;
-          state.selectedItem = 0;
-          state.scrollOffset = 0;
-          state.filter = "";
-          state.marked.clear();
-        } else {
-          // From normal list — back to types view
-          state.view = "types";
-          state.scrollOffset = 0;
-        }
+        // In search/blocked mode — clear and go back to normal list
+        state.isSearch = false;
+        state.isBlockedView = false;
+        state.searchResults = null;
+        state.blockedList = null;
+        state.selectedItem = 0;
+        state.scrollOffset = 0;
+        state.filter = "";
+        state.marked.clear();
       }
       state.breadcrumb = buildBreadcrumb(state);
       render(state);
