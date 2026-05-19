@@ -280,7 +280,7 @@ export async function handleRequest(req, res) {
     if (!user) return sendError(res, 401, "Invalid or missing API key");
     if (user.role !== "admin") return sendError(res, 403, "Admin access required");
 
-    const bundle = { ihub_version: "0.3.0", exported_at: new Date().toISOString(), artifacts: [], comments: [], users: [] };
+    const bundle = { ihub_version: "0.4.0", exported_at: new Date().toISOString(), artifacts: [], comments: [], users: [] };
     // Export all artifacts with full body (hydrated from storage)
     for (const type of VALID_TYPES) {
       const entries = listEntries(type, true); // include blocked

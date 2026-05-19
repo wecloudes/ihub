@@ -2,7 +2,7 @@
 
 All notable changes to ihub are documented in this file.
 
-## [Unreleased]
+## [0.4.0] - 2026-05-19
 
 ### Added
 
