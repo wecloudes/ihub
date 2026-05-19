@@ -79,6 +79,7 @@ export async function startTui(baseUrl, token) {
     lastVisit: null,
     newCount: 0,
     statusMsg: null,
+    previousView: null,  // tracks where to go back from overlay views
     breadcrumb: [],
     projectTree: null,
     serverConfig: null,
@@ -283,7 +284,8 @@ export async function startTui(baseUrl, token) {
         state.breadcrumb = ["projects"];
         state.scrollOffset = 0;
       } else if (key === ESC || key === "\x7f" || key === "q") {
-        state.view = "list";
+        state.view = state.previousView || "types";
+        state.previousView = null;
         state.scrollOffset = 0;
         state.breadcrumb = [];
       } else if (key === `${ESC}[A`) {
@@ -315,7 +317,8 @@ export async function startTui(baseUrl, token) {
         await loadAuditPage(state, baseUrl, token);
         state.scrollOffset = 0;
       } else if (key === ESC || key === "\x7f" || key === "q") {
-        state.view = "list";
+        state.view = state.previousView || "types";
+        state.previousView = null;
         state.audit = null;
         state.scrollOffset = 0;
         state.breadcrumb = [];
@@ -345,7 +348,8 @@ export async function startTui(baseUrl, token) {
         state.view = "detail";
         state.scrollOffset = 0;
       } else if (state.view === "metrics" || state.view === "projects" || state.view === "config" || state.view === "versions" || state.view === "guide") {
-        state.view = "list";
+        state.view = state.previousView || "types";
+        state.previousView = null;
         state.scrollOffset = 0;
       } else if (state.view === "detail") {
         state.view = "list";
@@ -363,9 +367,9 @@ export async function startTui(baseUrl, token) {
           state.filter = "";
           state.marked.clear();
         } else {
-          // From normal list — quit
-          cleanup();
-          process.exit(0);
+          // From normal list — back to types view
+          state.view = "types";
+          state.scrollOffset = 0;
         }
       }
       state.breadcrumb = buildBreadcrumb(state);
@@ -664,6 +668,7 @@ export async function startTui(baseUrl, token) {
       if (key === "v") {
         const type = TYPES[state.selectedType];
         state.versionList = await fetchJson(`${baseUrl}/api/${type}/${state.detail.name}/versions`);
+        state.previousView = state.view;
         state.view = "versions";
         state.scrollOffset = 0;
         state.breadcrumb = buildBreadcrumb(state, state.detail.name, "versions");
@@ -738,6 +743,7 @@ export async function startTui(baseUrl, token) {
       // m — metrics
       if (key === "m" && state.isAdmin) {
         state.metrics = await fetchText(`${baseUrl}/api/metrics`, token);
+        state.previousView = state.view;
         state.view = "metrics";
         state.scrollOffset = 0;
         state.breadcrumb = ["metrics"];
@@ -748,6 +754,7 @@ export async function startTui(baseUrl, token) {
       if (key === "t" && state.isAdmin) {
         state.auditPage = 1;
         await loadAuditPage(state, baseUrl, token);
+        state.previousView = state.view;
         state.view = "audit";
         state.scrollOffset = 0;
         state.breadcrumb = ["audit"];
@@ -766,6 +773,7 @@ export async function startTui(baseUrl, token) {
         }
         state.projectTree = buildProjectTree(state, filterProject);
         state.projectFilter = filterProject;
+        state.previousView = state.view;
         state.view = "projects";
         state.scrollOffset = 0;
         state.breadcrumb = filterProject ? ["projects", filterProject] : ["projects"];
@@ -775,6 +783,7 @@ export async function startTui(baseUrl, token) {
       // i — config
       if (key === "i" && state.isAdmin) {
         state.serverConfig = await fetchJson(`${baseUrl}/api/config`, token);
+        state.previousView = state.view;
         state.view = "config";
         state.scrollOffset = 0;
         state.breadcrumb = ["config"];
@@ -794,6 +803,7 @@ export async function startTui(baseUrl, token) {
       }
       // G — artifact guide
       if (key === "G") {
+        state.previousView = state.view;
         state.view = "guide";
         state.scrollOffset = 0;
         state.guideTab = 0;
