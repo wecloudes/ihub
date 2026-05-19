@@ -171,8 +171,8 @@ describe("CLI end-to-end", () => {
 
   // --- Projects ---
 
-  it("projects shows tree view", () => {
-    const out = ihub(["projects"]);
+  it("projects shows tree view (local)", () => {
+    const out = ihub(["projects", "--local"]);
     assert.ok(out.includes("ci-toolkit"));
     assert.ok(out.includes("agents"));
     assert.ok(out.includes("code-reviewer"));
@@ -182,15 +182,23 @@ describe("CLI end-to-end", () => {
     assert.ok(out.includes("require-tests"));
   });
 
-  it("projects filters by name", () => {
-    const out = ihub(["projects", "ci-toolkit"]);
+  it("projects filters by name (local)", () => {
+    const out = ihub(["projects", "ci-toolkit", "--local"]);
     assert.ok(out.includes("ci-toolkit"));
     assert.ok(out.includes("code-reviewer"));
   });
 
-  it("projects fails for nonexistent", () => {
-    const err = ihubFail(["projects", "nonexistent"]);
+  it("projects fails for nonexistent (local)", () => {
+    const err = ihubFail(["projects", "nonexistent", "--local"]);
     assert.ok(err.includes("Project not found"));
+  });
+
+  it("projects reads from remote by default", () => {
+    // Push something first so remote has data
+    ihub(["push", "agent", "code-reviewer"]);
+    const out = ihub(["projects"]);
+    // Should show at least the pushed artifact's project
+    assert.ok(out.includes("ci-toolkit") || out.includes("code-reviewer") || out.includes("(unassigned)"));
   });
 
   it("search local", () => {

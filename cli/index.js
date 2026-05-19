@@ -542,19 +542,53 @@ function validate() {
   }
 }
 
-function projects(args) {
+async function projects(args) {
   const jsonMode = args.includes("--json");
-  const filtered = args.filter((a) => a !== "--json");
+  const localOnly = args.includes("--local");
+  const filtered = args.filter((a) => a !== "--json" && a !== "--local");
   const [projectName] = filtered;
-  const registry = loadRegistry(ROOT);
   const TYPES = ["agents", "skills", "rules", "memories", "prompts"];
+
+  // Load entries — remote by default, local with --local
+  let allEntries = {};
+  if (localOnly) {
+    const registry = loadRegistry(ROOT);
+    for (const type of TYPES) allEntries[type] = registry[type] || [];
+  } else {
+    const config = loadConfig();
+    const base = (config.registry || process.env.IHUB_REGISTRY || "").replace(/\/+$/, "");
+    if (!base) {
+      // No registry configured — fall back to local
+      const registry = loadRegistry(ROOT);
+      for (const type of TYPES) allEntries[type] = registry[type] || [];
+    } else {
+      const token = config.token || process.env.IHUB_TOKEN || "";
+      const headers = token ? { "Authorization": `Bearer ${token}` } : {};
+      for (const type of TYPES) {
+        try {
+          const res = await fetch(`${base}/api/${type}`, { headers });
+          if (res.ok) {
+            const entries = await res.json();
+            allEntries[type] = entries.map((e) => {
+              const meta = typeof e.meta === "string" ? (() => { try { return JSON.parse(e.meta); } catch { return {}; } })() : (e.meta || {});
+              return { ...e, ...meta, project: meta.project || e.project || "" };
+            });
+          } else {
+            allEntries[type] = [];
+          }
+        } catch {
+          allEntries[type] = [];
+        }
+      }
+    }
+  }
 
   // Collect all projects
   const projectMap = {};
   const unassigned = { agents: [], skills: [], rules: [], memories: [], prompts: [] };
 
   for (const type of TYPES) {
-    for (const entry of registry[type]) {
+    for (const entry of (allEntries[type] || [])) {
       const proj = entry.project || "";
       if (proj) {
         if (!projectMap[proj]) projectMap[proj] = { agents: [], skills: [], rules: [], memories: [], prompts: [] };
