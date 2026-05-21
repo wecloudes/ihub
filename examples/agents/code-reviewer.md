@@ -9,6 +9,8 @@ inputs: [diff, file-list]
 outputs: [review-comments, approval-status]
 skills: [lint-check]
 rules: [require-tests]
+memories: [error-handling-patterns]
+prompts: [code-review-feedback, summarize-pr]
 ---
 
 # Code Reviewer

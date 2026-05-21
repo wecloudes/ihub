@@ -793,6 +793,107 @@ describe("CLI end-to-end", () => {
     assert.ok(err.includes("not found") || err.includes("File not found"));
   });
 
+  // --- New features ---
+
+  it("agent template includes memories and prompts fields", () => {
+    const agentPath = join(ROOT, "agents", "field-test.md");
+    try {
+      ihub(["create", "agent", "field-test"]);
+      const content = readFileSync(agentPath, "utf-8");
+      assert.ok(content.includes("memories: []"));
+      assert.ok(content.includes("prompts: []"));
+    } finally {
+      if (existsSync(agentPath)) rmSync(agentPath);
+    }
+  });
+
+  it("prompt template includes memories field", () => {
+    const promptPath = join(ROOT, "prompts", "field-test.md");
+    try {
+      ihub(["create", "prompt", "field-test"]);
+      const content = readFileSync(promptPath, "utf-8");
+      assert.ok(content.includes("memories: []"));
+    } finally {
+      if (existsSync(promptPath)) rmSync(promptPath);
+    }
+  });
+
+  it("validate checks memory cross-references in agents", () => {
+    const agentPath = join(ROOT, "agents", "xref-test.md");
+    try {
+      writeFileSync(agentPath, "---\nname: xref-test\ndescription: test\nversion: 1.0.0\nmemories: [nonexistent-memory]\n---\n# Test\n");
+      const err = ihubFail(["validate"]);
+      assert.ok(err.includes('BROKEN ref: memory "nonexistent-memory"'));
+    } finally {
+      if (existsSync(agentPath)) rmSync(agentPath);
+    }
+  });
+
+  it("validate checks prompt cross-references in agents", () => {
+    const agentPath = join(ROOT, "agents", "xref-prompt-test.md");
+    try {
+      writeFileSync(agentPath, "---\nname: xref-prompt-test\ndescription: test\nversion: 1.0.0\nprompts: [nonexistent-prompt]\n---\n# Test\n");
+      const err = ihubFail(["validate"]);
+      assert.ok(err.includes('BROKEN ref: prompt "nonexistent-prompt"'));
+    } finally {
+      if (existsSync(agentPath)) rmSync(agentPath);
+    }
+  });
+
+  it("validate checks memory cross-references in prompts", () => {
+    const promptPath = join(ROOT, "prompts", "xref-test.md");
+    try {
+      writeFileSync(promptPath, "---\nname: xref-test\ndescription: test\nversion: 1.0.0\nmemories: [nonexistent-memory]\n---\n# Test\n");
+      const err = ihubFail(["validate"]);
+      assert.ok(err.includes('BROKEN ref: memory "nonexistent-memory"'));
+    } finally {
+      if (existsSync(promptPath)) rmSync(promptPath);
+    }
+  });
+
+  it("diff command requires all arguments", () => {
+    const err = ihubFail(["diff", "agent", "code-reviewer"]);
+    assert.ok(err.includes("Usage"));
+  });
+
+  it("diff command compares two versions", () => {
+    // Push v1 via API
+    execFileSync("node", ["-e", `
+      fetch("http://localhost:${PORT}/api/skills/diff-skill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + process.env.TEST_TOKEN },
+        body: JSON.stringify({ version: "1.0.0", description: "Diff test", tags: [], meta: {}, body: "# Version 1\\nOriginal line" })
+      }).then(r => r.json()).then(console.log);
+    `], { encoding: "utf-8", timeout: 5000, env: { ...process.env, TEST_TOKEN: userToken } });
+
+    // Push v2 via API
+    execFileSync("node", ["-e", `
+      fetch("http://localhost:${PORT}/api/skills/diff-skill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + process.env.TEST_TOKEN },
+        body: JSON.stringify({ version: "2.0.0", description: "Diff test v2", tags: [], meta: {}, body: "# Version 2\\nChanged line" })
+      }).then(r => r.json()).then(console.log);
+    `], { encoding: "utf-8", timeout: 5000, env: { ...process.env, TEST_TOKEN: userToken } });
+
+    const out = ihub(["diff", "skill", "diff-skill", "1.0.0", "2.0.0"]);
+    assert.ok(out.includes("diff-skill"));
+    assert.ok(out.includes("1.0.0"));
+    assert.ok(out.includes("2.0.0"));
+    assert.ok(out.includes("lines changed"));
+  });
+
+  it("open command shows URL", () => {
+    // open command tries to launch browser; in CI it falls back to printing URL
+    const out = ihub(["open"], { DISPLAY: "" });
+    assert.ok(out.includes("localhost") || out.includes("Open") || out.includes("Opened"));
+  });
+
+  it("help includes new commands", () => {
+    const out = ihub(["help"]);
+    assert.ok(out.includes("open"));
+    assert.ok(out.includes("diff"));
+  });
+
   // --- Remote: remove (must be last since it deletes) ---
 
   it("remove deletes from remote", () => {

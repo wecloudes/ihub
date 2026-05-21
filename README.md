@@ -41,6 +41,8 @@ inputs: [diff, file-list]
 outputs: [review-comments, approval-status]
 skills: [lint-check, dependency-audit]
 rules: [require-tests, no-secrets-in-code]
+memories: [error-handling-patterns, api-versioning-strategy]
+prompts: [code-review-feedback, summarize-pr]
 ```
 
 **Use an agent when:**
@@ -85,6 +87,7 @@ name: no-secrets-in-code
 description: No API keys, tokens, or passwords in source code
 scope: global
 severity: error
+globs: "**/*.{js,ts,py,rb,go,env,yml,yaml,json}"
 applies_to: [code-reviewer, security-scanner]
 ```
 
@@ -144,6 +147,7 @@ description: Generates a concise PR summary from a diff
 model:
 tags: [code-review, summary]
 compatible_agents: [code-reviewer]
+memories: [api-versioning-strategy]
 ```
 
 **Use a prompt when:**
@@ -155,6 +159,14 @@ compatible_agents: [code-reviewer]
 **Real examples:** `summarize-pr` (creates PR summaries from diffs), `code-review-feedback` (structured review with severity), `explain-code` (layered code explanation for onboarding), `write-tests` (generates unit tests from function signatures), `refactor-suggestion` (before/after refactoring proposals)
 
 **Prompt vs Skill:** A prompt is _what to say_ to an AI. A skill is _what to do_ (which may or may not involve AI). A skill might use a prompt internally, but a prompt is just text — it has no triggers, no scripts, no execution logic.
+
+**The litmus test:** if you can paste the artifact body into a model's chat with variables filled in and get a useful, predictable, structured response — it's a prompt. Prompts are for **deterministic, repeatable output**: the same template producing the same shape of result every time, just with different inputs. If the task requires judgment, orchestration, or isn't meant to be sent to a model directly — it's one of the other four types.
+
+**Not a prompt:**
+- "Review code for quality" → too open-ended → **Agent** (orchestrates multiple steps)
+- "Run linters on changed files" → an action → **Skill** (execution, not model text)
+- "Always use semantic commits" → a constraint → **Rule** (enforced, not templated)
+- "We chose PostgreSQL because..." → knowledge → **Memory** (recalled, not sent to a model)
 
 ---
 
@@ -169,10 +181,10 @@ Prompts tell agents what to say
 +------------------------------------------+
 |                  Agent                   |
 |                                          |
-|   uses Skills --- to perform actions     |
-|   follows Rules - to stay within bounds  |
+|   uses Skills ---- to perform actions    |
+|   follows Rules -- to stay within bounds |
 |   recalls Memories to make better calls  |
-|   runs Prompts -- to talk to models      |
+|   runs Prompts --- to talk to models     |
 +------------------------------------------+
 ```
 
@@ -195,11 +207,19 @@ Is it an instruction template for an AI model?
   → Prompt
 ```
 
+### Why "prompts" and not "instructions"?
+
+Every artifact type in ihub is technically an instruction to an AI — rules instruct what to enforce, skills instruct how to act, agents instruct who does what. Calling the fifth type "instructions" would blur the line between all of them.
+
+**"Prompt"** is specific: it means _the exact text you send to a model_ — with variables, expected output format, and a target model. It answers a question the other types don't: _"What do we say to the model?"_ Rules say what's enforced. Skills say how to act. Agents say who acts. Memories say what we know. Prompts say what we _tell_ the AI.
+
+The taxonomy works because each name occupies a distinct semantic slot. "Instruction" doesn't — it overlaps with all of them.
+
 ### Artifact type boundaries
 
 | Type | Stores | Question it answers | Does NOT store |
 |------|--------|-------------------|----------------|
-| **Agent** | Actor definitions, capabilities, orchestration | _"Who does the work?"_ | Knowledge (→ memory), constraints (→ rule) |
+| **Agent** | Actor definitions, capabilities, orchestration | _"Who does the work?"_ | Constraints (→ rule), procedures (→ skill) |
 | **Skill** | Procedures, automation, how-to | _"How to do X?"_ | Why we do X (→ memory), what X must follow (→ rule) |
 | **Rule** | Constraints, policies, standards | _"What must be enforced?"_ | Why it was decided (→ memory), how to implement (→ skill) |
 | **Memory** | Knowledge, context, evidence | _"What do we know?"_ | Actions (→ skill), constraints (→ rule), instructions (→ prompt) |
@@ -340,6 +360,9 @@ Types accept singular or plural: `agent`/`agents`, `skill`/`skills`, `rule`/`rul
 ```bash
 # Interactive TUI — full registry browser
 ihub browse
+
+# Open the web UI in your default browser
+ihub open
 # Keys: ↑↓ navigate, ←→ switch type, ⏎ drill in, / search (Esc/q cancel)
 #       space multi-select, a select all, p pull selected, P quick pull
 #       c comments, w review, d remove (double-press), j projects
@@ -363,10 +386,10 @@ ihub show agent code-reviewer
 ihub preview skill lint-check
 ihub agent preview code-reviewer   # type-first
 
-# Full-text search across local entries
+# Search across remote registry + local entries
 ihub search "security"
 
-# Search the remote registry
+# Search only the remote registry
 ihub search --remote "lint"
 
 # Check for missing fields and broken cross-references
@@ -560,6 +583,9 @@ ihub outdated
 # Verify artifact signature
 ihub verify skill lint-check
 
+# Compare two versions of an artifact
+ihub diff agent code-reviewer 1.0.0 2.0.0
+
 # Export artifacts as JSON bundle
 ihub export                             # all artifacts
 ihub export --project ci-toolkit        # filter by project
@@ -622,11 +648,11 @@ Frontmatter is a widely-used convention (Jekyll, Hugo, Obsidian, Claude Code) fo
 
 | Type | Fields |
 |------|--------|
-| Agent | `inputs`, `outputs`, `skills`, `rules` |
+| Agent | `inputs`, `outputs`, `skills`, `rules`, `memories`, `prompts` |
 | Skill | `triggers`, `args`, `compatible_agents` |
-| Rule | `scope`, `severity` (error/warning/info), `applies_to` |
+| Rule | `scope`, `severity` (error/warning/info), `globs`, `applies_to` |
 | Memory | `scope`, `context_type` (decision/architecture/incident/domain/context/learning), `related` |
-| Prompt | `model`, `compatible_agents` |
+| Prompt | `model`, `compatible_agents`, `memories` |
 
 ihub supports simple YAML only: strings, numbers, booleans, and inline arrays. No nested objects or multi-line values.
 
@@ -692,7 +718,7 @@ The import command detects the source agent from the path, maps agent-specific f
 
 ```bash
 npm run server                                  # start on :3000
-docker compose up -d                            # full stack with Prometheus + Grafana
+docker compose up -d                            # full stack with VictoriaMetrics + VictoriaLogs + Grafana
 ```
 
 The server stores artifacts in SQLite and exposes a REST API. Deploy with Docker, docker-compose, or Kubernetes (see `k8s/README.md`). See `ihub man` for the full API reference, or the [API endpoints table](#api-endpoints) below.
@@ -715,6 +741,7 @@ The server stores artifacts in SQLite and exposes a REST API. Deploy with Docker
   "federation": { "enabled": false, "upstreams": [] },
   "signing": { "enabled": false, "key": "" },
   "versioning": { "enforce_semver": false, "require_major_for_breaking": false },
+  "logs": { "vlogs_url": "" },
   "plugins": []
 }
 ```
@@ -771,7 +798,7 @@ Or via env: `IHUB_STORAGE_ADAPTER=s3`
 
 Every artifact push is scanned for sensitive data (CLI + server-side). Detected values are automatically masked with `[MASKED:<type>]` tags. If sensitive data is found, the artifact is **blocked** — it's stored but marked `status: "blocked"`, pulls return `403` ("pending admin approval"), and a security alert is sent. An admin must run `ihub admin approve <type>/<name>` to unblock it.
 
-Covers 80+ patterns: API keys (AWS, Azure, GCP, OpenAI, Anthropic, Stripe, Slack, etc.), private keys, passwords, connection strings, PII (emails, phone numbers, credit cards, IBAN, DNI/NIE), and Kubernetes/ArgoCD tokens. Findings are logged as `sensitive-detected` audit actions and tracked via the `ihub_sensitive_detected_total` Prometheus metric.
+Covers 80+ patterns: API keys (AWS, Azure, GCP, OpenAI, Anthropic, Stripe, Slack, etc.), private keys, passwords, connection strings, PII (emails, phone numbers, credit cards, IBAN, DNI/NIE), and Kubernetes/ArgoCD tokens. Findings are logged as `sensitive-detected` audit actions and tracked via the `ihub_sensitive_detected_total` metric.
 
 ### Security alerts
 
@@ -823,7 +850,7 @@ Set `firewall.enabled: true` with a whitelist of allowed IPs. Supports exact IPs
 | `DELETE` | `/api/webhooks/:id` | Admin | Delete webhook |
 | `POST` | `/api/federation/sync` | Admin | Trigger federation sync |
 | `GET` | `/api/federation/status` | Admin | Federation upstream status |
-| `GET` | `/api/metrics` | No | Prometheus metrics |
+| `GET` | `/api/metrics` | No | VictoriaMetrics-compatible metrics |
 
 ## Project structure
 
@@ -856,16 +883,17 @@ server/            registry API server (Node.js + SQLite)
   storage.js       pluggable storage (SQLite, S3, R2, GCS, Azure, 30+)
   sensitive.js     sensitive data detection and masking (80+ patterns)
   security-alert.js security alert notifications
-  metrics.js       Prometheus metrics collector
+  metrics.js       metrics collector (VictoriaMetrics-compatible)
+  vlogs.js         VictoriaLogs client (structured log shipping)
   config.js        config loader (ihub.config.json + env vars)
   auth0.js         Auth0 JWT verification (optional)
   slack.js         Slack webhook (push notifications + digest)
 tests/             test suite (node:test)
 completions/       bash and zsh shell completions
 man/               manual page source
-grafana/           Grafana dashboard + Prometheus config
+grafana/           Grafana dashboard + VictoriaMetrics scrape config
 Dockerfile         multi-stage server image
-docker-compose.yml ihub + Prometheus + Grafana
+docker-compose.yml ihub + VictoriaMetrics + VictoriaLogs + Grafana
 k8s/               Kubernetes manifests (kustomize)
 ihub.config.json   server config file
 ```

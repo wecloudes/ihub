@@ -35,14 +35,15 @@ server/        registry API server
   webhooks.js    webhook notification delivery (HMAC-signed)
   plugins.js     extensible push/pull lifecycle hooks
   ui.js          web UI handler (browser-based registry)
-  metrics.js     in-memory Prometheus metrics collector
+  metrics.js     in-memory metrics collector (VictoriaMetrics-compatible)
+  vlogs.js       VictoriaLogs client (structured log shipping)
   sensitive.js   sensitive data detection and masking (80+ patterns)
   security-alert.js  security alert notifications (terminal/slack/email)
 tests/         test suite (node:test)
   parse.test.js, registry.test.js, render.test.js, dashboard.test.js
   config.test.js, metrics.test.js, slack.test.js
   db.test.js, routes.test.js, cli.test.js, tui.test.js, sensitive.test.js
-  signing.test.js, versioning.test.js, federation.test.js, webhooks.test.js, plugins.test.js
+  signing.test.js, versioning.test.js, federation.test.js, webhooks.test.js, plugins.test.js, vlogs.test.js
 agents/        working directory for agent entries (.md, gitignored)
 skills/        working directory for skill entries (.md, gitignored)
 rules/         working directory for rule entries (.md, gitignored)
@@ -53,9 +54,9 @@ templates/     scaffolding templates for each type
 completions/   bash and zsh shell completions
 man/           manual page source
 k8s/           Kubernetes manifests (kustomize)
-grafana/       dashboard JSON, Prometheus config, provisioning
+grafana/       dashboard JSON, VictoriaMetrics scrape config, Grafana provisioning
 Dockerfile     multi-stage server image (slim + tini)
-docker-compose.yml  ihub + Prometheus + Grafana stack
+docker-compose.yml  ihub + VictoriaMetrics + VictoriaLogs + Grafana stack
 ```
 
 ## Running tests

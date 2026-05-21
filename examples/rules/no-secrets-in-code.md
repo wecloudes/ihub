@@ -7,6 +7,7 @@ project: ci-toolkit
 tags: [security, secrets, credentials]
 scope: global
 severity: error
+globs: "**/*.{js,ts,py,rb,go,env,yml,yaml,json}"
 applies_to: [code-reviewer, security-scanner]
 ---
 

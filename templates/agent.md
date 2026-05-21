@@ -9,6 +9,8 @@ inputs: []
 outputs: []
 skills: []
 rules: []
+memories: []
+prompts: []
 ---
 
 # {{name}}

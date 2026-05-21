@@ -25,6 +25,10 @@ const GREEN = `${ESC}[32m`;
 const MAGENTA = `${ESC}[35m`;
 const BLUE = `${ESC}[34m`;
 const RED = `${ESC}[31m`;
+
+// Spinner frames for loading states
+const SPINNER_FRAMES = ["\u280B", "\u2819", "\u2839", "\u2838", "\u283C", "\u2834", "\u2826", "\u2827", "\u2807", "\u280F"];
+let _spinnerIdx = 0;
 const WHITE = THEME === "light" ? `${ESC}[90m` : `${ESC}[37m`;
 const GRAY = THEME === "light" ? `${ESC}[37m` : `${ESC}[90m`;
 const BG_CYAN = THEME === "light" ? `${ESC}[106m` : `${ESC}[46m`;
@@ -90,9 +94,12 @@ export async function startTui(baseUrl, token) {
   };
 
   process.stdout.write(CLEAR + HIDE_CURSOR);
-  // Enable SGR mouse tracking
-  process.stdout.write("\x1b[?1000h\x1b[?1006h");
-  process.stdout.write(`${DIM}Loading registry...${RESET}`);
+  // Enable SGR mouse tracking (only in real terminals — programmatic
+  // drivers like expect can misparse mouse sequences mixed with arrow keys)
+  const mouseEnabled = process.stdin.isTTY;
+  if (mouseEnabled) process.stdout.write("\x1b[?1000h\x1b[?1006h");
+  state._loading = true;
+  process.stdout.write(`${DIM} ${CYAN}${SPINNER_FRAMES[0]}${RESET} Loading registry...${RESET}`);
 
   for (const type of TYPES) {
     state.entries[type] = await fetchJson(`${baseUrl}/api/${type}`);
@@ -122,6 +129,7 @@ export async function startTui(baseUrl, token) {
     state.newCount = newCount;
   }
   writeFileSync(configPath, JSON.stringify({ lastVisit: new Date().toISOString() }));
+  state._loading = false;
 
   const stdin = process.stdin;
   if (stdin.setRawMode) stdin.setRawMode(true);
@@ -515,10 +523,30 @@ export async function startTui(baseUrl, token) {
 
       // s — cycle sort (#8)
       if (key === "s") {
-        const sorts = ["name", "date", "rating", "pulls"];
+        const sorts = ["name", "date", "rating", "pulls", "trending"];
         const idx = sorts.indexOf(state.sortBy);
         state.sortBy = sorts[(idx + 1) % sorts.length];
         state.statusMsg = `Sort: ${state.sortBy}`;
+        render(state);
+        return;
+      }
+
+      // A (uppercase) in blocked view — approve selected artifact
+      if (key === "A" && state.isBlockedView && state.isAdmin) {
+        const items = getVisibleItems(state);
+        if (items.length > 0) {
+          const item = items[state.selectedItem];
+          const type = item.type || TYPES[state.selectedType];
+          try {
+            const r = await fetchJson(`${baseUrl}/api/${type}/${item.name}/approve`, token, "POST");
+            if (r) {
+              state.statusMsg = `Approved ${type}/${item.name}`;
+              state.blockedList = await fetchJson(`${baseUrl}/api/blocked`, token);
+              state.blockedCount = (state.blockedList || []).length;
+              if (state.selectedItem >= (state.blockedList || []).length) state.selectedItem = Math.max(0, (state.blockedList || []).length - 1);
+            }
+          } catch { state.statusMsg = "Approve failed"; }
+        }
         render(state);
         return;
       }
@@ -948,6 +976,13 @@ function getVisibleItems(state) {
   items = [...items];
   if (state.sortBy === "date") items.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
   else if (state.sortBy === "name") items.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  else if (state.sortBy === "rating") items.sort((a, b) => ((b.meta?.rating || b.avg_rating || 0) - (a.meta?.rating || a.avg_rating || 0)));
+  else if (state.sortBy === "pulls") items.sort((a, b) => ((b.pulls || 0) - (a.pulls || 0)));
+  else if (state.sortBy === "trending") items.sort((a, b) => {
+    const sa = (b.pulls || 0) * 2 + (b.meta?.rating || b.avg_rating || 0) * 10 + (b.comment_count || 0) * 3;
+    const sb = (a.pulls || 0) * 2 + (a.meta?.rating || a.avg_rating || 0) * 10 + (a.comment_count || 0) * 3;
+    return sa - sb;
+  });
 
   return items;
 }
@@ -1010,19 +1045,21 @@ function render(state) {
 
   let output = CLEAR;
 
-  // Header
-  output += `${BG_CYAN}${BLACK}${BOLD} ihub ${RESET}`;
-  output += `  ${DIM}${state.baseUrl}${RESET}`;
-  if (state.isAdmin) output += `  ${BG_GREEN}${BLACK} ADMIN ${RESET}`;
-  if (state.marked.size > 0) output += `  ${BG_YELLOW}${BLACK} ${state.marked.size} selected ${RESET}`;
-  if (state.blockedCount > 0 && state.isAdmin) output += `  ${BG_RED}${WHITE} ${state.blockedCount} blocked ${RESET}`;
-  if (state.newCount > 0) output += `  ${YELLOW}\u2022 ${state.newCount} new${RESET}`;
-  if (state.statusMsg) { output += `  ${DIM}${state.statusMsg}${RESET}`; state.statusMsg = null; }
-  output += "\n";
+  // Header — box-drawing top border
+  output += `${DIM}\u250C${"─".repeat(cols - 2)}\u2510${RESET}\n`;
+  let hdr = ` ${BG_CYAN}${BLACK}${BOLD} ihub ${RESET}`;
+  hdr += `  ${DIM}${state.baseUrl}${RESET}`;
+  if (state.isAdmin) hdr += `  ${BG_GREEN}${BLACK} ADMIN ${RESET}`;
+  if (state.marked.size > 0) hdr += `  ${BG_YELLOW}${BLACK} ${state.marked.size} selected ${RESET}`;
+  if (state.blockedCount > 0 && state.isAdmin) hdr += `  ${BG_RED}${WHITE} ${state.blockedCount} blocked ${RESET}`;
+  if (state.newCount > 0) hdr += `  ${YELLOW}\u2022 ${state.newCount} new${RESET}`;
+  if (state._loading) { _spinnerIdx = (_spinnerIdx + 1) % SPINNER_FRAMES.length; hdr += `  ${CYAN}${SPINNER_FRAMES[_spinnerIdx]}${RESET}`; }
+  if (state.statusMsg) { hdr += `  ${GREEN}\u2713 ${state.statusMsg}${RESET}`; state.statusMsg = null; }
+  output += hdr + "\n";
 
-  // Breadcrumb (#3)
+  // Breadcrumb
   if (state.breadcrumb.length > 0) {
-    output += `${DIM}  ${state.breadcrumb.join(" > ")}${RESET}\n`;
+    output += `${DIM}  ${state.breadcrumb.map((b, i) => i < state.breadcrumb.length - 1 ? `${b} \u203A` : `${WHITE}${b}${RESET}${DIM}`).join(" ")}${RESET}\n`;
   } else {
     output += "\n";
   }
@@ -1077,35 +1114,45 @@ function render(state) {
   const padLines = Math.max(0, rows - usedLines - footerLines);
   output += "\n".repeat(padLines);
 
-  // Footer — pinned to bottom
-  output += `${DIM}${"─".repeat(cols)}${RESET}\n`;
+  // Footer — pinned to bottom with box-drawing
+  output += `${DIM}\u2514${"─".repeat(cols - 2)}\u2518${RESET}\n`;
   let footer = getFooter(state);
-  if (state._scrollInfo) footer += `  ${state._scrollInfo}`;
-  output += `${DIM}${footer}${RESET}`;
+  if (state._scrollInfo) footer += `  ${DIM}${state._scrollInfo}${RESET}`;
+  output += footer;
 
   process.stdout.write(output);
 }
 
+function fmtKey(key) { return `${WHITE}[${RESET}${BOLD}${key}${RESET}${WHITE}]${RESET}`; }
+function fmtGroup(pairs) { return pairs.map(([k, l]) => `${fmtKey(k)}${DIM}${l}${RESET}`).join(" "); }
+
 function getFooter(state) {
-  if (state.showHelp) return " press any key to close help";
-  if (state.showBookmarks) return " ↑↓ navigate  ⏎ open  esc close";
-  const f = {
-    types: ` ↑↓ navigate  ⏎ select  j projects  G guide  F bookmarks  / search  ${state.isAdmin ? "m metrics  t audit  i config  B blocked  " : ""}? help  q quit`,
-    list: ` ↑↓ nav  ←→ type  ⏎ view  space select  a all  ${state.marked.size > 0 ? "p pull  " : ""}P pull one  s sort  / search  j projects  G guide  F bookmarks  ${(process.stdout.columns || 80) >= 120 ? "{} preview scroll  " : ""}${state.isAdmin ? "m metrics  t audit  i config  B blocked  " : ""}${state.filter ? `filter: ${state.filter}  ` : ""}? help  q quit`,
-    detail: ` ↑↓ scroll  c comments  w review  f bookmark  y copy  g graph  v versions  > related  d remove  ? help  esc back`,
-    comments: ` ↑↓ scroll  c back  esc back`,
-    metrics: ` ↑↓ scroll  r refresh  esc back`,
-    audit: ` ↑↓ scroll  n next  b prev  r refresh  esc back`,
-    projects: ` ↑↓ scroll  ${state.projectFilter ? "A show all  " : ""}r refresh  esc back`,
-    config: ` esc back`,
-    "agent-select": ` 1-${AGENT_NAMES.length} toggle  ⏎ confirm  esc cancel`,
-    "scope-select": ` l project  g personal  esc cancel`,
-    pulling: ` press any key to continue`,
-    graph: ` ↑↓ scroll  esc back`,
-    versions: ` ↑↓ scroll  esc back`,
-    guide: ` ↑↓ scroll  ←→ tab  esc back`,
-  };
-  return f[state.view] || " ? help";
+  if (state.showHelp) return ` ${DIM}press any key to close help${RESET}`;
+  if (state.showBookmarks) return ` ${fmtGroup([["↑↓", "nav"], ["⏎", "open"], ["esc", "close"]])}`;
+  const v = state.view;
+
+  if (v === "types") return ` ${fmtGroup([["↑↓", "nav"], ["⏎", "select"], ["/", "search"], ["j", "proj"], ["G", "guide"], ["F", "fav"]])}${state.isAdmin ? "  " + fmtGroup([["m", "metrics"], ["t", "audit"]]) : ""}  ${fmtGroup([["?", "help"], ["q", "quit"]])}`;
+  if (v === "list") {
+    let f = ` ${fmtGroup([["↑↓", "nav"], ["←→", "type"], ["⏎", "view"], ["spc", "sel"]])}  ${fmtGroup([["P", "pull"], ["s", "sort"], ["/", "find"]])}`;
+    if (state.marked.size > 0) f += `  ${fmtKey("p")}${DIM}bulk pull${RESET}`;
+    if (state.isBlockedView && state.isAdmin) f += `  ${fmtKey("A")}${DIM}approve${RESET}`;
+    f += `  ${fmtGroup([["?", "help"], ["q", "quit"]])}`;
+    if (state.filter) f += `  ${YELLOW}filter: ${state.filter}${RESET}`;
+    return f;
+  }
+  if (v === "detail") return ` ${fmtGroup([["↑↓", "scroll"], ["c", "comments"], ["w", "review"], ["f", "fav"], ["g", "graph"], ["v", "ver"], [">", "related"], ["d", "del"], ["esc", "back"]])}`;
+  if (v === "comments") return ` ${fmtGroup([["↑↓", "scroll"], ["esc", "back"]])}`;
+  if (v === "metrics") return ` ${fmtGroup([["↑↓", "scroll"], ["r", "refresh"], ["esc", "back"]])}`;
+  if (v === "audit") return ` ${fmtGroup([["↑↓", "scroll"], ["n", "next"], ["b", "prev"], ["r", "refresh"], ["esc", "back"]])}`;
+  if (v === "projects") return ` ${fmtGroup([["↑↓", "scroll"], ...(state.projectFilter ? [["A", "all"]] : []), ["r", "refresh"], ["esc", "back"]])}`;
+  if (v === "config") return ` ${fmtGroup([["esc", "back"]])}`;
+  if (v === "agent-select") return ` ${fmtGroup([["1-" + AGENT_NAMES.length, "toggle"], ["⏎", "confirm"], ["esc", "cancel"]])}`;
+  if (v === "scope-select") return ` ${fmtGroup([["l", "project"], ["g", "personal"], ["esc", "cancel"]])}`;
+  if (v === "pulling") return ` ${DIM}press any key to continue${RESET}`;
+  if (v === "graph") return ` ${fmtGroup([["↑↓", "scroll"], ["esc", "back"]])}`;
+  if (v === "versions") return ` ${fmtGroup([["↑↓", "scroll"], ["esc", "back"]])}`;
+  if (v === "guide") return ` ${fmtGroup([["↑↓", "scroll"], ["←→", "tab"], ["esc", "back"]])}`;
+  return ` ${fmtGroup([["?", "help"]])}`;
 }
 
 // --- View renderers ---
@@ -1145,8 +1192,10 @@ function renderList(state, maxRows, cols) {
   if (!state.isSearch && !state.isBlockedView) {
     tabs = "  " + TYPES.map((t, i) => {
       const c = TYPE_COLORS[t];
-      return i === state.selectedType ? `${INVERSE} ${t} ${RESET}` : `${DIM}${c} ${t} ${RESET}`;
-    }).join("  ") + "\n\n";
+      const icon = TYPE_ICONS[t];
+      const count = (state.entries[t] || []).length;
+      return i === state.selectedType ? `${c}${BOLD}${INVERSE} ${icon} ${t} (${count}) ${RESET}` : `${DIM} ${icon} ${t} ${RESET}`;
+    }).join(" ") + "\n\n";
   }
 
   let out = tabs;
@@ -1212,11 +1261,15 @@ function renderList(state, maxRows, cols) {
       ratingLabel = " " + ratingStars(item.meta?.rating || item.rating);
     }
 
+    // Type-colored icon for each item
+    const iColor = TYPE_COLORS[itemType] || DIM;
+    const iIcon = TYPE_ICONS[itemType] || "\u2022";
+
     if (sel) {
-      listRows.push(`  ${INVERSE} > ${RESET} ${checkbox} ${installed}${bmk} ${blocked}${typeLabel}${BOLD}${item.name}${RESET}${ratingLabel}`);
+      listRows.push(`  ${INVERSE} \u25B8 ${RESET} ${checkbox} ${installed}${bmk} ${blocked}${typeLabel}${iColor}${iIcon}${RESET} ${BOLD}${item.name}${RESET}${ratingLabel}`);
     } else {
-      const desc = (item.description || "").slice(0, listWidth - 20);
-      listRows.push(`    ${checkbox} ${installed}${bmk} ${blocked}${typeLabel}${item.name} ${DIM}${desc}${RESET}`);
+      const desc = (item.description || "").slice(0, listWidth - 22);
+      listRows.push(`    ${checkbox} ${installed}${bmk} ${blocked}${typeLabel}${iColor}${iIcon}${RESET} ${item.name} ${DIM}${desc}${RESET}`);
     }
   }
 
@@ -1232,11 +1285,19 @@ function renderList(state, maxRows, cols) {
     // Store for key handlers
     state._previewTotalLines = previewLines.length;
     state._previewVisibleRows = totalRows;
-    for (let r = 0; r < totalRows; r++) {
+    // Focus indicator: bright separator when preview has content
+    const sep = previewLines.length > 0 ? `${color}\u2502${RESET}` : `${DIM}\u2502${RESET}`;
+    // Preview header
+    if (previewLines.length > 0) {
+      const selItem = items[state.selectedItem];
+      const previewTitle = selItem ? `${DIM}\u2500\u2500 ${color}${selItem.name}${RESET}${DIM} ${"─".repeat(Math.max(0, previewWidth - (selItem.name || "").length - 4))}${RESET}` : "";
+      out += `${padVisible("", listWidth)} ${sep} ${previewTitle}\n`;
+    }
+    for (let r = 0; r < totalRows - (previewLines.length > 0 ? 1 : 0); r++) {
       const left = padVisible(listRows[r] || "", listWidth);
       const pIdx = r + clampedScroll;
       const right = pIdx < previewLines.length ? previewLines[pIdx] : "";
-      out += `${left} ${DIM}│${RESET} ${right}\n`;
+      out += `${left} ${sep} ${right}\n`;
     }
   } else {
     // Narrow: list only, summary below
@@ -1351,7 +1412,7 @@ function renderDetail(state, maxRows, cols) {
   if (Array.isArray(tags) && tags.length) lines.push(`  ${CYAN}Tags:${RESET} ${tags.map((t) => `${GREEN}#${t}${RESET}`).join(" ")}`);
 
   const metaObj = entry.meta || {};
-  const tf = { agents: ["inputs", "outputs", "skills", "rules"], skills: ["triggers", "args", "compatible_agents"], rules: ["scope", "severity", "applies_to"], memories: ["scope", "context_type", "related"], prompts: ["model", "compatible_agents"] };
+  const tf = { agents: ["inputs", "outputs", "skills", "rules", "memories", "prompts"], skills: ["triggers", "args", "compatible_agents"], rules: ["scope", "severity", "globs", "applies_to"], memories: ["scope", "context_type", "related"], prompts: ["model", "compatible_agents", "memories"] };
   for (const field of (tf[type] || [])) {
     const val = metaObj[field] || entry[field];
     if (val && (!Array.isArray(val) || val.length)) {
@@ -1360,6 +1421,43 @@ function renderDetail(state, maxRows, cols) {
       } else {
         lines.push(`  ${CYAN}${field}:${RESET} ${Array.isArray(val) ? val.join(", ") : val}`);
       }
+    }
+  }
+
+  // Dependencies panel — uses/used-by
+  const REL_FIELDS = [{field:"skills",type:"skills"},{field:"rules",type:"rules"},{field:"memories",type:"memories"},{field:"prompts",type:"prompts"},{field:"compatible_agents",type:"agents"},{field:"applies_to",type:"agents"},{field:"related",type:null}];
+  const outgoing = [];
+  for (const rf of REL_FIELDS) {
+    const refs = Array.isArray(metaObj[rf.field]) ? metaObj[rf.field] : Array.isArray(entry[rf.field]) ? entry[rf.field] : [];
+    for (const ref of refs) {
+      const t = rf.type || TYPES.find(tt => (state.entries[tt] || []).some(i => i.name === ref));
+      if (t) outgoing.push({ name: ref, type: t });
+    }
+  }
+  const incoming = [];
+  for (const t of TYPES) {
+    for (const item of (state.entries[t] || [])) {
+      const im = item.meta || {};
+      for (const rf of REL_FIELDS) {
+        const refs = Array.isArray(im[rf.field]) ? im[rf.field] : Array.isArray(item[rf.field]) ? item[rf.field] : [];
+        if (refs.includes(entry.name)) incoming.push({ name: item.name, type: t });
+      }
+    }
+  }
+  if (outgoing.length) {
+    lines.push(""); lines.push(`  ${GREEN}${BOLD}Uses${RESET} ${DIM}(${outgoing.length})${RESET}`);
+    for (const dep of outgoing) {
+      const dc = TYPE_COLORS[dep.type] || DIM;
+      const di = TYPE_ICONS[dep.type] || "\u2022";
+      lines.push(`    ${dc}${di}${RESET} ${dep.name} ${DIM}${dep.type.slice(0,-1)}${RESET}`);
+    }
+  }
+  if (incoming.length) {
+    lines.push(""); lines.push(`  ${BLUE}${BOLD}Used by${RESET} ${DIM}(${incoming.length})${RESET}`);
+    for (const dep of incoming) {
+      const dc = TYPE_COLORS[dep.type] || DIM;
+      const di = TYPE_ICONS[dep.type] || "\u2022";
+      lines.push(`    ${dc}${di}${RESET} ${dep.name} ${DIM}${dep.type.slice(0,-1)}${RESET}`);
     }
   }
 
@@ -1496,6 +1594,30 @@ function renderGuide(state, maxRows, cols) {
     lines.push(`  ${DIM}Is it a constraint to enforce?${RESET}       ${YELLOW}→ Rule${RESET}`);
     lines.push(`  ${DIM}Is it knowledge to recall?${RESET}           ${MAGENTA}→ Memory${RESET}`);
     lines.push(`  ${DIM}Is it an instruction for an AI?${RESET}      ${BLUE}→ Prompt${RESET}`);
+    lines.push("");
+    lines.push(`  ${BOLD}Why "Prompts" and not "Instructions"?${RESET}`);
+    lines.push("");
+    lines.push(`  ${DIM}Every type is an instruction to an AI in some sense — rules instruct${RESET}`);
+    lines.push(`  ${DIM}what to enforce, skills instruct how to act, agents instruct who does${RESET}`);
+    lines.push(`  ${DIM}what. "Instruction" would blur the line between all of them.${RESET}`);
+    lines.push("");
+    lines.push(`  ${BLUE}Prompt${RESET} is specific: the exact text sent to a model, with variables`);
+    lines.push(`  and expected output. It answers ${BOLD}"What do we say to the model?"${RESET}`);
+    lines.push(`  ${DIM}— a question no other type covers.${RESET}`);
+    lines.push("");
+    lines.push(`  ${BOLD}When to use a Prompt${RESET}`);
+    lines.push("");
+    lines.push(`  Use a prompt for ${BOLD}deterministic, repeatable output${RESET} — the same`);
+    lines.push(`  template producing the same shape of result with different inputs.`);
+    lines.push("");
+    lines.push(`  ${DIM}Litmus test: can you paste it into a model's chat with variables${RESET}`);
+    lines.push(`  ${DIM}filled in and get a predictable, structured response? → Prompt.${RESET}`);
+    lines.push("");
+    lines.push(`  ${DIM}Not a prompt:${RESET}`);
+    lines.push(`    ${DIM}"Review code for quality"${RESET}         ${CYAN}→ Agent${RESET} ${DIM}(open-ended)${RESET}`);
+    lines.push(`    ${DIM}"Run linters on changed files"${RESET}    ${GREEN}→ Skill${RESET} ${DIM}(an action)${RESET}`);
+    lines.push(`    ${DIM}"Always use semantic commits"${RESET}     ${YELLOW}→ Rule${RESET}  ${DIM}(a constraint)${RESET}`);
+    lines.push(`    ${DIM}"We chose PostgreSQL because..."${RESET}  ${MAGENTA}→ Memory${RESET} ${DIM}(knowledge)${RESET}`);
   } else if (tab === 1) {
     // Memory context types
     lines.push(`  ${BG_CYAN}${BLACK}${BOLD} Memory Context Types ${RESET}`);
@@ -1671,7 +1793,23 @@ function renderProjects(state, maxRows, cols) {
   lines.push(`  ${BG_CYAN}${BLACK}${BOLD} Projects ${RESET}`); lines.push("");
   for (const [name, types] of Object.entries(tree.projects)) {
     lines.push(`  ${BOLD}${CYAN}${name}${RESET}`);
-    for (const t of TYPES) { const entries = types[t]; if (!entries?.length) continue; lines.push(`  ${DIM}├──${RESET} ${YELLOW}${t}${RESET}`); for (const e of entries) lines.push(`  ${DIM}│   ├──${RESET} ${e.name}${GRAY}@${e.version || "?"}${RESET}`); }
+    for (const t of TYPES) {
+      const entries = types[t]; if (!entries?.length) continue;
+      const tc = TYPE_COLORS[t] || DIM;
+      const ti = TYPE_ICONS[t] || "\u2022";
+      lines.push(`  ${DIM}├──${RESET} ${tc}${ti} ${t}${RESET} ${DIM}(${entries.length})${RESET}`);
+      if (t === "memories") {
+        // Sub-group memories by context_type
+        const byCt = {};
+        for (const e of entries) { const ct = (e.meta || {}).context_type || e.context_type || "other"; if (!byCt[ct]) byCt[ct] = []; byCt[ct].push(e); }
+        for (const [ct, mems] of Object.entries(byCt)) {
+          lines.push(`  ${DIM}│   ├── ${GRAY}${ct}${RESET}`);
+          for (const e of mems) lines.push(`  ${DIM}│   │   ├──${RESET} ${e.name}${GRAY}@${e.version || "?"}${RESET}`);
+        }
+      } else {
+        for (const e of entries) lines.push(`  ${DIM}│   ├──${RESET} ${e.name}${GRAY}@${e.version || "?"}${RESET}`);
+      }
+    }
     lines.push("");
   }
   if (tree.unassigned.length) { lines.push(`  ${DIM}${BOLD}(unassigned)${RESET}`); for (const e of tree.unassigned) lines.push(`  ${DIM}├──${RESET} ${GRAY}[${e._type}]${RESET} ${e.name}`); }
@@ -1928,8 +2066,8 @@ function adjustScroll(state) {
 }
 
 function cleanup() {
-  // Disable mouse tracking
-  process.stdout.write("\x1b[?1000l\x1b[?1006l");
+  // Disable mouse tracking (only if it was enabled)
+  if (process.stdin.isTTY) process.stdout.write("\x1b[?1000l\x1b[?1006l");
   process.stdout.write(SHOW_CURSOR + CLEAR);
   try { process.stdin.setRawMode(false); } catch {}
 }
@@ -1990,8 +2128,8 @@ async function executeBulkPull(state, baseUrl, token) {
 
 // --- API ---
 
-async function fetchJson(url, token) {
-  try { const h = {}; if (token) h["Authorization"] = `Bearer ${token}`; const r = await fetch(url, { headers: h }); if (!r.ok) return null; return await r.json(); } catch { return null; }
+async function fetchJson(url, token, method) {
+  try { const h = {}; if (token) h["Authorization"] = `Bearer ${token}`; const opts = { headers: h }; if (method) opts.method = method; const r = await fetch(url, opts); if (!r.ok) return null; return await r.json(); } catch { return null; }
 }
 
 async function fetchText(url, token) {

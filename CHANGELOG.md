@@ -2,6 +2,63 @@
 
 All notable changes to ihub are documented in this file.
 
+## [0.5.0] - 2026-05-21
+
+### Added
+
+- **`ihub open` command**: opens the web UI in your default browser (macOS, Linux, Windows)
+- **VictoriaMetrics**: replaced Prometheus with VictoriaMetrics for metrics scraping — same Prometheus-compatible text format, lighter footprint, built-in scraping via `-promscrape.config`
+- **VictoriaLogs**: structured log shipping from `logAction()` to VictoriaLogs via JSON Lines API (`/insert/jsonline`); every audit event (push, pull, view, comment, remove, register, firewall-blocked, etc.) is shipped asynchronously; configured via `IHUB_VLOGS_URL` env var or `logs.vlogs_url` config
+- **Grafana VictoriaLogs datasource**: added `victoriametrics-logs-datasource` plugin to Grafana provisioning for log querying in dashboards
+- **`logs` config section**: `logs.vlogs_url` in `ihub.config.json` (or `IHUB_VLOGS_URL` env var) to configure VictoriaLogs endpoint; printed in startup config output
+- **Agent `memories` and `prompts` fields**: agents can now declare which memories and prompts they use via frontmatter arrays (parallel to `skills` and `rules`); `ihub validate` checks cross-references; `ihub pull` resolves all dependencies transitively (unless `--no-deps`); template, examples, and interactive create updated
+- **Prompt `memories` field**: prompts can declare which memories they need for context; `ihub validate` checks cross-references; `ihub pull` resolves memory dependencies transitively
+- **Web UI: Artifact Graph view**: new "Graph" nav item shows a force-directed bubble map of all artifacts and their relationships (skills, rules, memories, prompts, compatible_agents, applies_to, related); nodes colored by type, sized by connection count; click to highlight neighborhood, double-click to navigate; info panel with connections grouped by type; Center button + auto-recenter on resize
+- **Web UI: Dependency panel in detail view**: every artifact detail page now shows "Uses" (outgoing) and "Used by" (incoming) relationships as clickable color-coded chips — navigate the dependency graph without leaving the detail view
+- **Web UI: Global search**: search input now spans all artifact types simultaneously, showing grouped results across agents, skills, rules, memories, and prompts; breadcrumb trail for navigation context
+- **Web UI: Version diff**: version history entries have a "diff" button that loads both versions and shows a line-by-line comparison with added/removed highlighting
+- **Web UI: Attachment preview**: detail view shows a file list of attachments with download links when an artifact has companion files
+- **Web UI: Export buttons**: single-artifact export from detail view ("Export" button) and bulk export from Browse (select mode with checkboxes, "Export N" button); both produce JSON bundles
+- **Web UI: Bulk selection**: Browse view has a "Select" toggle that shows checkboxes on cards for multi-select; selected artifacts can be bulk-exported
+- **Web UI: Markdown preview in Push form**: Write/Preview tabs on the body textarea; Preview renders the markdown using the existing renderer before pushing
+- **Web UI: Breadcrumbs**: Browse and detail views show a breadcrumb trail (Browse > type > name) for orientation and quick navigation back
+- **Web UI: Trending sort**: new "trending" sort option in Browse that ranks by a composite of pulls, ratings, and comment count
+- **Web UI: Pull counts on cards and detail**: pull count shown on Browse cards and detail meta when available
+- **Web UI: Backup & Restore in Admin**: download SQLite or full JSON backups with timestamped filenames; restore from `.db` or `.json` backup files via file upload (auto-detects format, confirmation dialog); import JSON bundles to push all artifacts at once
+- **Web UI: Webhooks management in Admin**: table of configured webhooks with URL, events, and Remove button; Add form with URL, events filter, and optional HMAC secret
+- **Web UI: Federation status in Admin**: shows upstream registries with URL, types, last sync time, and synced count; "Sync Now" button triggers manual federation sync
+- **`ihub diff` CLI command**: `ihub diff <type> <name> <v1> <v2>` compares two versions of an artifact with color-coded terminal output (green additions, red deletions, line count summary)
+- **Rule `globs` field**: rules can now specify file patterns (e.g. `globs: "src/**/*.{js,ts}"`) to scope which files the rule applies to; mapped to Cursor `.mdc` globs on pull, Claude Code rule globs, and imported from Cursor `.mdc` files; template and examples updated
+- **Test suite**: 456 tests (18 new) — CLI tests for diff command, open command, agent memories/prompts/validate cross-refs, help output; route tests for UI endpoint HTML content, version diff API, artifact relationship meta storage; VictoriaLogs client tests (init, shipLog, structured JSON delivery, level field, graceful missing fields)
+
+### Changed
+
+- **`ihub list`**: now queries the remote registry and merges with local entries (dedup by name, remote wins); previously only read from local filesystem
+- **`ihub search`**: now queries the remote registry and merges with local results by default; `--remote` flag still works for remote-only search
+- **Docker Compose**: replaced `prom/prometheus` with `victoriametrics/victoria-metrics` (port 8428) + `victoriametrics/victoria-logs` (port 9428); Grafana depends on both
+- **Kubernetes**: replaced `k8s/prometheus.yaml` with `k8s/victoriametrics.yaml` containing VictoriaMetrics + VictoriaLogs deployments, services, and config; updated `kustomization.yaml`; added `IHUB_VLOGS_URL` env var and `victoriametrics.com/*` annotations to deployment
+- **Grafana datasources**: renamed Prometheus datasource to VictoriaMetrics (URL `http://victoriametrics:8428`), added VictoriaLogs datasource; dashboard queries unchanged (VictoriaMetrics is PromQL-compatible)
+- **Scrape config**: renamed `grafana/prometheus.yml` to `grafana/scrape.yml` (same format, VictoriaMetrics uses Prometheus-compatible scrape config)
+
+### Fixed
+
+- **Web UI: content clipping** (high) — horizontal overflow on Browse cards, detail pages, audit table, blocked table, and metrics cards; added `overflow-x:hidden` to main-content and `min()` in grid minmax values
+- **Web UI: review form unreachable** (high) — detail view content area not scrollable; added `overflow-y:auto` to content container
+- **Web UI: prompts tab hidden** (medium) — tab bar overflowed at narrow viewports; added `overflow-x:auto` to type-tabs
+- **Web UI: Projects nav/back broken** (medium) — clicking artifact from Projects switched nav to Browse and Back returned to wrong page; `navToArtifact` now stores `_previousView`, `backToList` restores it
+- **Web UI: audit pagination non-functional** (medium) — API uses `offset` parameter, not `page`; fixed query to `?limit=50&offset=((page-1)*50)`
+- **Web UI: blocked reason column empty** (medium) — added fallback text "Sensitive data detected" when no explicit reason stored
+- **Web UI: Set Role crashes on invalid username** (medium) — wrong API endpoint `/admin/role` fixed to `/users/:username/role`
+- **Web UI: no Set Role feedback** (medium) — same root cause as endpoint bug; toast now shows on success
+- **Web UI: rating/pulls not shown on cards** (low) — added pull count to card footer
+- **Web UI: metrics blank space** (low) — reduced metrics-grid margin
+- **Web UI: user section invisible** (low) — added `color:var(--text)` to sidebar user section
+- **Web UI: hamburger menu non-functional** (low) — added sidebar overlay element and click-to-close handler
+- **Web UI: default 5-star rating** (low) — `_reviewRating` now reset to 0 on each detail render
+- **TUI: arrow key navigation breaks after first tab switch** — mouse tracking now only enabled when `process.stdin.isTTY` is true; programmatic drivers (expect, piped stdin) no longer get mouse sequences mixed with arrow keys
+
+---
+
 ## [0.4.0] - 2026-05-19
 
 ### Added

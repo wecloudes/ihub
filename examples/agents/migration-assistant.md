@@ -9,6 +9,8 @@ inputs: [current-schema, target-schema]
 outputs: [migration-script, rollback-script]
 skills: []
 rules: [require-tests]
+memories: [api-versioning-strategy]
+prompts: []
 ---
 
 # Migration Assistant

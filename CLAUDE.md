@@ -34,11 +34,12 @@ server/    — registry API server
   webhooks.js — webhook notification delivery (HMAC-signed)
   plugins.js  — extensible push/pull lifecycle hooks
   ui.js       — web UI handler (browser-based registry interface)
-  metrics.js  — Prometheus metrics collector
+  metrics.js  — metrics collector (VictoriaMetrics-compatible)
+  vlogs.js    — VictoriaLogs client (structured log shipping)
   sensitive.js — sensitive data detection and masking (80+ patterns)
   security-alert.js — security alert notifications (terminal/slack/email via notify_via config)
 tests/     — test suite (node:test)
-  parse, registry, render, dashboard, config, metrics, sensitive, slack, db, routes, cli, tui,
+  parse, registry, render, dashboard, config, metrics, sensitive, slack, db, routes, cli, tui, vlogs,
   signing, versioning, federation, webhooks, plugins
 agents/ skills/ rules/ memories/ prompts/ — working directories (gitignored)
 examples/  — sample entries (4 agents, 6 skills, 4 rules, 3 memories, 5 prompts) + more in registry
@@ -46,7 +47,7 @@ templates/ — scaffolding templates
 completions/ — bash + zsh shell completions
 man/       — manual page (ihub.1.md)
 k8s/       — Kubernetes manifests (kustomize)
-grafana/   — dashboard + Prometheus config
+grafana/   — dashboard + VictoriaMetrics scrape config
 ```
 
 ## Commands
@@ -54,6 +55,7 @@ grafana/   — dashboard + Prometheus config
 ```bash
 # Browse & search
 ihub browse                              # interactive TUI
+ihub open                                # open web UI in browser
 ihub list [type]                         # supports --json
 ihub search <query>                      # supports --json
 ihub search --remote <query>
@@ -102,6 +104,7 @@ ihub admin digest
 ihub doctor                                  # server, auth, artifacts, storage, config checks
 ihub outdated                                # compare local vs registry versions
 ihub verify <type> <name>                    # check artifact signature
+ihub diff <type> <name> <v1> <v2>            # compare two versions
 
 # Auth
 ihub register <url>
@@ -127,9 +130,9 @@ Run tests: `npm test`
 
 ## Key conventions
 
-- Five artifact types: agent, skill, rule, memory, prompt
+- Five artifact types: agent, skill, rule, memory, prompt; agents link to skills, rules, memories, and prompts via frontmatter arrays; prompts link to memories
 - Multi-agent pull: `--agent claude,cursor` installs to each agent's native path; Claude/Gemini/Qwen/Codex/OpenCode use `<name>/SKILL.md` dirs; Cursor uses `.mdc`
-- `transformForAgent()` rewrites frontmatter per agent on pull
+- `transformForAgent()` rewrites frontmatter per agent on pull; rules include `globs` for file-scoped applicability (mapped to Cursor `.mdc` globs and Claude Code rule globs)
 - `import` auto-detects source agent, maps fields, prompts for missing required fields
 - Storage: pluggable backends via `storage.adapter` config — SQLite (default), S3, R2, GCS, Azure, filesystem, MinIO, and 30+ more via files-sdk; credentials from standard env vars; SQLite keeps index rows for queries; body search only with SQLite
 - Sensitive data: scanned + masked on push (CLI + server-side); if found, artifact is **blocked** (status: "blocked", pulls return 403); admin must `ihub admin approve` to unblock; security alert sent via `security.notify_via` (terminal/slack/email); `sensitive-detected` audit action; `ihub_sensitive_detected_total` metric
@@ -143,7 +146,7 @@ Run tests: `npm test`
 - Version pinning: `ihub pin/unpin/pins` — stored in `~/.ihubrc` under `pins`; pull uses pinned version instead of latest
 - Memories always install to local `memories/`
 - Attachments: companion files in `<type>/<name>/` uploaded on push, recreated on pull
-- Web UI: browser-based registry at `/ui` with full feature parity
+- Web UI: browser-based registry at `/ui` with full feature parity; includes artifact graph view (force-directed relationship map)
 - TUI (`ihub browse`): types, list, detail, comments, projects (`j`), metrics (`m`, side-by-side charts), audit (`t`), config (`i`), guide (`G`, 3-tab artifact reference), remove (`d` twice to confirm), write review (`w`), blocked (`B`), multi-select + bulk pull (`space`/`a`/`p`), split-pane preview (`{`/`}` scroll, auto-shown when terminal >= 120 cols), dynamic resize, search cancel with Esc/q, scroll clamping, footer pinned to bottom, mouse support, light theme (`IHUB_THEME=light`)
 
 ## After every change

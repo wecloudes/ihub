@@ -1,6 +1,7 @@
-// In-memory Prometheus metrics collector — no external dependencies.
+// In-memory metrics collector — no external dependencies.
 // Exports counters/gauges and a serialize() function that produces
-// Prometheus text exposition format for /metrics endpoint.
+// Prometheus-compatible text exposition format for /metrics endpoint.
+// Scraped by VictoriaMetrics (Prometheus drop-in replacement).
 
 const counters = {};
 const gauges = {};

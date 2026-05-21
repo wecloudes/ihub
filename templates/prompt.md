@@ -7,6 +7,7 @@ project:
 tags: []
 model: 
 compatible_agents: []
+memories: []
 ---
 
 # {{name}}

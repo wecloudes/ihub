@@ -18,7 +18,7 @@ ihub <type> <command> [arguments] [flags]
 
 ihub is an AI artifact registry for managing agents, skills, rules, memories, and prompts as markdown files with YAML frontmatter. It works with Claude Code, Gemini CLI, Qwen Code, Cursor IDE, Codex CLI, and Open Code — installing artifacts to each coding agent's native path with the correct format.
 
-Artifacts can be created locally, imported from any coding agent, validated for cross-references, published to a remote registry, and discovered by other users. The registry supports versioning, ownership, comments with ratings, user roles, sensitive data detection, IP firewall, audit trails, Prometheus metrics, and an interactive TUI browser.
+Artifacts can be created locally, imported from any coding agent, validated for cross-references, published to a remote registry, and discovered by other users. The registry supports versioning, ownership, comments with ratings, user roles, sensitive data detection, IP firewall, audit trails, VictoriaMetrics metrics, VictoriaLogs structured logging, and an interactive TUI browser.
 
 ## Commands
 
@@ -27,8 +27,11 @@ Artifacts can be created locally, imported from any coding agent, validated for 
 **browse**
 Interactive TUI browser for the registry. Keys: ↑↓ navigate, ←→ switch type, ⏎ drill in, / search (Esc/q cancel), space multi-select, a select all, p pull selected, P quick pull, c comments, w write review, d remove (double-press to confirm), f bookmark, F bookmarks, g dependency graph, v versions, y copy pull command, j projects (shows current artifact's project, A for all), G artifact guide (3-tab reference: types, memory taxonomy, knowledge mapping), s cycle sort, {} scroll preview pane. Admin: m metrics (side-by-side charts when wide), t audit trail (n/b pages), i config, B blocked artifacts. Split-pane markdown preview appears on the right when terminal >= 120 columns. Terminal resize re-renders layout automatically.
 
+**open**
+Open the web UI in your default browser. Uses the configured registry URL + `/ui`.
+
 **list** [type]
-List entries. Type can be agents, skills, rules, memories, prompts, or omitted for all.
+List entries by merging remote registry and local entries (dedup by name, remote wins). Type can be agents, skills, rules, memories, prompts, or omitted for all.
 
 **show** <type> <name>
 Show metadata (as JSON) and body for a specific entry.
@@ -37,10 +40,10 @@ Show metadata (as JSON) and body for a specific entry.
 Render an entry with terminal markdown formatting — headings, code blocks, lists, and inline styles.
 
 **search** <query>
-Full-text search across all local entries (name, description, tags, body).
+Search across the remote registry and local entries (merged, dedup by name, remote wins).
 
 **search** --remote <query>
-Search the remote registry.
+Search only the remote registry.
 
 **projects** [name]
 Tree view of all projects and their artifacts, grouped by type. Pass a project name to filter.
@@ -120,6 +123,9 @@ Trigger the weekly Slack digest immediately. Admin only. Requires SLACK_WEBHOOK_
 **completions** [bash | zsh]
 Output shell completion scripts. Run without arguments for setup instructions.
 
+**diff** <type> <name> <version1> <version2>
+Compare two versions of an artifact. Shows a line-by-line diff with color-coded additions (green) and deletions (red) in the terminal.
+
 **version**
 Show the ihub version and branding.
 
@@ -142,15 +148,19 @@ Types accept singular or plural: agent/agents, skill/skills, rule/rules, memory/
 
 ## Artifact types
 
-**agent** — An autonomous actor that performs a task. Defines inputs, outputs, skills used, and rules followed.
+**agent** — An autonomous actor that performs a task. Defines inputs, outputs, skills used, rules followed, memories recalled, and prompts run.
 
 **skill** — A reusable capability or procedure. Defines triggers, arguments, and compatible agents.
 
-**rule** — A constraint or standard. Defines scope, severity (error/warning/info), and which agents it applies to.
+**rule** — A constraint or standard. Defines scope, severity (error/warning/info), file globs for scoped applicability, and which agents it applies to.
 
 **memory** — Captured context or knowledge that persists across sessions. Defines scope, context type (decision/architecture/incident/domain/context/learning), and related entries.
 
-**prompt** — A reusable instruction template. Defines the prompt text, variables, target model, and compatible agents.
+**prompt** — A reusable instruction template. Defines the prompt text, variables, target model, compatible agents, and memories needed for context.
+
+**Why "prompts" and not "instructions"?** Every type is an instruction to an AI in some sense. "Prompt" is specific — it means the exact text sent to a model, with variables and expected output. It answers "What do we say to the model?" — a question no other type covers.
+
+**When to use a prompt:** when you need deterministic, repeatable output — the same template producing the same shape of result with different inputs. The litmus test: if you can paste the body into a model's chat with variables filled in and get a predictable, structured response, it's a prompt. If it requires judgment, orchestration, or isn't meant to be sent directly, use agent, skill, rule, or memory instead.
 
 ## File format
 
@@ -187,7 +197,8 @@ The server reads ihub.config.json on startup:
   "audit": { "enabled": true, "log_anonymous": true },
   "firewall": { "enabled": false, "whitelist": [] },
   "security": { "notify_via": "terminal", "email": "", "slack_webhook_url": "" },
-  "storage": { "adapter": "sqlite" }
+  "storage": { "adapter": "sqlite" },
+  "logs": { "vlogs_url": "" }
 }
 ```
 
@@ -213,6 +224,7 @@ Example: `"storage": { "adapter": "s3", "bucket": "ihub-artifacts", "region": "e
 - **AUTH0_CLIENT_ID** — Auth0 application client ID
 - **AUTH0_AUDIENCE** — Auth0 API audience (default: ihub-api)
 - **SLACK_WEBHOOK_URL** — Slack incoming webhook URL
+- **IHUB_VLOGS_URL** — VictoriaLogs base URL for structured log shipping (e.g. http://victorialogs:9428)
 - **IHUB_FIREWALL_WHITELIST** — Comma-separated IP whitelist (exact, CIDR, wildcard)
 - **IHUB_SECURITY_NOTIFY_VIA** — Security alert channel: terminal, slack, or email
 - **IHUB_SECURITY_EMAIL** — Email address for security alerts (when notify_via=email)

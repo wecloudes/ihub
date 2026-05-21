@@ -9,6 +9,8 @@ inputs: [source-code, existing-docs]
 outputs: [markdown-docs, api-reference]
 skills: []
 rules: []
+memories: []
+prompts: []
 ---
 
 # Doc Generator

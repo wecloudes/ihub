@@ -7,6 +7,7 @@ project: ci-toolkit
 tags: [testing, quality]
 scope: global
 severity: error
+globs: "src/**/*"
 applies_to: [code-reviewer]
 ---
 

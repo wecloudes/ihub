@@ -7,6 +7,7 @@ project:
 tags: []
 scope: global
 severity: error
+globs: 
 applies_to: []
 ---
 

@@ -1,6 +1,6 @@
 # Kubernetes Deployment
 
-Deploy ihub server, Prometheus, and Grafana to a Kubernetes cluster.
+Deploy ihub server, VictoriaMetrics, VictoriaLogs, and Grafana to a Kubernetes cluster.
 
 ## Prerequisites
 
@@ -40,15 +40,17 @@ kubectl apply -k .
 | `Service` | ClusterIP on port 80 |
 | `Ingress` | External access (configure your domain) |
 | `CronJob` | Daily backup at 2 AM (7-day retention) |
-| `Prometheus` | Scrapes `/api/metrics` every 15s |
-| `Grafana` | Dashboard auto-provisioned |
+| `VictoriaMetrics` | Scrapes `/api/metrics` every 15s (port 8428) |
+| `VictoriaLogs` | Receives structured JSON logs from ihub (port 9428) |
+| `Grafana` | Dashboard auto-provisioned with VictoriaMetrics + VictoriaLogs datasources |
 
 ## Architecture notes
 
 - **Single replica** — SQLite requires single-writer, so the deployment uses `Recreate` strategy
 - **Persistent storage** — database lives on a PVC, survives pod restarts
 - **Health checks** — liveness and readiness probes hit `/api/ping`
-- **Prometheus annotations** — auto-discovered if your cluster has Prometheus Operator
+- **Metrics** — VictoriaMetrics scrapes Prometheus-compatible `/api/metrics` endpoint; pod annotations support both `prometheus.io/*` and `victoriametrics.com/*` for auto-discovery
+- **Logs** — ihub ships structured audit logs to VictoriaLogs via `IHUB_VLOGS_URL` (JSON Lines over HTTP); logs include action, user, IP, artifact type/name, and detail
 - **Backups** — CronJob copies the DB file daily, keeps last 7
 
 ## Customization
@@ -65,9 +67,13 @@ Add `SLACK_WEBHOOK_URL` to `secret.yaml` and set `slack.enabled: true` in `confi
 
 Add `AUTH0_DOMAIN` and `AUTH0_CLIENT_ID` to `secret.yaml` and set `auth0.enabled: true` in `configmap.yaml`.
 
+### Customize VictoriaLogs
+
+The `IHUB_VLOGS_URL` env var is set in `deployment.yaml` pointing to the in-cluster VictoriaLogs service. To use an external VictoriaLogs instance, change the URL.
+
 ### Scale monitoring
 
-For production, consider using Prometheus Operator (ServiceMonitor) and a dedicated Grafana instance instead of the in-cluster ones.
+For production, consider VictoriaMetrics Operator (VMServiceScrape) and a dedicated Grafana instance instead of the in-cluster ones.
 
 ## Teardown
 

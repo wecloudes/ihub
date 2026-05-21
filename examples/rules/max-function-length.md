@@ -7,6 +7,7 @@ project: ci-toolkit
 tags: [code-quality, readability, complexity]
 scope: global
 severity: warning
+globs: "**/*.{js,ts,py,rb,go,rs}"
 applies_to: [code-reviewer]
 ---
 

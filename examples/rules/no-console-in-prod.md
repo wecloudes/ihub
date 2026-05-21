@@ -7,6 +7,7 @@ project: ci-toolkit
 tags: [code-quality, logging, cleanup]
 scope: global
 severity: warning
+globs: "src/**/*.{js,ts}"
 applies_to: [code-reviewer]
 ---
 

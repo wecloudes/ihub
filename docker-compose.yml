@@ -8,15 +8,31 @@ services:
     environment:
       - IHUB_PORT=3000
       - IHUB_DB_PATH=/data/ihub.db
+      - IHUB_VLOGS_URL=http://victorialogs:9428
 
-  prometheus:
-    image: prom/prometheus:latest
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:latest
     ports:
-      - "9090:9090"
+      - "8428:8428"
     volumes:
-      - ./grafana/prometheus.yml:/etc/prometheus/prometheus.yml
+      - vm-data:/victoria-metrics-data
+      - ./grafana/scrape.yml:/etc/victoriametrics/scrape.yml
+    command:
+      - "-promscrape.config=/etc/victoriametrics/scrape.yml"
+      - "-storageDataPath=/victoria-metrics-data"
+      - "-retentionPeriod=30d"
     depends_on:
       - server
+
+  victorialogs:
+    image: victoriametrics/victoria-logs:latest
+    ports:
+      - "9428:9428"
+    volumes:
+      - vl-data:/victoria-logs-data
+    command:
+      - "-storageDataPath=/victoria-logs-data"
+      - "-retentionPeriod=30d"
 
   grafana:
     image: grafana/grafana:latest
@@ -26,11 +42,15 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_INSTALL_PLUGINS=victoriametrics-logs-datasource
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning
       - ./grafana/dashboard.json:/var/lib/grafana/dashboards/ihub.json
     depends_on:
-      - prometheus
+      - victoriametrics
+      - victorialogs
 
 volumes:
   ihub-data:
+  vm-data:
+  vl-data:

@@ -12,7 +12,7 @@ resources:
   - service.yaml
   - ingress.yaml
   - cronjob-backup.yaml
-  - prometheus.yaml
+  - victoriametrics.yaml
   - grafana.yaml
 
 # Load the Grafana dashboard as a ConfigMap

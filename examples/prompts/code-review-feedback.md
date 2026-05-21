@@ -7,6 +7,7 @@ project: ci-toolkit
 tags: [code-review, feedback, quality]
 model: 
 compatible_agents: [code-reviewer]
+memories: [error-handling-patterns]
 ---
 
 # Code Review Feedback

@@ -7,6 +7,7 @@ project: ci-toolkit
 tags: [code-review, summary, git]
 model: 
 compatible_agents: [code-reviewer]
+memories: [api-versioning-strategy]
 ---
 
 # Summarize PR

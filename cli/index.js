@@ -2,7 +2,7 @@
 
 import { resolve, dirname, join, basename } from "path";
 import { fileURLToPath } from "url";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, readdirSync, watch as fsWatch } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, readdirSync, watch as fsWatch, symlinkSync, rmSync } from "fs";
 import { createInterface } from "readline";
 import { homedir } from "os";
 import { CODING_AGENTS, AGENT_NAMES, getInstallPath } from "./agents-config.js";
@@ -52,6 +52,8 @@ const TYPE_FIELDS = {
     { key: "outputs", label: "Outputs (comma-separated)", type: "array" },
     { key: "skills", label: "Skills (comma-separated)", type: "array" },
     { key: "rules", label: "Rules (comma-separated)", type: "array" },
+    { key: "memories", label: "Memories (comma-separated)", type: "array" },
+    { key: "prompts", label: "Prompts (comma-separated)", type: "array" },
   ],
   skill: [
     { key: "description", label: "Description", type: "string", required: true },
@@ -71,6 +73,7 @@ const TYPE_FIELDS = {
     { key: "tags", label: "Tags (comma-separated)", type: "array" },
     { key: "scope", label: "Scope", type: "string", default: "global" },
     { key: "severity", label: "Severity (error/warning/info)", type: "string", default: "error" },
+    { key: "globs", label: "File globs (e.g. src/**/*.{js,ts})", type: "string" },
     { key: "applies_to", label: "Applies to agents (comma-separated)", type: "array" },
   ],
   memory: [
@@ -91,6 +94,7 @@ const TYPE_FIELDS = {
     { key: "tags", label: "Tags (comma-separated)", type: "array" },
     { key: "model", label: "Target model", type: "string" },
     { key: "compatible_agents", label: "Compatible agents (comma-separated)", type: "array" },
+    { key: "memories", label: "Memories (comma-separated)", type: "array" },
   ],
 };
 
@@ -146,6 +150,7 @@ const [, , rawCommand, ...rawArgs] = process.argv;
 
 const commands = {
   browse,
+  open,
   list,
   search,
   show,
@@ -181,6 +186,7 @@ const commands = {
   webhook,
   federation,
   verify,
+  diff,
   version,
   help,
 };
@@ -285,15 +291,58 @@ async function browse() {
   await startTui(base.replace(/\/+$/, ""), token);
 }
 
+// --- Open Web UI ---
+
+async function open() {
+  const config = loadConfig();
+  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
+  const url = base + "/ui";
+  const { platform } = await import("os");
+  const { execSync } = await import("child_process");
+  const cmd = platform() === "darwin" ? "open" : platform() === "win32" ? "start" : "xdg-open";
+  try {
+    execSync(`${cmd} ${url}`, { stdio: "ignore" });
+    console.log(`Opened ${url}`);
+  } catch {
+    console.log(`Open in your browser: ${url}`);
+  }
+}
+
 // --- Local Commands ---
 
 async function list(args) {
   const jsonMode = args.includes("--json");
   const filtered = args.filter((a) => a !== "--json");
   const type = filtered[0];
-  const registry = loadRegistry(ROOT);
 
   const types = type ? [type] : ["agents", "skills", "rules", "memories", "prompts"];
+
+  // Merge remote registry + local entries (dedup by name, remote wins)
+  const config = loadConfig();
+  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
+  const registry = {};
+
+  for (const t of types) {
+    const localEntries = loadRegistry(ROOT)[t] || [];
+    let remoteEntries = [];
+    try {
+      const res = await fetch(`${base}/api/${t}`);
+      if (res.ok) remoteEntries = await res.json();
+    } catch {
+      // registry unavailable — use local only
+    }
+    const seen = new Set();
+    registry[t] = [];
+    for (const e of remoteEntries) {
+      const name = e.name || e.file;
+      seen.add(name);
+      registry[t].push(e);
+    }
+    for (const e of localEntries) {
+      const name = e.name || e.file;
+      if (!seen.has(name)) registry[t].push(e);
+    }
+  }
 
   if (jsonMode) {
     const data = {};
@@ -307,8 +356,6 @@ async function list(args) {
   }
 
   // Fetch ratings for all entries (best-effort)
-  const config = loadConfig();
-  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
   const ratingsMap = {};
 
   for (const t of types) {
@@ -350,7 +397,7 @@ async function list(args) {
   console.log();
 }
 
-function search(args) {
+async function search(args) {
   const jsonMode = args.includes("--json");
   const filteredArgs = args.filter((a) => a !== "--json");
 
@@ -364,27 +411,34 @@ function search(args) {
   }
 
   if (isRemote) {
-    return remoteSearch(query).then((results) => {
-      if (jsonMode) {
-        console.log(JSON.stringify(results, null, 2));
-        return;
-      }
-      if (results.length === 0) {
-        console.log("No remote results found.");
-        return;
-      }
-      console.log(`\nFound ${results.length} remote result(s):\n`);
-      for (const r of results) {
-        console.log(`  [${r.type}] ${r.name} — ${r.description || ""}`);
-      }
-      console.log();
-    });
+    const results = await remoteSearch(query);
+    if (jsonMode) {
+      console.log(JSON.stringify(results, null, 2));
+      return;
+    }
+    if (results.length === 0) {
+      console.log("No remote results found.");
+      return;
+    }
+    console.log(`\nFound ${results.length} remote result(s):\n`);
+    for (const r of results) {
+      console.log(`  [${r.type}] ${r.name} — ${r.description || ""}`);
+    }
+    console.log();
+    return;
   }
 
-  const registry = loadRegistry(ROOT);
-  const results = [];
+  // Merge remote + local search results (dedup by type+name, remote wins)
+  let remoteResults = [];
+  try {
+    remoteResults = await remoteSearch(query);
+  } catch {
+    // registry unavailable
+  }
 
-  for (const [type, entries] of Object.entries(registry)) {
+  const localRegistry = loadRegistry(ROOT);
+  const localResults = [];
+  for (const [type, entries] of Object.entries(localRegistry)) {
     for (const entry of entries) {
       const haystack = [
         entry.name,
@@ -397,9 +451,21 @@ function search(args) {
         .toLowerCase();
 
       if (haystack.includes(query)) {
-        results.push({ type: type.slice(0, -1), ...entry });
+        localResults.push({ type: type.slice(0, -1), ...entry });
       }
     }
+  }
+
+  const seen = new Set();
+  const results = [];
+  for (const r of remoteResults) {
+    const key = `${r.type}/${r.name}`;
+    seen.add(key);
+    results.push(r);
+  }
+  for (const r of localResults) {
+    const key = `${r.type}/${r.name || r.file}`;
+    if (!seen.has(key)) results.push(r);
   }
 
   if (jsonMode) {
@@ -511,6 +577,22 @@ function validate() {
         for (const ref of entry.rules) {
           if (!registry.rules.find((r) => (r.name || r.file) === ref)) {
             console.error(`  BROKEN ref: rule "${ref}" in ${label}`);
+            errors++;
+          }
+        }
+      }
+      if (Array.isArray(entry.memories)) {
+        for (const ref of entry.memories) {
+          if (!registry.memories.find((m) => (m.name || m.file) === ref)) {
+            console.error(`  BROKEN ref: memory "${ref}" in ${label}`);
+            errors++;
+          }
+        }
+      }
+      if (Array.isArray(entry.prompts)) {
+        for (const ref of entry.prompts) {
+          if (!registry.prompts.find((p) => (p.name || p.file) === ref)) {
+            console.error(`  BROKEN ref: prompt "${ref}" in ${label}`);
             errors++;
           }
         }
@@ -828,7 +910,7 @@ function mapSourceFields(sourceAgent, type, sourceMeta) {
       mapped.scope = "project";
     }
     if (sourceMeta.globs) {
-      mapped.tags = [...(mapped.tags || []), `globs:${sourceMeta.globs}`];
+      mapped.globs = String(sourceMeta.globs).replace(/^["']|["']$/g, "");
     }
     if (sourceMeta.priority) {
       const p = parseInt(sourceMeta.priority, 10);
@@ -1379,8 +1461,18 @@ async function pull(args) {
     destination = (answer === "g" || answer === "global") ? "global" : "local";
   }
 
-  // Install for each selected agent
-  for (const agent of agents) {
+  // Install for each selected agent — prioritize Claude, symlink duplicates
+  // Sort agents: claude first, then others
+  const sortedAgents = [...agents].sort((a, b) => {
+    if (a === "claude") return -1;
+    if (b === "claude") return 1;
+    return 0;
+  });
+
+  // Track installed outputs: content hash → { targetPath, isDir }
+  const installed = new Map();
+
+  for (const agent of sortedAgents) {
     const installInfo = getInstallPath(agent, pluralType, destination);
     let targetPath;
 
@@ -1394,13 +1486,13 @@ async function pull(args) {
     const targetDir = installInfo.path;
 
     const isSkillType = (pluralType === "skills" || pluralType === "agents" || pluralType === "prompts");
-    if (installInfo.skillAsDir && installInfo.skillFilename && isSkillType) {
-      // Agents like Claude/Qwen/OpenCode: install as <dir>/<name>/SKILL.md
+    const isDir = !!(installInfo.skillAsDir && installInfo.skillFilename && isSkillType);
+
+    if (isDir) {
       const skillDir = resolve(targetDir, name);
       mkdirSync(skillDir, { recursive: true });
       targetPath = resolve(skillDir, installInfo.skillFilename);
     } else {
-      // Flat file: <dir>/<name>.md or <name>.mdc
       const ext = installInfo.ext || ".md";
       mkdirSync(targetDir, { recursive: true });
       targetPath = resolve(targetDir, `${name}${ext}`);
@@ -1408,13 +1500,41 @@ async function pull(args) {
 
     // Transform content for agent-specific formats
     const output = transformForAgent(agent, pluralType, entry, markdown);
-    writeFileSync(targetPath, output);
 
+    // Check if identical content was already installed — symlink instead of duplicating
+    const existing = installed.get(output);
     const agentLabel = agents.length > 1 ? ` (${CODING_AGENTS[agent]?.name || agent})` : "";
     const scopeLabel = destination === "global" ? "personal" : "project";
-    console.log(`Pulled ${pluralType}/${name}@${ver} → ${targetPath} (${scopeLabel}${agentLabel})`);
 
-    await downloadAttachmentsTo(pluralType, name, targetPath, entry.attachments);
+    if (existing && agents.length > 1) {
+      // Create symlink instead of writing duplicate content
+      const symlinkTarget = isDir ? dirname(existing.targetPath) : existing.targetPath;
+      const symlinkPath = isDir ? dirname(targetPath) : targetPath;
+
+      try {
+        // Remove existing file/dir if present (can't symlink over it)
+        if (existsSync(symlinkPath)) {
+          const s = statSync(symlinkPath, { throwIfNoEntry: false });
+          if (s && !s.isSymbolicLink?.()) {
+            // It's a real file/dir from a previous pull — safe to replace with symlink
+          }
+          rmSync(symlinkPath, { recursive: true, force: true });
+        }
+        symlinkSync(symlinkTarget, symlinkPath);
+        console.log(`Pulled ${pluralType}/${name}@${ver} → ${symlinkPath} → ${symlinkTarget} (symlink${agentLabel})`);
+      } catch (e) {
+        // Symlink failed (e.g., cross-device) — fall back to writing real file
+        if (isDir) mkdirSync(dirname(targetPath), { recursive: true });
+        writeFileSync(targetPath, output);
+        console.log(`Pulled ${pluralType}/${name}@${ver} → ${targetPath} (${scopeLabel}${agentLabel})`);
+      }
+    } else {
+      // First install or unique content — write real file
+      writeFileSync(targetPath, output);
+      installed.set(output, { targetPath, isDir });
+      console.log(`Pulled ${pluralType}/${name}@${ver} → ${targetPath} (${scopeLabel}${agentLabel})`);
+      await downloadAttachmentsTo(pluralType, name, targetPath, entry.attachments);
+    }
   }
 
   // Transitive dependency pulls for agents
@@ -1422,9 +1542,13 @@ async function pull(args) {
     const depMeta = entry.meta || {};
     const depSkills = Array.isArray(depMeta.skills) ? depMeta.skills : [];
     const depRules = Array.isArray(depMeta.rules) ? depMeta.rules : [];
+    const depMemories = Array.isArray(depMeta.memories) ? depMeta.memories : [];
+    const depPrompts = Array.isArray(depMeta.prompts) ? depMeta.prompts : [];
     const deps = [
       ...depSkills.map((n) => ({ type: "skills", name: n })),
       ...depRules.map((n) => ({ type: "rules", name: n })),
+      ...depMemories.map((n) => ({ type: "memories", name: n })),
+      ...depPrompts.map((n) => ({ type: "prompts", name: n })),
     ];
 
     if (deps.length > 0) {
@@ -1459,6 +1583,38 @@ async function pull(args) {
       }
     }
   }
+
+  // Transitive dependency pulls for prompts (memories)
+  if (!noDeps && singularType === "prompt") {
+    const depMeta = entry.meta || {};
+    const depMemories = Array.isArray(depMeta.memories) ? depMeta.memories : [];
+    if (depMemories.length > 0) {
+      const depLabels = depMemories.map((n) => `memories/${n}`);
+      console.log(`Pulling ${singularType} ${name}... also pulling ${depMemories.length} memories: ${depLabels.join(", ")}`);
+
+      for (const memName of depMemories) {
+        const localDir = resolve(ROOT, "memories");
+        const localFile = resolve(localDir, `${memName}.md`);
+        if (existsSync(localFile)) continue;
+
+        try {
+          let depVersion = undefined;
+          const cfg = loadConfig();
+          if (cfg.pins && cfg.pins[`memories/${memName}`]) {
+            depVersion = cfg.pins[`memories/${memName}`];
+          }
+          const depEntry = await pullEntry("memories", memName, depVersion);
+          const depMarkdown = entryToMarkdown(depEntry);
+          const depVer = depEntry.meta?.version || "latest";
+          mkdirSync(localDir, { recursive: true });
+          writeFileSync(localFile, depMarkdown);
+          console.log(`  Pulled dependency memories/${memName}@${depVer} → ${localFile}`);
+        } catch (err) {
+          console.error(`  Warning: could not pull dependency memories/${memName}: ${err.message}`);
+        }
+      }
+    }
+  }
 }
 
 function transformForAgent(agent, pluralType, entry, defaultMarkdown) {
@@ -1469,12 +1625,22 @@ function transformForAgent(agent, pluralType, entry, defaultMarkdown) {
     // Cursor .mdc format: description, globs, alwaysApply
     const lines = ["---"];
     lines.push(`description: ${meta.description || entry.description || ""}`);
-    if (meta.applies_to && Array.isArray(meta.applies_to) && meta.applies_to.length > 0) {
-      lines.push(`globs: "**/*"`);
-    } else {
-      lines.push(`globs: ""`);
-    }
+    const globs = meta.globs || entry.globs || "";
+    lines.push(`globs: "${globs}"`);
     lines.push(`alwaysApply: ${meta.scope === "global" ? "true" : "false"}`);
+    lines.push("---");
+    lines.push("");
+    lines.push(body);
+    return lines.join("\n");
+  }
+
+  if (agent === "claude" && pluralType === "rules") {
+    // Claude Code rules: include globs in frontmatter if specified
+    const globs = meta.globs || entry.globs || "";
+    const lines = ["---"];
+    lines.push(`name: ${meta.name || entry.name || ""}`);
+    lines.push(`description: ${meta.description || entry.description || ""}`);
+    if (globs) lines.push(`globs: ${globs}`);
     lines.push("---");
     lines.push("");
     lines.push(body);
@@ -2383,6 +2549,45 @@ async function verify(args) {
   }
 }
 
+async function diff(args) {
+  const [type, name, v1, v2] = args;
+  if (!type || !name || !v1 || !v2) {
+    console.error("Usage: ihub diff <type> <name> <version1> <version2>");
+    process.exit(1);
+  }
+
+  const singularType = singularize(type);
+  const pluralType = pluralize(singularType);
+  const config = loadConfig();
+  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
+  const hdrs = config.token ? { Authorization: `Bearer ${config.token}` } : {};
+
+  const [r1, r2] = await Promise.all([
+    fetch(`${base}/api/${pluralType}/${name}?version=${encodeURIComponent(v1)}`, { headers: hdrs }),
+    fetch(`${base}/api/${pluralType}/${name}?version=${encodeURIComponent(v2)}`, { headers: hdrs }),
+  ]);
+  if (!r1.ok) throw new Error(`Version ${v1} not found`);
+  if (!r2.ok) throw new Error(`Version ${v2} not found`);
+  const d1 = await r1.json(), d2 = await r2.json();
+
+  const lines1 = (d1.body || "").split("\n"), lines2 = (d2.body || "").split("\n");
+  const maxLen = Math.max(lines1.length, lines2.length);
+
+  console.log(`\n\x1b[1m${pluralType}/${name}\x1b[0m  v${v1} → v${v2}\n`);
+
+  let adds = 0, dels = 0;
+  for (let i = 0; i < maxLen; i++) {
+    const l1 = lines1[i], l2 = lines2[i];
+    if (l1 === l2) {
+      console.log(`  ${l2 || ""}`);
+    } else {
+      if (l1 !== undefined) { console.log(`\x1b[31m- ${l1}\x1b[0m`); dels++; }
+      if (l2 !== undefined) { console.log(`\x1b[32m+ ${l2}\x1b[0m`); adds++; }
+    }
+  }
+  console.log(`\n\x1b[32m+${adds}\x1b[0m / \x1b[31m-${dels}\x1b[0m lines changed\n`);
+}
+
 function version() {
   const pkg = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf-8"));
   console.log(`ihub v${pkg.version}`);
@@ -2397,6 +2602,7 @@ ihub — AI artifact registry for agents, skills, rules, memories, and prompts
 
 Commands:
   browse                     Interactive TUI browser for the registry
+  open                       Open the web UI in your default browser
   list [type]                 List entries (agents, skills, rules, memories, prompts, or all)
   search <query>              Full-text search across local entries
   show <type> <name>          Show metadata for a specific entry
@@ -2422,6 +2628,7 @@ Commands:
   doctor                     Run diagnostic checks (server, auth, storage, config)
   outdated                   Compare local vs registry versions
   verify <type> <name>        Check artifact HMAC signature
+  diff <type> <name> <v1> <v2> Compare two versions of an artifact
   pin <type> <name> [ver]     Lock artifact to a specific version
   unpin <type> <name>         Remove version pin
   pins                       List all pinned artifacts

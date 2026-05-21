@@ -914,4 +914,81 @@ describe("API routes", () => {
     const { status } = await api("POST", "/api/federation/sync", { token: bobKey });
     assert.equal(status, 403);
   });
+
+  // --- UI endpoint ---
+
+  it("UI serves HTML with graph and new features", async () => {
+    const res = await fetch(`${baseUrl}/ui`);
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    assert.ok(html.includes("ihub Registry"));
+    assert.ok(html.includes('data-view="graph"'));
+    assert.ok(html.includes("JetBrains Mono"));
+    assert.ok(html.includes("renderGraph"));
+    assert.ok(html.includes("graph-container"));
+    assert.ok(html.includes("deps-panel"));
+    assert.ok(html.includes("push-tabs"));
+    assert.ok(html.includes("breadcrumbs"));
+    assert.ok(html.includes("exportSelected"));
+    assert.ok(html.includes("showDiff"));
+    assert.ok(html.includes("nav-label"));
+  });
+
+  // --- Version diff via API ---
+
+  it("fetches specific version for diff", async () => {
+    // Push v1
+    await api("POST", "/api/agents/diff-test", {
+      body: { version: "1.0.0", description: "First", tags: [], meta: {}, body: "# Version 1\nOriginal content" },
+      token: aliceKey,
+    });
+    // Push v2
+    await api("POST", "/api/agents/diff-test", {
+      body: { version: "2.0.0", description: "Second", tags: [], meta: {}, body: "# Version 2\nUpdated content" },
+      token: aliceKey,
+    });
+
+    const v1 = await api("GET", "/api/agents/diff-test?version=1.0.0");
+    assert.equal(v1.status, 200);
+    assert.equal(v1.data.version, "1.0.0");
+    assert.ok(v1.data.body.includes("Version 1"));
+
+    const v2 = await api("GET", "/api/agents/diff-test?version=2.0.0");
+    assert.equal(v2.status, 200);
+    assert.equal(v2.data.version, "2.0.0");
+    assert.ok(v2.data.body.includes("Version 2"));
+  });
+
+  // --- Artifact relationships in meta ---
+
+  it("stores and returns agent memories and prompts in meta", async () => {
+    await api("POST", "/api/agents/rel-test", {
+      body: {
+        version: "1.0.0", description: "Relationship test", tags: [],
+        meta: { skills: ["s1"], rules: ["r1"], memories: ["m1", "m2"], prompts: ["p1"] },
+        body: "# Test",
+      },
+      token: aliceKey,
+    });
+    const { status, data } = await api("GET", "/api/agents/rel-test");
+    assert.equal(status, 200);
+    assert.deepStrictEqual(data.meta.memories, ["m1", "m2"]);
+    assert.deepStrictEqual(data.meta.prompts, ["p1"]);
+    assert.deepStrictEqual(data.meta.skills, ["s1"]);
+    assert.deepStrictEqual(data.meta.rules, ["r1"]);
+  });
+
+  it("stores and returns prompt memories in meta", async () => {
+    await api("POST", "/api/prompts/rel-prompt-test", {
+      body: {
+        version: "1.0.0", description: "Prompt with memories", tags: [],
+        meta: { memories: ["m1"], compatible_agents: ["a1"] },
+        body: "# Prompt Test",
+      },
+      token: aliceKey,
+    });
+    const { status, data } = await api("GET", "/api/prompts/rel-prompt-test");
+    assert.equal(status, 200);
+    assert.deepStrictEqual(data.meta.memories, ["m1"]);
+  });
 });

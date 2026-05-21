@@ -1,6 +1,6 @@
 {
   "name": "ihub",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "AI artifact registry for agents, skills, rules, memories, and prompts",
   "type": "module",
   "bin": {

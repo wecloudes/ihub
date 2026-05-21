@@ -6,9 +6,14 @@ import { handleRequest } from "./routes.js";
 import { sendWeeklyDigest } from "./slack.js";
 import { syncAll } from "./federation.js";
 import { getDb, getUser, registerUser, getUserCount } from "./db.js";
+import { initVLogs } from "./vlogs.js";
 import { randomBytes } from "crypto";
 
 const config = loadServerConfig();
+
+// Initialize VictoriaLogs client if configured
+const vlogsUrl = process.env.IHUB_VLOGS_URL || config.logs?.vlogs_url || "";
+if (vlogsUrl) initVLogs(vlogsUrl);
 
 // Validate config — exit on errors
 const configErrors = validateConfig(config);

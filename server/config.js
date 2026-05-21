@@ -19,6 +19,7 @@ const DEFAULTS = {
   versioning: { enforce_semver: false, require_major_for_breaking: false },
   federation: { enabled: false, upstreams: [] },
   signing: { enabled: false, key: "" },
+  logs: { vlogs_url: "" },
 };
 
 let _config = null;
@@ -104,6 +105,9 @@ export function loadServerConfig() {
         ?? DEFAULTS.signing.enabled,
       key: process.env.IHUB_SIGNING_KEY || fileConfig.signing?.key || DEFAULTS.signing.key,
     },
+    logs: {
+      vlogs_url: process.env.IHUB_VLOGS_URL || fileConfig.logs?.vlogs_url || DEFAULTS.logs.vlogs_url,
+    },
   };
 
   return _config;
@@ -126,6 +130,7 @@ export function printConfig(config) {
   console.log(`  Firewall:   ${config.firewall.enabled ? `enabled (${config.firewall.whitelist.length} IPs)` : "disabled"}`);
   console.log(`  Federation: ${config.federation?.enabled ? `enabled (${config.federation.upstreams.length} upstreams)` : "disabled"}`);
   console.log(`  Signing:    ${config.signing?.enabled ? "enabled" : "disabled"}`);
+  console.log(`  Logs:       ${config.logs?.vlogs_url ? `VictoriaLogs (${config.logs.vlogs_url})` : "disabled"}`);
 }
 
 const VALID_NOTIFY = ["terminal", "slack", "email"];

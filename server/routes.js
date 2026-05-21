@@ -47,12 +47,15 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { syncFromUpstream, listUpstreams } from "./federation.js";
 import { signArtifact, verifySignature, getSignatureHeader, getSigningKey, isSigningEnabled } from "./signing.js";
+import { shipLog, isVLogsEnabled } from "./vlogs.js";
 
 function logAction(entry) {
   const cfg = loadServerConfig();
   if (!cfg.audit.enabled) return;
   if (!cfg.audit.log_anonymous && (entry.username === "anonymous" || !entry.username)) return;
   _logAction(entry);
+  // Ship to VictoriaLogs (async, non-blocking)
+  if (isVLogsEnabled()) shipLog(entry);
 }
 
 const VALID_TYPES = ["agents", "skills", "rules", "memories", "prompts"];
@@ -180,7 +183,7 @@ export async function handleRequest(req, res) {
   const clientIp = getClientIp(req);
   if (!isIpAllowed(clientIp)) {
     inc("ihub_firewall_blocked_total", { ip: normalizeIp(clientIp) });
-    logAction({ ip: clientIp, action: "firewall-blocked", username: null, role: null, detail: `${req.method} /${parts.join("/")}` });
+    logAction({ ip: clientIp, action: "firewall-blocked", username: null, role: null, detail: `${req.method} /${parts.join("/")}`, level: "warn" });
     return sendError(res, 403, "Forbidden — IP not whitelisted");
   }
 
@@ -224,7 +227,7 @@ export async function handleRequest(req, res) {
     return sendJson(res, 200, { pong: true, timestamp: new Date().toISOString() });
   }
 
-  // GET /metrics — Prometheus endpoint
+  // GET /metrics — VictoriaMetrics-compatible (Prometheus text format)
   if (parts[0] === "metrics" && req.method === "GET") {
     const cfg = loadServerConfig();
     if (!cfg.metrics.enabled) return sendError(res, 404, "Metrics disabled");

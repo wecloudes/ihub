@@ -9,6 +9,8 @@ inputs: [source-code, dependencies]
 outputs: [vulnerability-report, severity-list]
 skills: [dependency-audit]
 rules: [no-secrets-in-code, require-tests]
+memories: [deployment-checklist]
+prompts: []
 ---
 
 # Security Scanner
