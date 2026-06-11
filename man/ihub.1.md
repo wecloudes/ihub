@@ -162,9 +162,9 @@ Types accept singular or plural: agent/agents, skill/skills, rule/rules, memory/
 
 **design** — A UI/UX design artifact. Defines platform, component type, design system, and format. Stores wireframes, component specs, design tokens, and style guides.
 
-**mcp** — An MCP server installation config. Defines transport (stdio/http/sse), command/args/env or url/headers. Pull merges the server into each coding agent's native MCP config file (.mcp.json, .cursor/mcp.json, ...). Env and header values must use ${VAR} placeholders — literal secrets are blocked on push.
+**mcp** — An MCP server installation config. The body carries the exact .mcp.json server entry in a fenced ```json block (Claude-native shape; server name = block key); ihub transforms it per agent on pull and merges it into each coding agent's native MCP config file (.mcp.json, .cursor/mcp.json, ...). Env and header values must use ${VAR} placeholders — literal secrets are blocked on push.
 
-**hook** — A lifecycle hook. Defines event (PreToolUse, PostToolUse, UserPromptSubmit, Stop, ...), optional tool matcher, shell command, and timeout. Pull merges into the agent's settings file (Claude Code in v1). The command is always displayed and confirmation is required before install (--yes to skip).
+**hook** — A lifecycle hook. The body carries the exact Claude Code settings.json hooks fragment in a fenced ```json block (events: PreToolUse, PostToolUse, UserPromptSubmit, Stop, ...; multiple events/entries supported). Pull merges into the agent's settings file (Claude Code in v1). Every command is displayed and confirmation is required before install (--yes to skip).
 
 **Why "prompts" and not "instructions"?** Every type is an instruction to an AI in some sense. "Prompt" is specific — it means the exact text sent to a model, with variables and expected output. It answers "What do we say to the model?" — a question no other type covers.
 

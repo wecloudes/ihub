@@ -133,6 +133,7 @@ Run tests: `bun test`
 
 - Nine artifact types: agent, command, design, hook, mcp, memory, prompt, rule, skill; agents link to skills, rules, memories, prompts, commands, mcps, and hooks via frontmatter arrays; commands link to agents, skills, and prompts; prompts link to memories
 - MCP/hook installs merge into shared agent config files (`.mcp.json`, `.claude/settings.json`, ...) via `cli/config-merge.js` — idempotent, marker-keyed (`_ihub`) for hook arrays, user entries never touched; targets declared in `configTargets` in `cli/agents-config.js`
+- mcp/hook config is canonical in a fenced ```json block in the body, in Claude-native shape: mcp = exact `.mcp.json` server entry `{ "<name>": { command/args/env or type/url/headers } }` (server name = block key); hook = exact settings.json hooks fragment `{ "<Event>": [{ matcher?, hooks: [...] }] }`; other agents get shape transforms on install; legacy flat frontmatter (v0.7.0) still installs but is deprecated
 - Hook pulls are gated: command always displayed, y/N confirmation (`--yes` to skip), signature verified when present; MCP `env`/`headers` use `${VAR}` placeholders — literal secrets are masked + blocked on push
 - Multi-agent pull: `--agent claude,cursor` installs to each agent's native path; Claude/Gemini/Qwen/Codex/OpenCode use `<name>/SKILL.md` dirs; Cursor uses `.mdc`
 - `transformForAgent()` rewrites frontmatter per agent on pull; rules include `globs` for file-scoped applicability (mapped to Cursor `.mdc` globs and Claude Code rule globs)

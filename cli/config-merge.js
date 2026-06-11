@@ -143,3 +143,69 @@ export function buildClaudeHookEntry(meta) {
   if (meta.matcher) entry.matcher = String(meta.matcher);
   return entry;
 }
+
+/**
+ * Extract the first fenced ```json block from an artifact body.
+ * Returns the parsed object, null when there is no block, and throws on
+ * invalid JSON inside the block.
+ */
+export function extractConfigBlock(body) {
+  const match = String(body || "").match(/```json\s*\n([\s\S]*?)```/);
+  if (!match) return null;
+  try {
+    return JSON.parse(match[1]);
+  } catch (err) {
+    throw new Error(`Invalid JSON in config block: ${err.message}`);
+  }
+}
+
+// Convert a Claude-shape mcpServers entry to OpenCode's `mcp` entry shape.
+export function toOpencodeMcpEntry(entry) {
+  if (entry.command) {
+    const out = { type: "local", command: [entry.command, ...(Array.isArray(entry.args) ? entry.args : [])], enabled: true };
+    if (entry.env && Object.keys(entry.env).length) out.environment = entry.env;
+    return out;
+  }
+  const out = { type: "remote", url: entry.url || "", enabled: true };
+  if (entry.headers && Object.keys(entry.headers).length) out.headers = entry.headers;
+  return out;
+}
+
+/**
+ * Resolve an mcp artifact to { serverName, entry } in Claude .mcp.json shape.
+ * Canonical source: a fenced ```json block in the body holding the exact
+ * mcpServers entry keyed by server name: { "azure": { "command": ... } }.
+ * Legacy fallback: flat frontmatter fields (transport/command/args/env/url/headers).
+ */
+export function resolveMcpConfig(meta, body) {
+  const block = extractConfigBlock(body);
+  if (block && typeof block === "object" && !Array.isArray(block)) {
+    const keys = Object.keys(block);
+    if (keys.length === 1 && block[keys[0]] && typeof block[keys[0]] === "object") {
+      return { serverName: keys[0], entry: block[keys[0]] };
+    }
+    throw new Error("MCP config block must contain exactly one server entry: { \"<name>\": { ... } }");
+  }
+  return { serverName: meta.name || "", entry: buildMcpEntry(meta, "standard") };
+}
+
+/**
+ * Resolve a hook artifact to [{ event, entry }] in Claude settings.json shape.
+ * Canonical source: a fenced ```json block holding the exact hooks fragment:
+ * { "PostToolUse": [{ matcher?, hooks: [{ type, command, timeout? }] }], ... }.
+ * Legacy fallback: flat frontmatter fields (event/matcher/command/timeout).
+ */
+export function resolveHookEntries(meta, body) {
+  const block = extractConfigBlock(body);
+  if (block && typeof block === "object" && !Array.isArray(block)) {
+    const entries = [];
+    for (const [event, list] of Object.entries(block)) {
+      for (const entry of Array.isArray(list) ? list : [list]) {
+        if (entry && typeof entry === "object") entries.push({ event, entry });
+      }
+    }
+    if (!entries.length) throw new Error("Hook config block contains no hook entries");
+    return entries;
+  }
+  return [{ event: meta.event || "PostToolUse", entry: buildClaudeHookEntry(meta) }];
+}

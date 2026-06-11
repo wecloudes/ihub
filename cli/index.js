@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, readdirSy
 import { createInterface } from "readline";
 import { homedir } from "os";
 import { CODING_AGENTS, AGENT_NAMES, getInstallPath, getConfigTarget } from "./agents-config.js";
-import { mergeObjectEntry, mergeArrayEntry, buildMcpEntry, buildClaudeHookEntry } from "./config-merge.js";
+import { mergeObjectEntry, mergeArrayEntry, resolveMcpConfig, resolveHookEntries, toOpencodeMcpEntry, extractConfigBlock } from "./config-merge.js";
 import { loadRegistry, loadEntries } from "./parse.js";
 import { renderMarkdown } from "./render.js";
 import { parsePrometheus, parseFilters, renderDashboard } from "./dashboard.js";
@@ -124,18 +124,14 @@ const TYPE_FIELDS = {
     { key: "design_system", label: "Design system name", type: "string" },
     { key: "format", label: "Format (figma/sketch/html/css/svg)", type: "string" },
   ],
+  // mcp/hook configs live in a fenced ```json block in the body (Claude-native
+  // shape) — frontmatter carries metadata only
   mcp: [
     { key: "description", label: "Description", type: "string", required: true },
     { key: "version", label: "Version", type: "string", default: "0.1.0" },
     { key: "author", label: "Author", type: "string" },
     { key: "project", label: "Project", type: "string" },
     { key: "tags", label: "Tags (comma-separated)", type: "array" },
-    { key: "transport", label: "Transport (stdio/http/sse)", type: "string", default: "stdio", required: true },
-    { key: "command", label: "Command (for stdio, e.g. npx)", type: "string" },
-    { key: "args", label: "Arguments (comma-separated)", type: "array" },
-    { key: "env", label: "Env vars (comma-separated KEY=${VAR})", type: "array" },
-    { key: "url", label: "URL (for http/sse)", type: "string" },
-    { key: "headers", label: "Headers (comma-separated Name: ${VAR})", type: "array" },
     { key: "compatible_agents", label: "Compatible agents (comma-separated)", type: "array" },
   ],
   hook: [
@@ -144,10 +140,6 @@ const TYPE_FIELDS = {
     { key: "author", label: "Author", type: "string" },
     { key: "project", label: "Project", type: "string" },
     { key: "tags", label: "Tags (comma-separated)", type: "array" },
-    { key: "event", label: "Event (PreToolUse/PostToolUse/UserPromptSubmit/Stop/...)", type: "string", required: true },
-    { key: "matcher", label: "Tool matcher (e.g. Write|Edit)", type: "string" },
-    { key: "command", label: "Shell command to run", type: "string", required: true },
-    { key: "timeout", label: "Timeout (seconds)", type: "string" },
     { key: "compatible_agents", label: "Compatible agents (comma-separated)", type: "array" },
   ],
 };
@@ -697,30 +689,79 @@ function validate() {
       }
 
       if (type === "mcps") {
-        const transport = entry.transport || "stdio";
-        if (!["stdio", "http", "sse"].includes(transport)) {
-          console.error(`  INVALID transport "${transport}" in ${label} (must be stdio, http, or sse)`);
+        let block = null;
+        let blockError = null;
+        try { block = extractConfigBlock(entry.body); } catch (err) { blockError = err.message; }
+        if (blockError) {
+          console.error(`  INVALID config block in ${label}: ${blockError}`);
           errors++;
-        } else if (transport === "stdio" && !entry.command) {
-          console.error(`  MISSING command in ${label} (required for stdio transport)`);
-          errors++;
-        } else if (transport !== "stdio" && !entry.url) {
-          console.error(`  MISSING url in ${label} (required for ${transport} transport)`);
-          errors++;
+        } else if (block) {
+          // Canonical format: ```json block with one Claude-shape mcpServers entry
+          const keys = (typeof block === "object" && !Array.isArray(block)) ? Object.keys(block) : [];
+          if (keys.length !== 1 || !block[keys[0]] || typeof block[keys[0]] !== "object") {
+            console.error(`  INVALID config block in ${label}: must contain exactly one server entry { "<name>": { ... } }`);
+            errors++;
+          } else if (!block[keys[0]].command && !block[keys[0]].url) {
+            console.error(`  INVALID config block in ${label}: server entry needs "command" (stdio) or "url" (remote)`);
+            errors++;
+          }
+        } else {
+          // Legacy flat-frontmatter format
+          const transport = entry.transport || "stdio";
+          if (!["stdio", "http", "sse"].includes(transport)) {
+            console.error(`  INVALID transport "${transport}" in ${label} (must be stdio, http, or sse)`);
+            errors++;
+          } else if (transport === "stdio" && !entry.command) {
+            console.error(`  MISSING command in ${label} (required for stdio transport)`);
+            errors++;
+          } else if (transport !== "stdio" && !entry.url) {
+            console.error(`  MISSING url in ${label} (required for ${transport} transport)`);
+            errors++;
+          }
         }
       }
 
       if (type === "hooks") {
-        if (!entry.event) {
-          console.error(`  MISSING event in ${label}`);
+        let block = null;
+        let blockError = null;
+        try { block = extractConfigBlock(entry.body); } catch (err) { blockError = err.message; }
+        if (blockError) {
+          console.error(`  INVALID config block in ${label}: ${blockError}`);
           errors++;
-        } else if (!VALID_HOOK_EVENTS.includes(entry.event)) {
-          console.error(`  INVALID event "${entry.event}" in ${label} (valid: ${VALID_HOOK_EVENTS.join(", ")})`);
-          errors++;
-        }
-        if (!entry.command) {
-          console.error(`  MISSING command in ${label}`);
-          errors++;
+        } else if (block) {
+          // Canonical format: ```json block with Claude settings.json hooks fragment
+          const events = (typeof block === "object" && !Array.isArray(block)) ? Object.keys(block) : [];
+          if (!events.length) {
+            console.error(`  INVALID config block in ${label}: no hook events found`);
+            errors++;
+          }
+          for (const event of events) {
+            if (!VALID_HOOK_EVENTS.includes(event)) {
+              console.error(`  INVALID event "${event}" in ${label} (valid: ${VALID_HOOK_EVENTS.join(", ")})`);
+              errors++;
+            }
+            const list = Array.isArray(block[event]) ? block[event] : [block[event]];
+            for (const he of list) {
+              const cmds = Array.isArray(he?.hooks) ? he.hooks : [];
+              if (!cmds.length || cmds.some((h) => !h?.command)) {
+                console.error(`  MISSING command in ${label} (event ${event})`);
+                errors++;
+              }
+            }
+          }
+        } else {
+          // Legacy flat-frontmatter format
+          if (!entry.event) {
+            console.error(`  MISSING event in ${label}`);
+            errors++;
+          } else if (!VALID_HOOK_EVENTS.includes(entry.event)) {
+            console.error(`  INVALID event "${entry.event}" in ${label} (valid: ${VALID_HOOK_EVENTS.join(", ")})`);
+            errors++;
+          }
+          if (!entry.command) {
+            console.error(`  MISSING command in ${label}`);
+            errors++;
+          }
         }
       }
     }
@@ -1607,7 +1648,7 @@ async function pull(args) {
     }
     let merged = 0;
     for (const agent of sortedAgents) {
-      if (installConfigArtifact(agent, pluralType, name, entry.meta || {}, destination)) merged++;
+      if (installConfigArtifact(agent, pluralType, name, entry, destination)) merged++;
     }
     // Keep a tracking copy in the local working directory
     const trackPath = resolve(ROOT, pluralType, `${name}.md`);
@@ -1738,7 +1779,7 @@ async function pull(args) {
               }
             }
             for (const agent of sortedAgents) {
-              installConfigArtifact(agent, dep.type, dep.name, depEntry.meta || {}, destination);
+              installConfigArtifact(agent, dep.type, dep.name, depEntry, destination);
             }
           }
 
@@ -1789,7 +1830,7 @@ async function pull(args) {
  * Merge an mcp/hook artifact into one agent's shared config file.
  * Returns true when a config file was updated, false when skipped.
  */
-function installConfigArtifact(agent, pluralType, name, meta, scope) {
+function installConfigArtifact(agent, pluralType, name, artifact, scope) {
   const target = getConfigTarget(agent, pluralType, scope);
   if (!target?.path) {
     if (target?.note) {
@@ -1798,13 +1839,20 @@ function installConfigArtifact(agent, pluralType, name, meta, scope) {
     return false;
   }
 
+  const meta = artifact.meta || {};
+  const body = artifact.body || "";
   const targetPath = resolve(target.path);
   try {
     if (pluralType === "mcps") {
-      mergeObjectEntry(targetPath, target.key, name, buildMcpEntry(meta, target.shape));
+      const { serverName, entry } = resolveMcpConfig(meta, body);
+      const value = target.shape === "opencode" ? toOpencodeMcpEntry(entry) : entry;
+      mergeObjectEntry(targetPath, target.key, serverName || name, value);
     } else {
-      const event = meta.event || "PostToolUse";
-      mergeArrayEntry(targetPath, `${target.key}.${event}`, `hook/${name}`, buildClaudeHookEntry(meta));
+      const entries = resolveHookEntries(meta, body);
+      entries.forEach(({ event, entry }, idx) => {
+        const marker = entries.length === 1 ? `hook/${name}` : `hook/${name}:${event}:${idx}`;
+        mergeArrayEntry(targetPath, `${target.key}.${event}`, marker, entry);
+      });
     }
     console.log(`  Merged ${pluralType}/${name} → ${targetPath} (${CODING_AGENTS[agent]?.name || agent})`);
     return true;
@@ -1827,10 +1875,21 @@ async function confirmHookInstall(entry, name, yes) {
   if (!meta._signature) {
     console.log(`\x1b[33m⚠ Hook ${name} is not signed — review the command carefully.\x1b[0m`);
   }
-  console.log(`\nHook ${name} will run a shell command:`);
-  console.log(`  event:   ${meta.event || "(unset)"}`);
-  if (meta.matcher) console.log(`  matcher: ${meta.matcher}`);
-  console.log(`  command: ${meta.command || "(unset)"}`);
+  let hookEntries;
+  try {
+    hookEntries = resolveHookEntries(meta, entry.body || "");
+  } catch (err) {
+    console.error(`Hook ${name}: ${err.message} — not installing.`);
+    return false;
+  }
+  console.log(`\nHook ${name} will run shell command(s):`);
+  for (const { event, entry: he } of hookEntries) {
+    console.log(`  event:   ${event}`);
+    if (he.matcher) console.log(`  matcher: ${he.matcher}`);
+    for (const h of Array.isArray(he.hooks) ? he.hooks : []) {
+      console.log(`  command: ${h.command || "(unset)"}`);
+    }
+  }
   if (yes) return true;
   const answer = await prompt("Install this hook? [y/N]: ", "n");
   return /^y(es)?$/i.test(answer);

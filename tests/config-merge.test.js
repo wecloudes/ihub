@@ -10,6 +10,10 @@ import {
   parseKeyValueArray,
   buildMcpEntry,
   buildClaudeHookEntry,
+  extractConfigBlock,
+  resolveMcpConfig,
+  resolveHookEntries,
+  toOpencodeMcpEntry,
 } from "../cli/config-merge.js";
 import { getConfigTarget } from "../cli/agents-config.js";
 
@@ -205,5 +209,60 @@ describe("config-merge", () => {
   it("accepts singular type names", () => {
     const t = getConfigTarget("gemini", "mcp", "local");
     assert.equal(t.key, "mcpServers");
+  });
+
+  // --- config blocks (canonical format) ---
+
+  it("extracts a fenced json block from the body", () => {
+    const body = '# x\n\n## Config\n\n```json\n{ "a": 1 }\n```\n\nmore docs';
+    assert.deepEqual(extractConfigBlock(body), { a: 1 });
+  });
+
+  it("returns null when no block and throws on invalid JSON", () => {
+    assert.equal(extractConfigBlock("# no block"), null);
+    assert.throws(() => extractConfigBlock("```json\n{ bad\n```"), /Invalid JSON in config block/);
+  });
+
+  it("resolveMcpConfig uses the block entry verbatim, keyed by its name", () => {
+    const body = '```json\n{ "azure": { "command": "npx", "args": ["-y", "@azure/mcp@latest", "server", "start"] } }\n```';
+    const { serverName, entry } = resolveMcpConfig({ name: "azure-artifact" }, body);
+    assert.equal(serverName, "azure");
+    assert.deepEqual(entry, { command: "npx", args: ["-y", "@azure/mcp@latest", "server", "start"] });
+  });
+
+  it("resolveMcpConfig rejects multi-entry blocks", () => {
+    const body = '```json\n{ "a": {}, "b": {} }\n```';
+    assert.throws(() => resolveMcpConfig({ name: "x" }, body), /exactly one server entry/);
+  });
+
+  it("resolveMcpConfig falls back to legacy frontmatter without a block", () => {
+    const { serverName, entry } = resolveMcpConfig({ name: "gh", transport: "stdio", command: "npx", args: ["pkg"] }, "# docs only");
+    assert.equal(serverName, "gh");
+    assert.deepEqual(entry, { command: "npx", args: ["pkg"] });
+  });
+
+  it("resolveHookEntries parses a settings.json hooks fragment", () => {
+    const body = '```json\n{ "PostToolUse": [{ "matcher": "Write", "hooks": [{ "type": "command", "command": "fmt" }] }], "Stop": [{ "hooks": [{ "type": "command", "command": "notify" }] }] }\n```';
+    const entries = resolveHookEntries({ name: "h" }, body);
+    assert.equal(entries.length, 2);
+    assert.equal(entries[0].event, "PostToolUse");
+    assert.equal(entries[0].entry.hooks[0].command, "fmt");
+    assert.equal(entries[1].event, "Stop");
+  });
+
+  it("resolveHookEntries falls back to legacy frontmatter", () => {
+    const entries = resolveHookEntries({ event: "Stop", command: "x" }, "# docs");
+    assert.deepEqual(entries, [{ event: "Stop", entry: { hooks: [{ type: "command", command: "x" }] } }]);
+  });
+
+  it("toOpencodeMcpEntry converts Claude-shape entries", () => {
+    assert.deepEqual(
+      toOpencodeMcpEntry({ command: "npx", args: ["pkg"], env: { K: "V" } }),
+      { type: "local", command: ["npx", "pkg"], enabled: true, environment: { K: "V" } }
+    );
+    assert.deepEqual(
+      toOpencodeMcpEntry({ type: "http", url: "https://x", headers: { A: "B" } }),
+      { type: "remote", url: "https://x", enabled: true, headers: { A: "B" } }
+    );
   });
 });

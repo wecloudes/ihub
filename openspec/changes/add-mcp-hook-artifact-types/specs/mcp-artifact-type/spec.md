@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: MCP artifact definition
-The system SHALL support an `mcp` artifact type (plural `mcps`, local directory `mcps/`) as a `.md` file with YAML frontmatter. Frontmatter fields: `description` (required), `version` (required, default `0.1.0`), `author`, `project`, `tags` (array), `transport` (required: `stdio`, `http`, or `sse`), `command` (string, required when transport is `stdio`), `args` (array of strings), `env` (array of `KEY=value` strings), `url` (string, required when transport is `http` or `sse`), `headers` (array of `Key: value` strings), `compatible_agents` (array). The body documents the server's purpose, available tools, and auth setup.
+The system SHALL support an `mcp` artifact type (plural `mcps`, local directory `mcps/`) as a `.md` file with YAML frontmatter carrying metadata (`description` required, `version` required, `author`, `project`, `tags`, `compatible_agents`). The canonical server config SHALL live in the body as a fenced ```json block holding the exact Claude `.mcp.json` server entry keyed by server name — `{ "<name>": { "command": ..., "args": [...], "env": {...} } }` for stdio, `{ "<name>": { "type": "http"|"sse", "url": ..., "headers": {...} } }` for remote. The block MUST contain exactly one server entry; the block key is the installed server name. The legacy flat-frontmatter fields (`transport`, `command`, `args`, `env`, `url`, `headers`) SHALL remain supported as a deprecated fallback when no config block exists. The body also documents the server's purpose, available tools, and auth setup.
 
 #### Scenario: Valid stdio MCP artifact passes validation
 - **WHEN** `ihub validate` runs over an `mcps/github.md` with `transport: stdio` and a `command`

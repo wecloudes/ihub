@@ -1056,6 +1056,62 @@ describe("CLI end-to-end", () => {
     }
   });
 
+  it("pull mcp with config block uses the block verbatim, keyed by block name", async () => {
+    const body = '# azure\n\n## Config\n\n```json\n{ "azure": { "command": "npx", "args": ["-y", "@azure/mcp@latest", "server", "start"] } }\n```\n\nDocs.';
+    await apiPush("mcps", "azure-mcp", { description: "Azure MCP", version: "1.0.0" }, body);
+
+    const proj = join(tmpDir, "mcp-block-proj");
+    mkdirSync(proj, { recursive: true });
+    try {
+      ihubIn(proj, ["pull", "mcp", "azure-mcp", "--local", "--agent", "claude"]);
+      const cfg = JSON.parse(readFileSync(join(proj, ".mcp.json"), "utf-8"));
+      // Server name comes from the block key, not the artifact name
+      assert.deepEqual(cfg.mcpServers.azure, { command: "npx", args: ["-y", "@azure/mcp@latest", "server", "start"] });
+      assert.equal(cfg.mcpServers["azure-mcp"], undefined);
+    } finally {
+      rmSync(join(ROOT, "mcps", "azure-mcp.md"), { force: true });
+    }
+  });
+
+  it("pull hook with config block installs the exact settings fragment", async () => {
+    const body = '## Config\n\n```json\n{ "PostToolUse": [{ "matcher": "Write|Edit", "hooks": [{ "type": "command", "command": "echo blockfmt", "timeout": 10 }] }] }\n```';
+    await apiPush("hooks", "block-hook", { description: "Block hook", version: "1.0.0" }, body);
+
+    const proj = join(tmpDir, "hook-block-proj");
+    mkdirSync(proj, { recursive: true });
+    try {
+      const out = ihubIn(proj, ["pull", "hook", "block-hook", "--local", "--agent", "claude", "--yes"]);
+      assert.ok(out.includes("echo blockfmt"));
+      const cfg = JSON.parse(readFileSync(join(proj, ".claude", "settings.json"), "utf-8"));
+      const e = cfg.hooks.PostToolUse[0];
+      assert.equal(e._ihub, "hook/block-hook");
+      assert.equal(e.matcher, "Write|Edit");
+      assert.deepEqual(e.hooks[0], { type: "command", command: "echo blockfmt", timeout: 10 });
+      // Idempotent re-pull
+      ihubIn(proj, ["pull", "hook", "block-hook", "--local", "--agent", "claude", "--yes"]);
+      assert.equal(JSON.parse(readFileSync(join(proj, ".claude", "settings.json"), "utf-8")).hooks.PostToolUse.length, 1);
+    } finally {
+      rmSync(join(ROOT, "hooks", "block-hook.md"), { force: true });
+    }
+  });
+
+  it("validate catches bad config blocks", () => {
+    const mcpPath = join(ROOT, "mcps", "bad-block-mcp.md");
+    const hookPath = join(ROOT, "hooks", "bad-block-hook.md");
+    mkdirSync(join(ROOT, "mcps"), { recursive: true });
+    mkdirSync(join(ROOT, "hooks"), { recursive: true });
+    writeFileSync(mcpPath, '---\nname: bad-block-mcp\ndescription: x\nversion: 1.0.0\n---\n# x\n```json\n{ "a": {}, "b": {} }\n```');
+    writeFileSync(hookPath, '---\nname: bad-block-hook\ndescription: x\nversion: 1.0.0\n---\n# x\n```json\n{ "OnBananas": [{ "hooks": [{ "type": "command", "command": "x" }] }] }\n```');
+    try {
+      const err = ihubFail(["validate"]);
+      assert.ok(err.includes("exactly one server entry"));
+      assert.ok(err.includes('INVALID event "OnBananas"'));
+    } finally {
+      rmSync(mcpPath, { force: true });
+      rmSync(hookPath, { force: true });
+    }
+  });
+
   it("push mcp with literal secret is masked and blocked", async () => {
     const mcpPath = join(ROOT, "mcps", "leaky-mcp.md");
     mkdirSync(join(ROOT, "mcps"), { recursive: true });

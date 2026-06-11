@@ -1,17 +1,32 @@
 ---
 name: format-on-save
 description: Run Prettier on every file Claude Code writes or edits
-version: 1.0.0
+version: 1.1.0
 author: ihub
 tags: [formatting, prettier]
-event: PostToolUse
-matcher: Write|Edit
-command: npx prettier --write "$CLAUDE_FILE_PATHS" 2>/dev/null || true
-timeout: 30
 compatible_agents: [claude]
 ---
 
 # format-on-save
+
+## Config
+
+```json
+{
+  "PostToolUse": [
+    {
+      "matcher": "Write|Edit",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "npx prettier --write \"$CLAUDE_FILE_PATHS\" 2>/dev/null || true",
+          "timeout": 30
+        }
+      ]
+    }
+  ]
+}
+```
 
 ## Purpose
 

@@ -232,16 +232,32 @@ format: html
 
 ### MCP — _"What can the agent reach?"_
 
-An mcp artifact is an MCP server **installation config** — transport, command, args, env placeholders, or URL and headers. The body documents what the server does and how to set up auth. Pulling merges the server definition into each coding agent's native MCP config file (`.mcp.json`, `.cursor/mcp.json`, `.gemini/settings.json`, ...) — idempotently, without touching anything else in the file.
+An mcp artifact is an MCP server **installation config**. The body carries the exact `.mcp.json` server entry in a fenced ` ```json ` block (Claude-native shape — verbatim-compatible, copy-paste works), plus docs on what the server does and how to set up auth. Pulling merges the entry into each coding agent's native MCP config file (`.mcp.json`, `.cursor/mcp.json`, `.gemini/settings.json`, ...) — idempotently, without touching anything else in the file. For other agents ihub transforms the entry to their native shape on install.
 
-```yaml
-name: github
-description: GitHub MCP server — repos, issues, PRs from your coding agent
-transport: stdio
-command: npx
-args: [-y, "@modelcontextprotocol/server-github@2025.4.8"]
-env: ["GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_TOKEN}"]
+````markdown
+---
+name: azure
+description: Azure MCP server — manage and query Azure resources
+tags: [azure, cloud]
+---
+
+# azure
+
+## Config
+
+```json
+{
+  "azure": {
+    "command": "npx",
+    "args": ["-y", "@azure/mcp@latest", "server", "start"]
+  }
+}
 ```
+
+Docs about the server below...
+````
+
+Remote servers use the same shape: `{ "<name>": { "type": "http", "url": "https://...", "headers": { "X-Key": "${KEY}" } } }`. The legacy v0.7.0 flat-frontmatter format (`transport`/`command`/`args`/`env`) still installs but is deprecated.
 
 **Secrets never live in the artifact.** `env` and `headers` values use `${VAR}` placeholders resolved from the developer's environment; pushes with literal secrets are masked and blocked by the sensitive-data scanner.
 
@@ -255,17 +271,34 @@ env: ["GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_TOKEN}"]
 
 ### Hook — _"What runs automatically?"_
 
-A hook is a lifecycle hook definition — an event, an optional tool matcher, and a shell command. Pulling merges it into the agent's settings file (Claude Code `.claude/settings.json` in v1). Because hooks execute shell commands, installs are **gated**: the exact command is always displayed, confirmation is required (`--yes` for scripts), and signature verification applies when the registry signs artifacts.
+A hook is a lifecycle hook definition. The body carries the exact Claude Code `settings.json` hooks fragment in a fenced ` ```json ` block — verbatim-compatible, supports multiple events/entries per artifact. Pulling merges it into the agent's settings file (Claude Code `.claude/settings.json` in v1). Because hooks execute shell commands, installs are **gated**: every command is always displayed, confirmation is required (`--yes` for scripts), and signature verification applies when the registry signs artifacts.
 
-```yaml
+````markdown
+---
 name: format-on-save
 description: Run Prettier on every file Claude Code writes or edits
-event: PostToolUse
-matcher: Write|Edit
-command: npx prettier --write "$CLAUDE_FILE_PATHS" 2>/dev/null || true
-timeout: 30
 compatible_agents: [claude]
+---
+
+# format-on-save
+
+## Config
+
+```json
+{
+  "PostToolUse": [
+    {
+      "matcher": "Write|Edit",
+      "hooks": [
+        { "type": "command", "command": "npx prettier --write \"$CLAUDE_FILE_PATHS\"", "timeout": 30 }
+      ]
+    }
+  ]
+}
 ```
+````
+
+The legacy v0.7.0 flat-frontmatter format (`event`/`matcher`/`command`/`timeout`) still installs but is deprecated.
 
 **Use a hook when:**
 - Something must happen on every tool call or session event (format, lint, notify)

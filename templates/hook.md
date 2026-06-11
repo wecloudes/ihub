@@ -5,14 +5,27 @@ version: 0.1.0
 author: 
 project: 
 tags: []
-event: PostToolUse
-matcher: 
-command: 
-timeout: 
 compatible_agents: [claude]
 ---
 
 # {{name}}
+
+## Config
+
+The exact Claude Code `settings.json` hooks fragment — used verbatim on install. Events: PreToolUse, PostToolUse, UserPromptSubmit, Notification, Stop, SubagentStop, SessionStart, SessionEnd, PreCompact.
+
+```json
+{
+  "PostToolUse": [
+    {
+      "matcher": "Write|Edit",
+      "hooks": [
+        { "type": "command", "command": "<shell command>", "timeout": 30 }
+      ]
+    }
+  ]
+}
+```
 
 ## Purpose
 

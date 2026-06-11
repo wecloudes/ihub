@@ -121,7 +121,7 @@ CLI integration tests (`tests/cli.test.js`) spawn a real server process on a ran
 - Terminal rendering uses raw ANSI escape codes, no dependencies
 - Frontmatter parser handles simple YAML only (no nested objects, no multi-line values)
 - Cross-references between entries are validated by `ihub validate`
-- Because the frontmatter parser is flat, mcp `env`/`headers` are arrays of `KEY=value` / `Name: value` strings (split on the first separator by `cli/config-merge.js`)
+- mcp/hook config lives in a fenced ```json block in the artifact body (Claude-native shape, parsed by `extractConfigBlock` in `cli/config-merge.js`); the flat-frontmatter format is a deprecated legacy fallback
 - MCP/hook installs go through `cli/config-merge.js` — never write agent config files directly; merges must stay idempotent and must not touch user-authored entries
 
 ## Before submitting

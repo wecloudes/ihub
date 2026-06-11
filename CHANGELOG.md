@@ -2,6 +2,19 @@
 
 All notable changes to ihub are documented in this file.
 
+## [0.8.0] - 2026-06-11
+
+### Changed
+
+- **mcp/hook artifacts now carry their config as a fenced ```json block in the body, in Claude-native shape** — maximum compatibility, copy-paste works:
+  - mcp: the exact `.mcp.json` server entry `{ "<name>": { "command": ..., "args": [...], "env": {...} } }` (or `{ "type": "http", "url": ..., "headers": {...} }` for remote); the block key is the installed server name
+  - hook: the exact Claude Code `settings.json` hooks fragment `{ "<Event>": [{ "matcher": ..., "hooks": [...] }] }`; multiple events/entries per artifact supported
+  - other agents get shape transforms on install (OpenCode `mcp` entry, etc.); frontmatter now carries metadata only
+  - `ihub validate` validates the block (exactly one server entry; valid hook events; commands present)
+  - the v0.7.0 flat-frontmatter format (`transport`/`command`/`args`/`env`, `event`/`matcher`/`command`) remains as a deprecated install/validate fallback
+- Hook gate now displays every event/matcher/command from the block before confirmation
+- New example: `examples/mcps/azure.md` (Azure MCP server); github/context7/format-on-save examples migrated to the block format
+
 ## [0.7.0] - 2026-06-11
 
 ### Added

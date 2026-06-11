@@ -1,17 +1,25 @@
 ---
 name: github
 description: GitHub MCP server — repos, issues, PRs, and code search from your coding agent
-version: 1.0.0
+version: 1.1.0
 author: ihub
 tags: [github, git, vcs]
-transport: stdio
-command: npx
-args: [-y, "@modelcontextprotocol/server-github@2025.4.8"]
-env: ["GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_TOKEN}"]
-compatible_agents: []
+compatible_agents: [claude, cursor, gemini, qwen, opencode]
 ---
 
 # github
+
+## Config
+
+```json
+{
+  "github": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-github@2025.4.8"],
+    "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}" }
+  }
+}
+```
 
 ## Purpose
 

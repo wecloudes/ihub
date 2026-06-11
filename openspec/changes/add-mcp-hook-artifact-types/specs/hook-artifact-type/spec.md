@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: Hook artifact definition
-The system SHALL support a `hook` artifact type (plural `hooks`, local directory `hooks/`) as a `.md` file with YAML frontmatter. Frontmatter fields: `description` (required), `version` (required, default `0.1.0`), `author`, `project`, `tags` (array), `event` (required; one of the agent's hook events, e.g. `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`, `SessionEnd`, `Notification`), `matcher` (string, optional tool-name matcher), `command` (required; the shell command to execute), `timeout` (number, seconds, optional), `compatible_agents` (array; v1 supports `claude`). The body documents what the hook does and why.
+The system SHALL support a `hook` artifact type (plural `hooks`, local directory `hooks/`) as a `.md` file with YAML frontmatter carrying metadata (`description` required, `version` required, `author`, `project`, `tags`, `compatible_agents`; v1 supports `claude`). The canonical hook config SHALL live in the body as a fenced ```json block holding the exact Claude Code `settings.json` hooks fragment — `{ "<Event>": [{ "matcher"?: ..., "hooks": [{ "type": "command", "command": ..., "timeout"?: ... }] }] }` — with one or more valid events and one or more entries per event. The legacy flat-frontmatter fields (`event`, `matcher`, `command`, `timeout`) SHALL remain supported as a deprecated fallback when no config block exists. The body also documents what the hook does and why.
 
 #### Scenario: Valid hook passes validation
 - **WHEN** `ihub validate` runs over `hooks/format-on-save.md` with `event: PostToolUse`, `matcher: Write|Edit`, and a `command`
