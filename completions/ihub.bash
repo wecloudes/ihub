@@ -7,7 +7,7 @@ _ihub() {
   _init_completion || return
 
   local commands="list search show preview validate projects create push pull remove comment comments register login passwd whoami config audit metrics backup admin version help"
-  local types="agent agents command commands design designs memory memories prompt prompts rule rules skill skills"
+  local types="agent agents command commands design designs hook hooks mcp mcps memory memories prompt prompts rule rules skill skills"
   local type_commands="list show preview create push pull remove comment comments search"
 
   # Position-based completion
@@ -26,7 +26,7 @@ _ihub() {
           COMPREPLY=($(compgen -W "agent command design memory prompt rule skill" -- "$cur"))
           ;;
         # Type-first: type was first arg, now complete subcommand
-        agent|agents|skill|skills|rule|rules|memory|memories|prompt|prompts|command|commands|design|designs)
+        agent|agents|skill|skills|rule|rules|memory|memories|prompt|prompts|command|commands|design|designs|hook|hooks|mcp|mcps)
           COMPREPLY=($(compgen -W "$type_commands" -- "$cur"))
           ;;
         # Commands with URL arg
@@ -70,7 +70,7 @@ _ihub() {
           fi
           ;;
         # Type-first: third arg is artifact name
-        agent|agents|skill|skills|rule|rules|memory|memories|prompt|prompts|command|commands|design|designs)
+        agent|agents|skill|skills|rule|rules|memory|memories|prompt|prompts|command|commands|design|designs|hook|hooks|mcp|mcps)
           local subcmd="$type"
           case "$subcmd" in
             show|preview|push|remove|comment|comments|pull)
@@ -98,7 +98,7 @@ _ihub() {
           fi
           ;;
         # Type-first pull/create flags
-        agent|agents|skill|skills|rule|rules|memory|memories|prompt|prompts|command|commands|design|designs)
+        agent|agents|skill|skills|rule|rules|memory|memories|prompt|prompts|command|commands|design|designs|hook|hooks|mcp|mcps)
           local subcmd="${words[2]}"
           case "$subcmd" in
             pull) COMPREPLY=($(compgen -W "--local --global -l -g" -- "$cur")) ;;
@@ -133,6 +133,8 @@ _ihub_complete_names() {
     prompt|prompts) dir="prompts" ;;
     command|commands) dir="commands" ;;
     design|designs) dir="designs" ;;
+    hook|hooks)   dir="hooks" ;;
+    mcp|mcps)     dir="mcps" ;;
   esac
 
   if [[ -n "$dir" && -d "$dir" ]]; then

@@ -2,6 +2,19 @@
 
 All notable changes to ihub are documented in this file.
 
+## [0.7.0] - 2026-06-11
+
+### Added
+
+- **`mcp` artifact type**: MCP server installation configs (`transport`, `command`, `args`, `env`, `url`, `headers`). Pull merges the server definition into each coding agent's native MCP config file: Claude Code `.mcp.json` / `~/.claude.json`, Cursor `.cursor/mcp.json`, Gemini `.gemini/settings.json`, Qwen `.qwen/settings.json`, OpenCode `opencode.json` (Codex: manual note). `env`/`headers` values use `${VAR}` placeholders — literal secrets are masked and blocked by the sensitive-data scanner on push
+- **`hook` artifact type**: lifecycle hooks (`event`, `matcher`, `command`, `timeout`) that merge into Claude Code `settings.json`. Installs are gated: the shell command is always displayed, confirmation required (`--yes`/`-y` to skip), signature verification aborts the install when it fails, unsigned hooks warn
+- **`cli/config-merge.js`**: idempotent merge engine for agent-owned JSON config files — re-pull replaces in place, hook entries are marker-keyed (`_ihub`), user-authored entries are never touched, invalid JSON aborts without writing
+- **Agent `mcps` and `hooks` frontmatter arrays**: validated by `ihub validate`, resolved transitively on `ihub pull agent` (hooks still gated)
+- **Validation for the new types**: transport/command/url requirements for mcps, valid event list for hooks, broken-reference checks for agent `mcps:`/`hooks:`
+- New templates (`mcp`, `hook`, plus previously missing `command` and `design`), examples (`examples/mcps/`, `examples/hooks/`), TUI tabs + guide entries, web UI tabs/colors, shell completions, man page sections
+- `ihub create` now accepts all nine types (previously only agent/skill/rule/memory/prompt)
+- `tests/config-merge.test.js` (23 tests) + CLI/route coverage for the new types
+
 ## [0.6.0] - 2026-06-11
 
 ### Added

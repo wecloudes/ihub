@@ -29,7 +29,7 @@ export function pin(args, ROOT) {
   }
 
   const pluralType = pluralize(singularize(type));
-  const validTypes = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
+  const validTypes = ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"];
   if (!validTypes.includes(pluralType)) {
     console.error(`Unknown type: ${type}`);
     process.exit(1);
@@ -112,7 +112,7 @@ export async function exportBundle(args, ROOT) {
   const config = loadConfig();
   const base = (fromUrl || config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
   const token = fromUrl ? "" : (config.token || process.env.IHUB_TOKEN || "");
-  const validTypes = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
+  const validTypes = ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"];
   const types = typeFilter ? [pluralize(singularize(typeFilter))] : validTypes;
 
   if (fromUrl) {

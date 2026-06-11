@@ -5,7 +5,8 @@ import { fileURLToPath } from "url";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, readdirSync, watch as fsWatch, symlinkSync, rmSync } from "fs";
 import { createInterface } from "readline";
 import { homedir } from "os";
-import { CODING_AGENTS, AGENT_NAMES, getInstallPath } from "./agents-config.js";
+import { CODING_AGENTS, AGENT_NAMES, getInstallPath, getConfigTarget } from "./agents-config.js";
+import { mergeObjectEntry, mergeArrayEntry, buildMcpEntry, buildClaudeHookEntry } from "./config-merge.js";
 import { loadRegistry, loadEntries } from "./parse.js";
 import { renderMarkdown } from "./render.js";
 import { parsePrometheus, parseFilters, renderDashboard } from "./dashboard.js";
@@ -55,6 +56,8 @@ const TYPE_FIELDS = {
     { key: "memories", label: "Memories (comma-separated)", type: "array" },
     { key: "prompts", label: "Prompts (comma-separated)", type: "array" },
     { key: "commands", label: "Commands (comma-separated)", type: "array" },
+    { key: "mcps", label: "MCP servers (comma-separated)", type: "array" },
+    { key: "hooks", label: "Hooks (comma-separated)", type: "array" },
   ],
   skill: [
     { key: "description", label: "Description", type: "string", required: true },
@@ -121,7 +124,38 @@ const TYPE_FIELDS = {
     { key: "design_system", label: "Design system name", type: "string" },
     { key: "format", label: "Format (figma/sketch/html/css/svg)", type: "string" },
   ],
+  mcp: [
+    { key: "description", label: "Description", type: "string", required: true },
+    { key: "version", label: "Version", type: "string", default: "0.1.0" },
+    { key: "author", label: "Author", type: "string" },
+    { key: "project", label: "Project", type: "string" },
+    { key: "tags", label: "Tags (comma-separated)", type: "array" },
+    { key: "transport", label: "Transport (stdio/http/sse)", type: "string", default: "stdio", required: true },
+    { key: "command", label: "Command (for stdio, e.g. npx)", type: "string" },
+    { key: "args", label: "Arguments (comma-separated)", type: "array" },
+    { key: "env", label: "Env vars (comma-separated KEY=${VAR})", type: "array" },
+    { key: "url", label: "URL (for http/sse)", type: "string" },
+    { key: "headers", label: "Headers (comma-separated Name: ${VAR})", type: "array" },
+    { key: "compatible_agents", label: "Compatible agents (comma-separated)", type: "array" },
+  ],
+  hook: [
+    { key: "description", label: "Description", type: "string", required: true },
+    { key: "version", label: "Version", type: "string", default: "0.1.0" },
+    { key: "author", label: "Author", type: "string" },
+    { key: "project", label: "Project", type: "string" },
+    { key: "tags", label: "Tags (comma-separated)", type: "array" },
+    { key: "event", label: "Event (PreToolUse/PostToolUse/UserPromptSubmit/Stop/...)", type: "string", required: true },
+    { key: "matcher", label: "Tool matcher (e.g. Write|Edit)", type: "string" },
+    { key: "command", label: "Shell command to run", type: "string", required: true },
+    { key: "timeout", label: "Timeout (seconds)", type: "string" },
+    { key: "compatible_agents", label: "Compatible agents (comma-separated)", type: "array" },
+  ],
 };
+
+const VALID_HOOK_EVENTS = [
+  "PreToolUse", "PostToolUse", "UserPromptSubmit", "Notification",
+  "Stop", "SubagentStop", "SessionStart", "SessionEnd", "PreCompact",
+];
 
 let _rl;
 let _lineQueue = [];
@@ -220,6 +254,7 @@ const PLURAL_MAP = {
   agent: "agents", skill: "skills", rule: "rules",
   memory: "memories", prompt: "prompts",
   command: "commands", design: "designs",
+  mcp: "mcps", hook: "hooks",
 };
 const SINGULAR_MAP = Object.fromEntries(
   Object.entries(PLURAL_MAP).map(([s, p]) => [p, s])
@@ -229,6 +264,7 @@ const TYPE_ALIASES = {
   agents: "agents", skills: "skills", rules: "rules",
   memories: "memories", prompts: "prompts",
   commands: "commands", designs: "designs",
+  mcps: "mcps", hooks: "hooks",
 };
 
 function pluralize(type) {
@@ -342,7 +378,7 @@ async function list(args) {
   const filtered = args.filter((a) => a !== "--json");
   const type = filtered[0];
 
-  const types = type ? [type] : ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
+  const types = type ? [type] : ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"];
 
   // Merge remote registry + local entries (dedup by name, remote wins)
   const config = loadConfig();
@@ -640,6 +676,50 @@ function validate() {
           }
         }
       }
+      if (Array.isArray(entry.mcps)) {
+        for (const ref of entry.mcps) {
+          if (!registry.mcps.find((m) => (m.name || m.file) === ref)) {
+            console.error(`  BROKEN ref: mcp "${ref}" in ${label}`);
+            errors++;
+          }
+        }
+      }
+      if (Array.isArray(entry.hooks)) {
+        for (const ref of entry.hooks) {
+          if (!registry.hooks.find((h) => (h.name || h.file) === ref)) {
+            console.error(`  BROKEN ref: hook "${ref}" in ${label}`);
+            errors++;
+          }
+        }
+      }
+
+      if (type === "mcps") {
+        const transport = entry.transport || "stdio";
+        if (!["stdio", "http", "sse"].includes(transport)) {
+          console.error(`  INVALID transport "${transport}" in ${label} (must be stdio, http, or sse)`);
+          errors++;
+        } else if (transport === "stdio" && !entry.command) {
+          console.error(`  MISSING command in ${label} (required for stdio transport)`);
+          errors++;
+        } else if (transport !== "stdio" && !entry.url) {
+          console.error(`  MISSING url in ${label} (required for ${transport} transport)`);
+          errors++;
+        }
+      }
+
+      if (type === "hooks") {
+        if (!entry.event) {
+          console.error(`  MISSING event in ${label}`);
+          errors++;
+        } else if (!VALID_HOOK_EVENTS.includes(entry.event)) {
+          console.error(`  INVALID event "${entry.event}" in ${label} (valid: ${VALID_HOOK_EVENTS.join(", ")})`);
+          errors++;
+        }
+        if (!entry.command) {
+          console.error(`  MISSING command in ${label}`);
+          errors++;
+        }
+      }
     }
   }
 
@@ -656,7 +736,7 @@ async function projects(args) {
   const localOnly = args.includes("--local");
   const filtered = args.filter((a) => a !== "--json" && a !== "--local");
   const [projectName] = filtered;
-  const TYPES = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
+  const TYPES = ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"];
 
   // Load entries — remote by default, local with --local
   let allEntries = {};
@@ -760,7 +840,7 @@ async function projects(args) {
 }
 
 function printProjectTree(name, data) {
-  const TYPES = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
+  const TYPES = ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"];
   const typesWithEntries = TYPES.filter((t) => data[t].length > 0);
 
   console.log(`\n\x1b[1m\x1b[36m${name}\x1b[0m`);
@@ -804,13 +884,13 @@ async function create(args) {
 
   let [type, name] = filtered;
 
-  const validTypes = ["agent", "skill", "rule", "memory", "prompt"];
+  const validTypes = ["agent", "command", "design", "hook", "mcp", "memory", "prompt", "rule", "skill"];
 
   if (interactive && !type) {
     type = await prompt(`Type (${validTypes.join(", ")}): `);
   }
   if (!type) {
-    console.error("Usage: ihub create <agent|skill|rule|memory|prompt> <name> [--interactive|-i]");
+    console.error("Usage: ihub create <agent|command|design|hook|mcp|memory|prompt|rule|skill> <name> [--interactive|-i]");
     process.exit(1);
   }
   if (!validTypes.includes(type)) {
@@ -1369,12 +1449,14 @@ async function pull(args) {
   let destination;
   let agentFlags = [];
   let noDeps = false;
+  let yes = false;
   const filtered = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--local" || args[i] === "-l") destination = "local";
     else if (args[i] === "--global" || args[i] === "-g") destination = "global";
     else if (args[i] === "--agent" && args[i + 1]) agentFlags.push(args[++i]);
     else if (args[i] === "--no-deps") noDeps = true;
+    else if (args[i] === "--yes" || args[i] === "-y") yes = true;
     else filtered.push(args[i]);
   }
 
@@ -1387,7 +1469,7 @@ async function pull(args) {
 
   const [type, nameArg] = filtered;
   if (!type || !nameArg) {
-    console.error("Usage: ihub pull <type> <name[:version]> [--local|--global] [--agent <name>...] [--no-deps]");
+    console.error("Usage: ihub pull <type> <name[:version]> [--local|--global] [--agent <name>...] [--no-deps] [--yes]");
     console.error("  Or:    ihub pull <url>");
     console.error("  Agents: " + AGENT_NAMES.join(", "));
     console.error("  Multi-agent: --agent claude --agent cursor");
@@ -1408,7 +1490,7 @@ async function pull(args) {
 
   const singularType = singularize(type);
   const pluralType = pluralize(singularType);
-  const validTypes = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
+  const validTypes = ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"];
   if (!validTypes.includes(pluralType)) {
     console.error(`Unknown type: ${type}`);
     process.exit(1);
@@ -1510,6 +1592,28 @@ async function pull(args) {
     return 0;
   });
 
+  // MCP servers and hooks merge into shared agent config files instead of
+  // writing standalone artifact files
+  if (pluralType === "mcps" || pluralType === "hooks") {
+    if (pluralType === "hooks") {
+      const ok = await confirmHookInstall(entry, name, yes);
+      if (!ok) {
+        console.log("Hook install cancelled.");
+        return;
+      }
+    }
+    let merged = 0;
+    for (const agent of sortedAgents) {
+      if (installConfigArtifact(agent, pluralType, name, entry.meta || {}, destination)) merged++;
+    }
+    // Keep a tracking copy in the local working directory
+    const trackPath = resolve(ROOT, pluralType, `${name}.md`);
+    mkdirSync(dirname(trackPath), { recursive: true });
+    writeFileSync(trackPath, markdown);
+    console.log(`Pulled ${pluralType}/${name}@${ver} → ${trackPath}${merged ? "" : " (no agent config updated)"}`);
+    return;
+  }
+
   // Track installed outputs: content hash → { targetPath, isDir }
   const installed = new Map();
 
@@ -1585,11 +1689,15 @@ async function pull(args) {
     const depRules = Array.isArray(depMeta.rules) ? depMeta.rules : [];
     const depMemories = Array.isArray(depMeta.memories) ? depMeta.memories : [];
     const depPrompts = Array.isArray(depMeta.prompts) ? depMeta.prompts : [];
+    const depMcps = Array.isArray(depMeta.mcps) ? depMeta.mcps : [];
+    const depHooks = Array.isArray(depMeta.hooks) ? depMeta.hooks : [];
     const deps = [
       ...depSkills.map((n) => ({ type: "skills", name: n })),
       ...depRules.map((n) => ({ type: "rules", name: n })),
       ...depMemories.map((n) => ({ type: "memories", name: n })),
       ...depPrompts.map((n) => ({ type: "prompts", name: n })),
+      ...depMcps.map((n) => ({ type: "mcps", name: n })),
+      ...depHooks.map((n) => ({ type: "hooks", name: n })),
     ];
 
     if (deps.length > 0) {
@@ -1604,7 +1712,9 @@ async function pull(args) {
 
         const localDir = resolve(ROOT, dep.type);
         const localFile = resolve(localDir, `${dep.name}.md`);
-        if (existsSync(localFile)) continue;
+        const isConfigDep = dep.type === "mcps" || dep.type === "hooks";
+        // Config-merged deps re-merge even when the tracking file exists (idempotent)
+        if (existsSync(localFile) && !isConfigDep) continue;
 
         try {
           let depVersion = undefined;
@@ -1615,6 +1725,20 @@ async function pull(args) {
           const depEntry = await pullEntry(dep.type, dep.name, depVersion);
           const depMarkdown = entryToMarkdown(depEntry);
           const depVer = depEntry.meta?.version || "latest";
+
+          if (isConfigDep) {
+            if (dep.type === "hooks") {
+              const ok = await confirmHookInstall(depEntry, dep.name, yes);
+              if (!ok) {
+                console.log(`  Skipped dependency ${depKey} (not confirmed)`);
+                continue;
+              }
+            }
+            for (const agent of sortedAgents) {
+              installConfigArtifact(agent, dep.type, dep.name, depEntry.meta || {}, destination);
+            }
+          }
+
           mkdirSync(localDir, { recursive: true });
           writeFileSync(localFile, depMarkdown);
           console.log(`  Pulled dependency ${depKey}@${depVer} → ${localFile}`);
@@ -1656,6 +1780,57 @@ async function pull(args) {
       }
     }
   }
+}
+
+/**
+ * Merge an mcp/hook artifact into one agent's shared config file.
+ * Returns true when a config file was updated, false when skipped.
+ */
+function installConfigArtifact(agent, pluralType, name, meta, scope) {
+  const target = getConfigTarget(agent, pluralType, scope);
+  if (!target?.path) {
+    if (target?.note) {
+      console.log(`  ${CODING_AGENTS[agent]?.name || agent}: ${target.note} — skipped`);
+    }
+    return false;
+  }
+
+  const targetPath = resolve(target.path);
+  try {
+    if (pluralType === "mcps") {
+      mergeObjectEntry(targetPath, target.key, name, buildMcpEntry(meta, target.shape));
+    } else {
+      const event = meta.event || "PostToolUse";
+      mergeArrayEntry(targetPath, `${target.key}.${event}`, `hook/${name}`, buildClaudeHookEntry(meta));
+    }
+    console.log(`  Merged ${pluralType}/${name} → ${targetPath} (${CODING_AGENTS[agent]?.name || agent})`);
+    return true;
+  } catch (err) {
+    console.error(`  ${CODING_AGENTS[agent]?.name || agent}: ${err.message}`);
+    return false;
+  }
+}
+
+/**
+ * Hooks execute shell commands — always show the command, verify the
+ * signature when present, and require confirmation unless --yes was passed.
+ */
+async function confirmHookInstall(entry, name, yes) {
+  const meta = entry.meta || {};
+  if (entry.verified === false) {
+    console.error(`Hook ${name}: signature verification failed — not installing.`);
+    return false;
+  }
+  if (!meta._signature) {
+    console.log(`\x1b[33m⚠ Hook ${name} is not signed — review the command carefully.\x1b[0m`);
+  }
+  console.log(`\nHook ${name} will run a shell command:`);
+  console.log(`  event:   ${meta.event || "(unset)"}`);
+  if (meta.matcher) console.log(`  matcher: ${meta.matcher}`);
+  console.log(`  command: ${meta.command || "(unset)"}`);
+  if (yes) return true;
+  const answer = await prompt("Install this hook? [y/N]: ", "n");
+  return /^y(es)?$/i.test(answer);
 }
 
 function transformForAgent(agent, pluralType, entry, defaultMarkdown) {
@@ -2397,7 +2572,7 @@ async function outdated() {
   const config = loadConfig();
   const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
   const registry = loadRegistry(ROOT);
-  const TYPES = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
+  const TYPES = ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"];
 
   let found = 0;
   console.log("");
@@ -2435,7 +2610,7 @@ async function doctor() {
   const config = loadConfig();
   const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
   const token = config.token || process.env.IHUB_TOKEN || "";
-  const TYPES = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
+  const TYPES = ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"];
 
   console.log("\nihub doctor\n");
 
@@ -2644,7 +2819,7 @@ ihub — harness engineering platform for AI coding agents
 Commands:
   browse                     Interactive TUI browser for the registry
   open                       Open the web UI in your default browser
-  list [type]                 List entries (agents, commands, designs, memories, prompts, rules, skills, or all)
+  list [type]                 List entries (agents, commands, designs, hooks, mcps, memories, prompts, rules, skills, or all)
   search <query>              Full-text search across local entries
   show <type> <name>          Show metadata for a specific entry
   preview <type> <name>       Render an entry with markdown formatting
@@ -2655,7 +2830,7 @@ Commands:
   import <type> <path> [-i]  Import from coding agent (auto-push, -i for metadata prompts)
   import <bundle.json>        Import from JSON bundle (created by ihub export)
   push <type> <name>          Publish a local entry to the registry
-  pull <type> <name[:ver]>    Download an entry (--local or --global, --no-deps)
+  pull <type> <name[:ver]>    Download an entry (--local or --global, --no-deps; --yes to skip hook confirmation)
   pull <url>                  Pull artifact directly from any registry URL
   watch                       Watch local dirs and auto-push on save
   remove <type> <name>        Remove an entry (owner only)
@@ -2723,7 +2898,7 @@ async function watch() {
     process.exit(1);
   }
 
-  const dirs = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
+  const dirs = ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"];
   const debounceTimers = {};
 
   function timestamp() {
@@ -2792,7 +2967,7 @@ async function pullFromUrl(url, destination) {
   // Look for /api/<type>/<name> pattern
   let pluralType = null;
   let name = null;
-  const validTypes = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
+  const validTypes = ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"];
 
   for (let i = 0; i < pathParts.length - 1; i++) {
     if (pathParts[i] === "api" && i + 2 < pathParts.length) {
@@ -2836,6 +3011,10 @@ async function pullFromUrl(url, destination) {
   writeFileSync(targetPath, markdown);
   const ver = entry.meta?.version || "latest";
   console.log(`Pulled ${pluralType}/${name}@${ver} from ${parsed.host} \u2192 ${targetPath}`);
+
+  if (pluralType === "mcps" || pluralType === "hooks") {
+    console.log(`  Saved locally only \u2014 run \`ihub pull ${singularize(pluralType)} ${name}\` to merge into agent configs.`);
+  }
 
   if (entry.attachments && entry.attachments.length > 0) {
     console.log(`  (${entry.attachments.length} attachment(s) not downloaded \u2014 use registry pull for full sync)`);

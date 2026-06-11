@@ -21,6 +21,7 @@ cli/           CLI tool (ESM, no external dependencies)
   dashboard.js   terminal metrics dashboard renderer
   tui.js         interactive TUI browser (multi-select, comments, metrics, audit, projects, guide, split-pane preview, dynamic resize)
   agents-config.js  coding agent path configs (Claude, Gemini, Qwen, Cursor, Codex, Open Code)
+  config-merge.js   idempotent JSON merges into agent-owned config files (mcp/hook installs)
 server/        registry API server
   index.js       native http server entrypoint
   routes.js      REST route handlers (auth, CRUD, comments, attachments, backup/restore, webhooks, federation, metrics, audit, firewall, blocked/approve)
@@ -49,13 +50,14 @@ skills/        working directory for skill entries (.md, gitignored)
 rules/         working directory for rule entries (.md, gitignored)
 memories/      working directory for memory entries (.md, gitignored)
 prompts/       working directory for prompt entries (.md, gitignored)
+commands/ designs/ mcps/ hooks/   working directories for the remaining types (.md, gitignored)
 examples/      sample entries for reference (tracked in git)
 templates/     scaffolding templates for each type
 completions/   bash and zsh shell completions
 man/           manual page source
 k8s/           Kubernetes manifests (kustomize)
 grafana/       dashboard JSON, VictoriaMetrics scrape config, Grafana provisioning
-Dockerfile     multi-stage server image (slim + tini)
+Dockerfile     multi-stage server image (oven/bun)
 docker-compose.yml  ihub + VictoriaMetrics + VictoriaLogs + Grafana stack
 ```
 
@@ -119,6 +121,8 @@ CLI integration tests (`tests/cli.test.js`) spawn a real server process on a ran
 - Terminal rendering uses raw ANSI escape codes, no dependencies
 - Frontmatter parser handles simple YAML only (no nested objects, no multi-line values)
 - Cross-references between entries are validated by `ihub validate`
+- Because the frontmatter parser is flat, mcp `env`/`headers` are arrays of `KEY=value` / `Name: value` strings (split on the first separator by `cli/config-merge.js`)
+- MCP/hook installs go through `cli/config-merge.js` — never write agent config files directly; merges must stay idempotent and must not touch user-authored entries
 
 ## Before submitting
 

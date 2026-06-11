@@ -40,7 +40,7 @@ ihub projects                       # see everything organized by project
 
 ## Understanding artifact types
 
-ihub manages five artifact types. An agent is the harness — the top-level unit that composes skills, rules, memories, and prompts into a complete AI coding agent configuration. Choosing the right type matters — it determines the frontmatter fields, how the artifact is discovered, and how it connects to other artifacts.
+ihub manages nine artifact types. An agent is the harness — the top-level unit that composes skills, rules, memories, prompts, commands, MCP servers, and hooks into a complete AI coding agent configuration. Choosing the right type matters — it determines the frontmatter fields, how the artifact is discovered, and how it connects to other artifacts.
 
 ### Agent — _"What's the full harness?"_
 
@@ -230,6 +230,51 @@ format: html
 
 ---
 
+### MCP — _"What can the agent reach?"_
+
+An mcp artifact is an MCP server **installation config** — transport, command, args, env placeholders, or URL and headers. The body documents what the server does and how to set up auth. Pulling merges the server definition into each coding agent's native MCP config file (`.mcp.json`, `.cursor/mcp.json`, `.gemini/settings.json`, ...) — idempotently, without touching anything else in the file.
+
+```yaml
+name: github
+description: GitHub MCP server — repos, issues, PRs from your coding agent
+transport: stdio
+command: npx
+args: [-y, "@modelcontextprotocol/server-github@2025.4.8"]
+env: ["GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_TOKEN}"]
+```
+
+**Secrets never live in the artifact.** `env` and `headers` values use `${VAR}` placeholders resolved from the developer's environment; pushes with literal secrets are masked and blocked by the sensitive-data scanner.
+
+**Use an mcp when:**
+- Your team shares a tool server every agent should connect to
+- Setup instructions (API keys, scopes) should travel with the config
+
+**Real examples:** `github` (GitHub API), `context7` (library docs), `playwright` (browser automation)
+
+---
+
+### Hook — _"What runs automatically?"_
+
+A hook is a lifecycle hook definition — an event, an optional tool matcher, and a shell command. Pulling merges it into the agent's settings file (Claude Code `.claude/settings.json` in v1). Because hooks execute shell commands, installs are **gated**: the exact command is always displayed, confirmation is required (`--yes` for scripts), and signature verification applies when the registry signs artifacts.
+
+```yaml
+name: format-on-save
+description: Run Prettier on every file Claude Code writes or edits
+event: PostToolUse
+matcher: Write|Edit
+command: npx prettier --write "$CLAUDE_FILE_PATHS" 2>/dev/null || true
+timeout: 30
+compatible_agents: [claude]
+```
+
+**Use a hook when:**
+- Something must happen on every tool call or session event (format, lint, notify)
+- A team convention should be automated rather than remembered
+
+**Real examples:** `format-on-save` (Prettier after edits), `test-after-edit` (run affected tests), `notify-on-stop` (desktop notification when the agent finishes)
+
+---
+
 ### How they connect
 
 ```
@@ -265,6 +310,12 @@ Is it knowledge or context that should be remembered?
 
 Is it an instruction template for an AI model?
   → Prompt
+
+Is it a tool server the agent should connect to?
+  → MCP
+
+Is it a shell command that runs automatically on agent events?
+  → Hook
 ```
 
 ### Why "prompts" and not "instructions"?
@@ -284,6 +335,8 @@ The taxonomy works because each name occupies a distinct semantic slot. "Instruc
 | **Rule** | Constraints, policies, standards | _"What must be enforced?"_ | Why it was decided (→ memory), how to implement (→ skill) |
 | **Memory** | Knowledge, context, evidence | _"What do we know?"_ | Actions (→ skill), constraints (→ rule), instructions (→ prompt) |
 | **Prompt** | Instruction templates for AI models | _"What should the AI say?"_ | Execution logic (→ skill), actor definition (→ agent) |
+| **MCP** | MCP server install configs | _"What can the agent reach?"_ | Secrets (use `${VAR}` placeholders), procedures (→ skill) |
+| **Hook** | Lifecycle event + shell command | _"What runs automatically?"_ | Reusable procedures (→ skill), constraints (→ rule) |
 
 ### Memory context types — when to use each
 
@@ -747,6 +800,19 @@ ihub works with multiple coding agents. When pulling, it installs artifacts to e
 | Codex CLI | `~/.agents/skills/` | `.agents/skills/` | — (Starlark `.rules`) | SKILL.md dir |
 
 Memories always install to the local `memories/` directory regardless of agent.
+
+MCP servers and hooks don't install as files — they **merge into each agent's shared config**:
+
+| Agent | MCP config (project) | MCP config (personal) | Hooks |
+|-------|----------------------|----------------------|-------|
+| Claude Code | `.mcp.json` | `~/.claude.json` | `.claude/settings.json` / `~/.claude/settings.json` |
+| Cursor IDE | `.cursor/mcp.json` | `~/.cursor/mcp.json` | — |
+| Gemini CLI | `.gemini/settings.json` | `~/.gemini/settings.json` | — |
+| Qwen Code | `.qwen/settings.json` | `~/.qwen/settings.json` | — |
+| Open Code | `opencode.json` | `~/.config/opencode/opencode.json` | — |
+| Codex CLI | — (manual `~/.codex/config.toml`) | — | — |
+
+Merges are idempotent (re-pull updates in place) and never touch entries you added by hand. Hook installs always display the shell command and ask for confirmation — pass `--yes` in scripts; signed registries additionally verify the artifact signature.
 
 ### Pulling for multiple agents
 

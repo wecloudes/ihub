@@ -82,6 +82,8 @@ export function loadRegistry(root) {
     agents: loadEntries(join(root, "agents")),
     commands: loadEntries(join(root, "commands")),
     designs: loadEntries(join(root, "designs")),
+    hooks: loadEntries(join(root, "hooks")),
+    mcps: loadEntries(join(root, "mcps")),
     memories: loadEntries(join(root, "memories")),
     prompts: loadEntries(join(root, "prompts")),
     rules: loadEntries(join(root, "rules")),

@@ -32,7 +32,7 @@ commands=(
   'help:Show help'
 )
 
-types=(agent agents command commands design designs memory memories prompt prompts rule rules skill skills)
+types=(agent agents command commands design designs hook hooks mcp mcps memory memories prompt prompts rule rules skill skills)
 
 type_commands=(
   'list:List entries'
@@ -49,7 +49,7 @@ type_commands=(
 
 _ihub_types() {
   local -a singular_types
-  singular_types=(agent command design memory prompt rule skill)
+  singular_types=(agent command design hook mcp memory prompt rule skill)
   _describe 'type' singular_types
 }
 
@@ -70,6 +70,8 @@ _ihub_names() {
     prompt|prompts) dir="prompts" ;;
     command|commands) dir="commands" ;;
     design|designs) dir="designs" ;;
+    hook|hooks)   dir="hooks" ;;
+    mcp|mcps)     dir="mcps" ;;
   esac
 
   if [[ -n "$dir" && -d "$dir" ]]; then

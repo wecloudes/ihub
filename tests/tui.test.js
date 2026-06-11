@@ -54,8 +54,8 @@ function spawnTui(env = {}) {
       });
     },
     async switchToSkills() {
-      // Navigate right until skills tab is active (alphabetical: agents→commands→designs→memories→prompts→rules→skills)
-      for (let i = 0; i < 6; i++) await this.send("\x1b[C", 150);
+      // Navigate right until skills tab is active (alphabetical: agents→commands→designs→hooks→mcps→memories→prompts→rules→skills)
+      for (let i = 0; i < 8; i++) await this.send("\x1b[C", 150);
       await this.waitFor("test-skill-1", 3000);
     },
     async waitFor(pattern, timeoutMs = 3000) {
@@ -146,7 +146,7 @@ describe("TUI integration tests", () => {
     if (serverProc) serverProc.kill();
     rmSync(tmpDir, { recursive: true, force: true });
     // Clean up any files the TUI pull tests created in working dirs
-    for (const dir of ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"]) {
+    for (const dir of ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"]) {
       const d = join(ROOT, dir);
       try {
         for (const f of readdirSync(d)) {

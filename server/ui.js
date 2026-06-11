@@ -22,7 +22,7 @@ const HTML = `<!DOCTYPE html>
   --success:#2ecc71;--warning:#f39c12;--danger:#e74c3c;--info:#3498db;
   --star:#f1c40f;--star-empty:#333;
   --header-bg:rgba(12,12,22,.95);--nav-width:230px;--toast-bg:rgba(30,30,50,.95);
-  --type-agents:#3498db;--type-skills:#2ecc71;--type-rules:#f39c12;--type-memories:#e94560;--type-prompts:#9b59b6;--type-commands:#e67e22;--type-designs:#1abc9c;
+  --type-agents:#3498db;--type-skills:#2ecc71;--type-rules:#f39c12;--type-memories:#e94560;--type-prompts:#9b59b6;--type-commands:#e67e22;--type-designs:#1abc9c;--type-hooks:#e74c3c;--type-mcps:#16a085;
   --glow-agents:rgba(52,152,219,.15);--glow-skills:rgba(46,204,113,.15);--glow-rules:rgba(243,156,18,.15);--glow-memories:rgba(233,69,96,.15);--glow-prompts:rgba(155,89,182,.15);--glow-commands:rgba(230,126,34,.15);--glow-designs:rgba(26,188,156,.15);
   --font-display:'JetBrains Mono',monospace;--font-body:'DM Sans',sans-serif;
   --graph-center:rgba(20,20,40,.9);--graph-edge:var(--bg);--graph-text:#d0d0e0;--graph-line:rgba(255,255,255,.12);--graph-node-stroke:rgba(10,10,20,.8);
@@ -363,8 +363,8 @@ h1,h2,h3,h4{font-family:var(--font-display);letter-spacing:-.01em}
 
 <script>
 (function(){
-const TYPES=['agents','commands','designs','memories','prompts','rules','skills'];
-const TYPE_DESC={agents:'Agent harnesses',commands:'User-facing slash commands',designs:'UI/UX design artifacts',memories:'Context and knowledge',prompts:'Prompt templates',rules:'Coding standards and constraints',skills:'Reusable capabilities'};
+const TYPES=['agents','commands','designs','hooks','mcps','memories','prompts','rules','skills'];
+const TYPE_DESC={agents:'Agent harnesses',commands:'User-facing slash commands',designs:'UI/UX design artifacts',hooks:'Lifecycle hooks (shell commands)',mcps:'MCP server configs',memories:'Context and knowledge',prompts:'Prompt templates',rules:'Coding standards and constraints',skills:'Reusable capabilities'};
 
 // State
 let state={
@@ -582,7 +582,7 @@ function render(){
 // --- Browse ---
 let _cardIdx=0;
 function renderCard(i,type){
-  const typeColorMap={agents:'var(--type-agents)',skills:'var(--type-skills)',rules:'var(--type-rules)',memories:'var(--type-memories)',prompts:'var(--type-prompts)'};
+  const typeColorMap={agents:'var(--type-agents)',skills:'var(--type-skills)',rules:'var(--type-rules)',memories:'var(--type-memories)',prompts:'var(--type-prompts)',commands:'var(--type-commands)',designs:'var(--type-designs)',hooks:'var(--type-hooks)',mcps:'var(--type-mcps)'};
   const tags=(i.tags||[]).slice(0,3).map(t=>'<span class="tag">'+esc(t)+'</span>').join('');
   const stars=i.avg_rating?renderStars(Math.round(i.avg_rating)):'';
   const pullsLabel=i.pulls?'\\u2193 '+i.pulls:'';
@@ -690,7 +690,7 @@ function renderDetail(el){
   const rating=state.comments?.rating||{};
   const versions=Array.isArray(state.versions)?state.versions:[];
   const attachments=Array.isArray(state.attachments)?state.attachments:[];
-  const typeColors={agents:'var(--info)',skills:'var(--success)',rules:'var(--warning)',memories:'var(--accent)',prompts:'#9b59b6'};
+  const typeColors={agents:'var(--info)',skills:'var(--success)',rules:'var(--warning)',memories:'var(--accent)',prompts:'#9b59b6',commands:'#e67e22',designs:'#1abc9c',hooks:'#e74c3c',mcps:'#16a085'};
 
   // Breadcrumbs
   let html='<div class="breadcrumbs"><a onclick="backToList()">Browse</a><span class="sep">\\u203a</span><a onclick="backToList()">'+state.currentType+'</a><span class="sep">\\u203a</span><span>'+esc(d.name)+'</span></div>';
@@ -877,7 +877,7 @@ window.doDelete=async function(name){
 
 // --- Projects ---
 async function renderProjects(el){
-  const typeColors={agents:'var(--info)',skills:'var(--success)',rules:'var(--warning)',memories:'var(--accent)',prompts:'#9b59b6'};
+  const typeColors={agents:'var(--info)',skills:'var(--success)',rules:'var(--warning)',memories:'var(--accent)',prompts:'#9b59b6',commands:'#e67e22',designs:'#1abc9c',hooks:'#e74c3c',mcps:'#16a085'};
   const allEntries=[];
   for(const t of TYPES)(state.allItems[t]||[]).forEach(e=>allEntries.push({...e,_type:t}));
   const projects={};
@@ -1127,7 +1127,7 @@ window.approveArtifact=async function(type,name){
 
 // --- Graph ---
 function renderGraph(el){
-  const typeColors={agents:'#3498db',skills:'#2ecc71',rules:'#f39c12',memories:'#e94560',prompts:'#9b59b6'};
+  const typeColors={agents:'#3498db',skills:'#2ecc71',rules:'#f39c12',memories:'#e94560',prompts:'#9b59b6',commands:'#e67e22',designs:'#1abc9c',hooks:'#e74c3c',mcps:'#16a085'};
   const REL_FIELDS=[
     {field:'skills',targetType:'skills'},
     {field:'rules',targetType:'rules'},

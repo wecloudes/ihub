@@ -58,7 +58,7 @@ function logAction(entry) {
   if (isVLogsEnabled()) shipLog(entry);
 }
 
-const VALID_TYPES = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
+const VALID_TYPES = ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"];
 const VALID_ROLES = ["user", "admin"];
 
 function refreshGauges() {

@@ -8,7 +8,14 @@ skills/*.md
 rules/*.md
 memories/*.md
 prompts/*.md
+commands/*.md
+designs/*.md
+mcps/*.md
+hooks/*.md
 
 # Tooling state
 .codegraph/
 .playwright-mcp/
+
+# Local Claude Code permissions
+.claude/settings.local.json

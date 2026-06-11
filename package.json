@@ -1,6 +1,6 @@
 {
   "name": "ihub",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Harness engineering platform for AI coding agents",
   "type": "module",
   "engines": {

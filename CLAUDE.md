@@ -19,7 +19,8 @@ cli/       — CLI tool (ESM, zero external dependencies)
   render.js      — terminal markdown renderer (ANSI)
   dashboard.js   — terminal metrics dashboard
   tui.js         — interactive TUI browser (multi-select, comments, metrics, audit, projects, config, remove, review, split-pane preview, dynamic resize)
-  agents-config.js — coding agent path configs (6 agents)
+  agents-config.js — coding agent path configs (6 agents) + configTargets for mcp/hook merges
+  config-merge.js — idempotent JSON merges into agent-owned config files (mcp/hook installs)
 server/    — registry API server
   index.js    — http entrypoint
   routes.js   — REST handlers (auth, CRUD, comments, attachments, backup/restore, webhooks, federation, metrics, audit, firewall)
@@ -41,7 +42,7 @@ server/    — registry API server
 tests/     — test suite (node:test)
   parse, registry, render, dashboard, config, metrics, sensitive, slack, db, routes, cli, tui, vlogs,
   signing, versioning, federation, webhooks, plugins
-agents/ skills/ rules/ memories/ prompts/ — working directories (gitignored)
+agents/ skills/ rules/ memories/ prompts/ commands/ designs/ mcps/ hooks/ — working directories (gitignored)
 examples/  — sample entries (4 agents, 6 skills, 4 rules, 3 memories, 5 prompts) + more in registry
 templates/ — scaffolding templates
 completions/ — bash + zsh shell completions
@@ -70,7 +71,7 @@ ihub import <type> <path> [-i] [--no-push]   # auto-detects source agent
 
 # Publish & pull
 ihub push <type> <name> [--force]            # scans + masks sensitive data
-ihub pull <type> <name[:ver]> [--local|--global] [--agent claude,cursor,...] [--no-deps]
+ihub pull <type> <name[:ver]> [--local|--global] [--agent claude,cursor,...] [--no-deps] [--yes]
 ihub pull <url>                              # pull directly from any registry URL
 ihub watch                                   # watch local dirs and auto-push on save
 ihub remove <type> <name>
@@ -130,7 +131,9 @@ Run tests: `bun test`
 
 ## Key conventions
 
-- Seven artifact types: agent, command, design, memory, prompt, rule, skill; agents link to skills, rules, memories, prompts, and commands via frontmatter arrays; commands link to agents, skills, and prompts; prompts link to memories
+- Nine artifact types: agent, command, design, hook, mcp, memory, prompt, rule, skill; agents link to skills, rules, memories, prompts, commands, mcps, and hooks via frontmatter arrays; commands link to agents, skills, and prompts; prompts link to memories
+- MCP/hook installs merge into shared agent config files (`.mcp.json`, `.claude/settings.json`, ...) via `cli/config-merge.js` — idempotent, marker-keyed (`_ihub`) for hook arrays, user entries never touched; targets declared in `configTargets` in `cli/agents-config.js`
+- Hook pulls are gated: command always displayed, y/N confirmation (`--yes` to skip), signature verified when present; MCP `env`/`headers` use `${VAR}` placeholders — literal secrets are masked + blocked on push
 - Multi-agent pull: `--agent claude,cursor` installs to each agent's native path; Claude/Gemini/Qwen/Codex/OpenCode use `<name>/SKILL.md` dirs; Cursor uses `.mdc`
 - `transformForAgent()` rewrites frontmatter per agent on pull; rules include `globs` for file-scoped applicability (mapped to Cursor `.mdc` globs and Claude Code rule globs)
 - `import` auto-detects source agent, maps fields, prompts for missing required fields
@@ -144,7 +147,7 @@ Run tests: `bun test`
 - Plugins: JS modules listed in `plugins[]` config; exports `{ name, beforePush?, afterPush?, beforePull? }`; beforePush can block, beforePull can transform
 - Backup/Restore: `ihub backup` (SQLite) or `ihub backup --full` (JSON, any storage adapter); `ihub restore` auto-detects format (.db or .json)
 - Version pinning: `ihub pin/unpin/pins` — stored in `~/.ihubrc` under `pins`; pull uses pinned version instead of latest
-- Memories always install to local `memories/`
+- Memories always install to local `memories/`; mcps/hooks keep a tracking copy in local `mcps/`/`hooks/`
 - Designs always install as `DESIGN.md` in the project root
 - Attachments: companion files in `<type>/<name>/` uploaded on push, recreated on pull
 - Web UI: browser-based registry at `/ui` with full feature parity; includes artifact graph view (force-directed relationship map)

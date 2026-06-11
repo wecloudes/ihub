@@ -894,6 +894,185 @@ describe("CLI end-to-end", () => {
     assert.ok(out.includes("diff"));
   });
 
+  // --- MCP and hook artifact types ---
+
+  function ihubIn(cwd, args, env = {}) {
+    return execFileSync(process.execPath, [CLI, ...args], {
+      cwd,
+      input: "",
+      env: {
+        PATH: process.env.PATH,
+        HOME: fakeHome,
+        IHUB_REGISTRY: REGISTRY,
+        IHUB_TOKEN: userToken || "",
+        ...env,
+      },
+      encoding: "utf-8",
+      timeout: 10000,
+    });
+  }
+
+  async function apiPush(type, name, meta, body) {
+    const res = await fetch(`${REGISTRY}/api/${type}/${name}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${userToken}` },
+      body: JSON.stringify({ version: meta.version || "1.0.0", description: meta.description || "x", tags: [], meta: { name, ...meta }, body: body || "# x", author: "" }),
+    });
+    assert.ok(res.ok, `push ${type}/${name} failed: ${res.status}`);
+    return res.json();
+  }
+
+  it("pull mcp merges into .mcp.json and .cursor/mcp.json", async () => {
+    await apiPush("mcps", "gh-test", {
+      description: "GitHub MCP", version: "1.0.0", transport: "stdio",
+      command: "npx", args: ["-y", "pkg"], env: ["TOKEN=${GH_TOKEN}"],
+    });
+
+    const proj = join(tmpDir, "mcp-proj");
+    mkdirSync(proj, { recursive: true });
+    try {
+      const out = ihubIn(proj, ["pull", "mcp", "gh-test", "--local", "--agent", "claude", "--agent", "cursor"]);
+      assert.ok(out.includes("Merged mcps/gh-test"));
+
+      const claudeCfg = JSON.parse(readFileSync(join(proj, ".mcp.json"), "utf-8"));
+      assert.deepEqual(claudeCfg.mcpServers["gh-test"], { command: "npx", args: ["-y", "pkg"], env: { TOKEN: "${GH_TOKEN}" } });
+
+      const cursorCfg = JSON.parse(readFileSync(join(proj, ".cursor", "mcp.json"), "utf-8"));
+      assert.equal(cursorCfg.mcpServers["gh-test"].command, "npx");
+
+      // Tracking copy in the CLI working dir
+      assert.ok(existsSync(join(ROOT, "mcps", "gh-test.md")));
+    } finally {
+      rmSync(join(ROOT, "mcps", "gh-test.md"), { force: true });
+    }
+  });
+
+  it("pull mcp re-pull is idempotent and preserves user config", async () => {
+    const proj = join(tmpDir, "mcp-proj2");
+    mkdirSync(proj, { recursive: true });
+    writeFileSync(join(proj, ".mcp.json"), JSON.stringify({ mcpServers: { mine: { command: "uvx" } }, other: 1 }));
+    try {
+      ihubIn(proj, ["pull", "mcp", "gh-test", "--local", "--agent", "claude"]);
+      ihubIn(proj, ["pull", "mcp", "gh-test", "--local", "--agent", "claude"]);
+      const cfg = JSON.parse(readFileSync(join(proj, ".mcp.json"), "utf-8"));
+      assert.equal(Object.keys(cfg.mcpServers).length, 2);
+      assert.deepEqual(cfg.mcpServers.mine, { command: "uvx" });
+      assert.equal(cfg.other, 1);
+    } finally {
+      rmSync(join(ROOT, "mcps", "gh-test.md"), { force: true });
+    }
+  });
+
+  it("pull mcp for codex is skipped with a manual note", async () => {
+    const proj = join(tmpDir, "mcp-proj3");
+    mkdirSync(proj, { recursive: true });
+    try {
+      const out = ihubIn(proj, ["pull", "mcp", "gh-test", "--local", "--agent", "codex"]);
+      assert.ok(out.includes("config.toml"));
+      assert.ok(!existsSync(join(proj, ".mcp.json")));
+    } finally {
+      rmSync(join(ROOT, "mcps", "gh-test.md"), { force: true });
+    }
+  });
+
+  it("pull hook with --yes installs into .claude/settings.json", async () => {
+    await apiPush("hooks", "fmt-test", {
+      description: "Format hook", version: "1.0.0", event: "PostToolUse",
+      matcher: "Write|Edit", command: "echo fmt", timeout: 10,
+    });
+
+    const proj = join(tmpDir, "hook-proj");
+    mkdirSync(proj, { recursive: true });
+    try {
+      const out = ihubIn(proj, ["pull", "hook", "fmt-test", "--local", "--agent", "claude", "--yes"]);
+      assert.ok(out.includes("echo fmt")); // command is always displayed
+      const cfg = JSON.parse(readFileSync(join(proj, ".claude", "settings.json"), "utf-8"));
+      const entries = cfg.hooks.PostToolUse;
+      assert.equal(entries.length, 1);
+      assert.equal(entries[0]._ihub, "hook/fmt-test");
+      assert.equal(entries[0].matcher, "Write|Edit");
+      assert.deepEqual(entries[0].hooks[0], { type: "command", command: "echo fmt", timeout: 10 });
+
+      // Re-pull replaces, not duplicates
+      ihubIn(proj, ["pull", "hook", "fmt-test", "--local", "--agent", "claude", "--yes"]);
+      const cfg2 = JSON.parse(readFileSync(join(proj, ".claude", "settings.json"), "utf-8"));
+      assert.equal(cfg2.hooks.PostToolUse.length, 1);
+    } finally {
+      rmSync(join(ROOT, "hooks", "fmt-test.md"), { force: true });
+    }
+  });
+
+  it("pull hook without confirmation is cancelled", async () => {
+    const proj = join(tmpDir, "hook-proj2");
+    mkdirSync(proj, { recursive: true });
+    try {
+      // Empty stdin → prompt resolves to default "n"
+      const out = ihubIn(proj, ["pull", "hook", "fmt-test", "--local", "--agent", "claude"]);
+      assert.ok(out.includes("cancelled"));
+      assert.ok(!existsSync(join(proj, ".claude", "settings.json")));
+    } finally {
+      rmSync(join(ROOT, "hooks", "fmt-test.md"), { force: true });
+    }
+  });
+
+  it("validate catches mcp and hook field errors and broken refs", () => {
+    const mcpPath = join(ROOT, "mcps", "bad-mcp.md");
+    const hookPath = join(ROOT, "hooks", "bad-hook.md");
+    const agentPath = join(ROOT, "agents", "xref-mcp-agent.md");
+    mkdirSync(join(ROOT, "mcps"), { recursive: true });
+    mkdirSync(join(ROOT, "hooks"), { recursive: true });
+    writeFileSync(mcpPath, "---\nname: bad-mcp\ndescription: x\nversion: 1.0.0\ntransport: stdio\n---\n# x");
+    writeFileSync(hookPath, "---\nname: bad-hook\ndescription: x\nversion: 1.0.0\nevent: OnBananas\n---\n# x");
+    writeFileSync(agentPath, "---\nname: xref-mcp-agent\ndescription: x\nversion: 1.0.0\nmcps: [nonexistent-mcp]\nhooks: [nonexistent-hook]\n---\n# x");
+    try {
+      const err = ihubFail(["validate"]);
+      assert.ok(err.includes("MISSING command in mcps/bad-mcp"));
+      assert.ok(err.includes('INVALID event "OnBananas"'));
+      assert.ok(err.includes("MISSING command in hooks/bad-hook"));
+      assert.ok(err.includes('BROKEN ref: mcp "nonexistent-mcp"'));
+      assert.ok(err.includes('BROKEN ref: hook "nonexistent-hook"'));
+    } finally {
+      rmSync(mcpPath, { force: true });
+      rmSync(hookPath, { force: true });
+      rmSync(agentPath, { force: true });
+    }
+  });
+
+  it("agent pull resolves mcp dependencies into agent config", async () => {
+    await apiPush("agents", "mcp-dep-agent", {
+      description: "Agent with mcp dep", version: "1.0.0", mcps: ["gh-test"],
+    });
+
+    const proj = join(tmpDir, "dep-proj");
+    mkdirSync(proj, { recursive: true });
+    try {
+      const out = ihubIn(proj, ["pull", "agent", "mcp-dep-agent", "--local", "--agent", "claude"]);
+      assert.ok(out.includes("mcps/gh-test"));
+      const cfg = JSON.parse(readFileSync(join(proj, ".mcp.json"), "utf-8"));
+      assert.ok(cfg.mcpServers["gh-test"]);
+    } finally {
+      rmSync(join(ROOT, "mcps", "gh-test.md"), { force: true });
+      rmSync(join(ROOT, "agents", "mcp-dep-agent.md"), { force: true });
+    }
+  });
+
+  it("push mcp with literal secret is masked and blocked", async () => {
+    const mcpPath = join(ROOT, "mcps", "leaky-mcp.md");
+    mkdirSync(join(ROOT, "mcps"), { recursive: true });
+    writeFileSync(mcpPath, '---\nname: leaky-mcp\ndescription: leaky\nversion: 1.0.0\ntransport: stdio\ncommand: npx\nenv: [GITHUB_TOKEN=ghp_0123456789abcdefghijklmnopqrstuvwxyz]\n---\n# leaky');
+    try {
+      let out;
+      try {
+        out = ihub(["push", "mcp", "leaky-mcp"]);
+      } catch (err) {
+        out = (err.stdout || "") + (err.stderr || "");
+      }
+      assert.ok(/sensitive|masked|blocked/i.test(out));
+    } finally {
+      rmSync(mcpPath, { force: true });
+    }
+  });
+
   // --- Remote: remove (must be last since it deletes) ---
 
   it("remove deletes from remote", () => {

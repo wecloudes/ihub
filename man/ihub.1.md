@@ -144,7 +144,7 @@ ihub show agent code-reviewer
 ihub agent show code-reviewer
 ```
 
-Types accept singular or plural: agent/agents, skill/skills, rule/rules, memory/memories, prompt/prompts.
+Types accept singular or plural: agent/agents, skill/skills, rule/rules, memory/memories, prompt/prompts, command/commands, design/designs, mcp/mcps, hook/hooks.
 
 ## Artifact types
 
@@ -161,6 +161,10 @@ Types accept singular or plural: agent/agents, skill/skills, rule/rules, memory/
 **command** — A user-facing slash command that maps to an agent+skill combination. Defines the trigger pattern, target agent, skills, prompts, arguments, and compatible coding agents.
 
 **design** — A UI/UX design artifact. Defines platform, component type, design system, and format. Stores wireframes, component specs, design tokens, and style guides.
+
+**mcp** — An MCP server installation config. Defines transport (stdio/http/sse), command/args/env or url/headers. Pull merges the server into each coding agent's native MCP config file (.mcp.json, .cursor/mcp.json, ...). Env and header values must use ${VAR} placeholders — literal secrets are blocked on push.
+
+**hook** — A lifecycle hook. Defines event (PreToolUse, PostToolUse, UserPromptSubmit, Stop, ...), optional tool matcher, shell command, and timeout. Pull merges into the agent's settings file (Claude Code in v1). The command is always displayed and confirmation is required before install (--yes to skip).
 
 **Why "prompts" and not "instructions"?** Every type is an instruction to an AI in some sense. "Prompt" is specific — it means the exact text sent to a model, with variables and expected output. It answers "What do we say to the model?" — a question no other type covers.
 

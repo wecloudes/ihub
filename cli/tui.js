@@ -38,9 +38,9 @@ const BG_YELLOW = THEME === "light" ? `${ESC}[103m` : `${ESC}[43m`;
 const BG_GREEN = THEME === "light" ? `${ESC}[102m` : `${ESC}[42m`;
 const BG_RED = `${ESC}[41m`;
 
-const TYPE_COLORS = { agents: CYAN, commands: RED, designs: WHITE, memories: MAGENTA, prompts: BLUE, rules: YELLOW, skills: GREEN };
-const TYPE_ICONS = { agents: "\u25C6", commands: "\u2318", designs: "\u25C7", memories: "\u25CF", prompts: "\u25B2", rules: "\u25A0", skills: "\u25B6" };
-const TYPES = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
+const TYPE_COLORS = { agents: CYAN, commands: RED, designs: WHITE, hooks: RED, mcps: CYAN, memories: MAGENTA, prompts: BLUE, rules: YELLOW, skills: GREEN };
+const TYPE_ICONS = { agents: "\u25C6", commands: "\u2318", designs: "\u25C7", hooks: "\u2693", mcps: "\u29BF", memories: "\u25CF", prompts: "\u25B2", rules: "\u25A0", skills: "\u25B6" };
+const TYPES = ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"];
 
 // Bookmarks file
 const BOOKMARKS_PATH = join(homedir(), ".ihub-bookmarks.json");
@@ -1574,6 +1574,16 @@ function renderGuide(state, maxRows, cols) {
     lines.push(`  ${DIM}Use when: you have a proven instruction that produces reliable AI output.${RESET}`);
     lines.push(`  ${DIM}Example: code-review-feedback, debug-assistant, write-tests${RESET}`);
     lines.push("");
+    lines.push(`  ${CYAN}${BOLD}MCP${RESET} ${DIM}— "What can the agent reach?"${RESET}`);
+    lines.push(`  An MCP server install config. Pull merges it into each agent's native MCP config file.`);
+    lines.push(`  ${DIM}Use when: agents need a tool server (GitHub, docs, browser). Secrets stay as \${VAR} placeholders.${RESET}`);
+    lines.push(`  ${DIM}Example: github, context7, playwright${RESET}`);
+    lines.push("");
+    lines.push(`  ${RED}${BOLD}Hook${RESET} ${DIM}— "What runs automatically?"${RESET}`);
+    lines.push(`  A lifecycle hook (event + shell command). Installs are gated: command shown, confirmation required.`);
+    lines.push(`  ${DIM}Use when: something must happen on every tool call / session event.${RESET}`);
+    lines.push(`  ${DIM}Example: format-on-save, test-after-edit, notify-on-stop${RESET}`);
+    lines.push("");
     lines.push(`  ${DIM}${"─".repeat(cols - 4)}${RESET}`);
     lines.push("");
     lines.push(`  ${BOLD}Boundaries${RESET}`);
@@ -1594,6 +1604,8 @@ function renderGuide(state, maxRows, cols) {
     lines.push(`  ${DIM}Is it a constraint to enforce?${RESET}       ${YELLOW}→ Rule${RESET}`);
     lines.push(`  ${DIM}Is it knowledge to recall?${RESET}           ${MAGENTA}→ Memory${RESET}`);
     lines.push(`  ${DIM}Is it an instruction for an AI?${RESET}      ${BLUE}→ Prompt${RESET}`);
+    lines.push(`  ${DIM}Is it a tool server to connect?${RESET}      ${CYAN}→ MCP${RESET}`);
+    lines.push(`  ${DIM}Is it an automatic shell command?${RESET}    ${RED}→ Hook${RESET}`);
     lines.push("");
     lines.push(`  ${BOLD}Why "Prompts" and not "Instructions"?${RESET}`);
     lines.push("");
@@ -2103,6 +2115,11 @@ async function executeBulkPull(state, baseUrl, token) {
     if (type === "memories") {
       mkdirSync("memories", { recursive: true }); writeFileSync(resolve("memories", `${name}.md`), md);
       state.pullResults[state.pullResults.length - 1] = { type, name, status: "done", version: ver, target: `memories/${name}.md`, attachments: 0 }; render(state); continue;
+    }
+    if (type === "mcps" || type === "hooks") {
+      // Config-merged types need the CLI's confirmation/signing gate — save a tracking copy only
+      mkdirSync(type, { recursive: true }); writeFileSync(resolve(type, `${name}.md`), md);
+      state.pullResults[state.pullResults.length - 1] = { type, name, status: "done", version: ver, target: `${type}/${name}.md (run \`ihub pull ${type === "mcps" ? "mcp" : "hook"} ${name}\` to install)`, attachments: 0 }; render(state); continue;
     }
     const targets = [];
     const isSkillType = (type === "skills" || type === "agents" || type === "prompts");

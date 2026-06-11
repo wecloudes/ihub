@@ -30,6 +30,11 @@ export const CODING_AGENTS = {
     // Skills install as <name>/SKILL.md directory structure
     skillAsDir: true,
     skillFilename: "SKILL.md",
+    // MCP servers and hooks merge into shared config files, not artifact dirs
+    configTargets: {
+      mcps:  { global: join(HOME, ".claude.json"),             local: ".mcp.json",                       key: "mcpServers", shape: "standard" },
+      hooks: { global: join(HOME, ".claude", "settings.json"), local: join(".claude", "settings.json"),  key: "hooks",      shape: "claude-hooks" },
+    },
   },
   gemini: {
     name: "Gemini CLI",
@@ -47,6 +52,10 @@ export const CODING_AGENTS = {
     },
     skillAsDir: true,
     skillFilename: "SKILL.md",
+    configTargets: {
+      mcps:  { global: join(HOME, ".gemini", "settings.json"), local: join(".gemini", "settings.json"), key: "mcpServers", shape: "standard" },
+      hooks: { note: "Hooks are not supported for Gemini CLI" },
+    },
   },
   qwen: {
     name: "Qwen Code",
@@ -62,6 +71,10 @@ export const CODING_AGENTS = {
     },
     skillAsDir: true,
     skillFilename: "SKILL.md",
+    configTargets: {
+      mcps:  { global: join(HOME, ".qwen", "settings.json"), local: join(".qwen", "settings.json"), key: "mcpServers", shape: "standard" },
+      hooks: { note: "Hooks are not supported for Qwen Code" },
+    },
   },
   opencode: {
     name: "Open Code",
@@ -77,6 +90,10 @@ export const CODING_AGENTS = {
     },
     skillAsDir: true,
     skillFilename: "SKILL.md",
+    configTargets: {
+      mcps:  { global: join(HOME, ".config", "opencode", "opencode.json"), local: "opencode.json", key: "mcp", shape: "opencode" },
+      hooks: { note: "Open Code uses JS plugins, not hooks" },
+    },
   },
   codex: {
     name: "Codex CLI",
@@ -95,6 +112,10 @@ export const CODING_AGENTS = {
     },
     skillAsDir: true,
     skillFilename: "SKILL.md",
+    configTargets: {
+      mcps:  { note: "Configure manually in ~/.codex/config.toml ([mcp_servers] section)" },
+      hooks: { note: "Hooks are not supported for Codex CLI" },
+    },
   },
   cursor: {
     name: "Cursor IDE",
@@ -108,6 +129,10 @@ export const CODING_AGENTS = {
       commands: { global: join(HOME, ".cursor", "skills"),   local: join(".cursor", "skills") },
       designs:  { global: null,                              local: null, note: "Installs as DESIGN.md in project root" },
     },
+    configTargets: {
+      mcps:  { global: join(HOME, ".cursor", "mcp.json"), local: join(".cursor", "mcp.json"), key: "mcpServers", shape: "standard" },
+      hooks: { note: "Hooks are not supported for Cursor IDE" },
+    },
   },
   ihub: {
     name: "ihub (default)",
@@ -119,6 +144,10 @@ export const CODING_AGENTS = {
       memories: { global: null,                              local: "memories" },
       commands: { global: null,                              local: "commands" },
       designs:  { global: null,                              local: null, note: "Installs as DESIGN.md in project root" },
+    },
+    configTargets: {
+      mcps:  { note: "Saved to local mcps/ only" },
+      hooks: { note: "Saved to local hooks/ only" },
     },
   },
 };
@@ -141,6 +170,8 @@ export function getInstallPath(agent, artifactType, scope) {
     memory: "memories", memories: "memories",
     command: "commands", commands: "commands",
     design: "designs", designs: "designs",
+    mcp: "mcps", mcps: "mcps",
+    hook: "hooks", hooks: "hooks",
   };
   const type = typeMap[artifactType] || artifactType;
 
@@ -162,4 +193,23 @@ export function getInstallPath(agent, artifactType, scope) {
     skillAsDir: config.skillAsDir,
     skillFilename: config.skillFilename,
   };
+}
+
+/**
+ * Get the shared-config merge target for mcp/hook installs.
+ * Returns { path, key, shape } when supported, { note } when not, null for unknown agents.
+ */
+export function getConfigTarget(agent, artifactType, scope) {
+  const config = CODING_AGENTS[agent];
+  if (!config) return null;
+
+  const type = artifactType === "mcp" ? "mcps" : artifactType === "hook" ? "hooks" : artifactType;
+  const target = config.configTargets?.[type];
+  if (!target) return { note: `Not supported for ${config.name}` };
+  if (!target.key) return { note: target.note || `Not supported for ${config.name}` };
+
+  const path = scope === "global" ? target.global : target.local;
+  if (!path) return { note: target.note || `Not supported for ${scope} install` };
+
+  return { path, key: target.key, shape: target.shape, note: target.note };
 }

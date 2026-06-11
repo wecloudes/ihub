@@ -147,6 +147,14 @@ describe("API routes", () => {
     assert.ok(data.error.includes("Invalid type"));
   });
 
+  it("accepts mcps and hooks types", async () => {
+    for (const type of ["mcps", "hooks"]) {
+      const { status, data } = await api("GET", `/api/${type}`);
+      assert.equal(status, 200);
+      assert.deepEqual(data, []);
+    }
+  });
+
   it("lists empty type", async () => {
     const { status, data } = await api("GET", "/api/agents");
     assert.equal(status, 200);
