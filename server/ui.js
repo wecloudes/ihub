@@ -676,7 +676,16 @@ window.showDetail=async function(name){
     try{const vr=await api('/'+state.currentType+'/'+encodeURIComponent(name)+'/versions');state.versions=await vr.json();}catch{state.versions=null;}
     try{const ar=await api('/'+state.currentType+'/'+encodeURIComponent(name)+'/attachments');state.attachments=await ar.json();}catch{state.attachments=null;}
     state.diffVersions=null;
-  }catch(e){toast('Error loading: '+e.message,'error');return;}
+  }catch(e){
+    toast('Error loading: '+e.message,'error');
+    \$('content').innerHTML='<div class="empty-state"><div class="icon">\\u26a0</div><p>Could not load '+esc(name)+': '+esc(e.message)+'</p><button class="btn btn-sm" onclick="state.detail=null;render()">\\u2190 Back</button></div>';
+    return;
+  }
+  if(state.detail&&state.detail.error){
+    \$('content').innerHTML='<div class="empty-state"><div class="icon">\\u26a0</div><p>'+esc(state.detail.error)+'</p><button class="btn btn-sm" onclick="state.detail=null;render()">\\u2190 Back</button></div>';
+    state.detail=null;
+    return;
+  }
   render();
 };
 
