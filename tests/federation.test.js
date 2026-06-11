@@ -1,4 +1,4 @@
-import { describe, it, before, after } from "node:test";
+import { describe, it, beforeAll, afterAll } from "bun:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -12,14 +12,14 @@ process.env.IHUB_CONFIG = join(tmpDir, "config.json");
 
 const { resetConfig } = await import("../server/config.js");
 resetConfig();
-const { getDb, listEntries } = await import("../server/db.js");
+const { getDb, resetDb, listEntries } = await import("../server/db.js");
 const { syncFromUpstream, listUpstreams, addUpstream, syncAll } = await import("../server/federation.js");
 
 // Mock upstream server
 let upstreamServer;
 let upstreamUrl;
 
-before(async () => {
+beforeAll(async () => {
   upstreamServer = createServer((req, res) => {
     const url = req.url;
     res.setHeader("Content-Type", "application/json");
@@ -63,9 +63,9 @@ before(async () => {
   });
 });
 
-after(() => {
+afterAll(() => {
   upstreamServer.close();
-  getDb().close();
+  resetDb();
   rmSync(tmpDir, { recursive: true });
 });
 

@@ -1,6 +1,6 @@
 node_modules/
 .DS_Store
-ihub.db
+ihub.db*
 
 # Working directories (user artifacts, not tracked)
 agents/*.md
@@ -8,3 +8,7 @@ skills/*.md
 rules/*.md
 memories/*.md
 prompts/*.md
+
+# Tooling state
+.codegraph/
+.playwright-mcp/

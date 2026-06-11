@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
 
 const { validateVersionBump, detectBreakingChanges, enforcePolicy } = await import("../server/versioning.js");

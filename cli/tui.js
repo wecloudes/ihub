@@ -38,9 +38,9 @@ const BG_YELLOW = THEME === "light" ? `${ESC}[103m` : `${ESC}[43m`;
 const BG_GREEN = THEME === "light" ? `${ESC}[102m` : `${ESC}[42m`;
 const BG_RED = `${ESC}[41m`;
 
-const TYPE_COLORS = { agents: CYAN, skills: GREEN, rules: YELLOW, memories: MAGENTA, prompts: BLUE };
-const TYPE_ICONS = { agents: "\u25C6", skills: "\u25B6", rules: "\u25A0", memories: "\u25CF", prompts: "\u25B2" };
-const TYPES = ["agents", "skills", "rules", "memories", "prompts"];
+const TYPE_COLORS = { agents: CYAN, commands: RED, designs: WHITE, memories: MAGENTA, prompts: BLUE, rules: YELLOW, skills: GREEN };
+const TYPE_ICONS = { agents: "\u25C6", commands: "\u2318", designs: "\u25C7", memories: "\u25CF", prompts: "\u25B2", rules: "\u25A0", skills: "\u25B6" };
+const TYPES = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
 
 // Bookmarks file
 const BOOKMARKS_PATH = join(homedir(), ".ihub-bookmarks.json");
@@ -1048,7 +1048,7 @@ function render(state) {
   // Header — box-drawing top border
   output += `${DIM}\u250C${"─".repeat(cols - 2)}\u2510${RESET}\n`;
   let hdr = ` ${BG_CYAN}${BLACK}${BOLD} ihub ${RESET}`;
-  hdr += `  ${DIM}${state.baseUrl}${RESET}`;
+  hdr += `  ${DIM}Harness engineering platform \u2022 Publish once, install everywhere${RESET}`;
   if (state.isAdmin) hdr += `  ${BG_GREEN}${BLACK} ADMIN ${RESET}`;
   if (state.marked.size > 0) hdr += `  ${BG_YELLOW}${BLACK} ${state.marked.size} selected ${RESET}`;
   if (state.blockedCount > 0 && state.isAdmin) hdr += `  ${BG_RED}${WHITE} ${state.blockedCount} blocked ${RESET}`;

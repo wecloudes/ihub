@@ -1,4 +1,4 @@
-import { describe, it, before, after } from "node:test";
+import { describe, it, beforeAll, afterAll } from "bun:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "fs";
 import { join } from "path";
@@ -13,7 +13,7 @@ resetConfig();
 const { signArtifact, verifySignature, getSignatureHeader, getSigningKey, isSigningEnabled } = await import("../server/signing.js");
 
 describe("signing", () => {
-  after(() => {
+  afterAll(() => {
     delete process.env.IHUB_SIGNING_KEY;
     rmSync(tmpDir, { recursive: true });
   });

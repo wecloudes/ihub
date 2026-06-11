@@ -58,7 +58,7 @@ function logAction(entry) {
   if (isVLogsEnabled()) shipLog(entry);
 }
 
-const VALID_TYPES = ["agents", "skills", "rules", "memories", "prompts"];
+const VALID_TYPES = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
 const VALID_ROLES = ["user", "admin"];
 
 function refreshGauges() {
@@ -357,7 +357,7 @@ export async function handleRequest(req, res) {
     if (user.role !== "admin") return sendError(res, 403, "Admin access required");
 
     const tmpPath = join(tmpdir(), `ihub-backup-${Date.now()}.db`);
-    return backupDb(tmpPath).then(() => {
+    return Promise.resolve(backupDb(tmpPath)).then(() => {
       inc("ihub_backup_total", { user: user.username });
       logAction({ ip: getClientIp(req), action: "backup", username: user.username, role: user.role });
       res.writeHead(200, {

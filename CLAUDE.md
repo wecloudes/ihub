@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is ihub
 
-ihub is an AI artifact registry — a central hub for publishing, discovering, and installing agents, skills, rules, memories, and prompts used by AI coding assistants. It works with Claude Code, Gemini CLI, Qwen Code, Cursor IDE, Codex CLI, and Open Code — installing artifacts to each agent's native path with the correct format.
+ihub is a harness engineering platform — a central hub for publishing, discovering, and installing AI coding agent configurations. Agents are the harness, composing skills, rules, memories, and prompts into a coherent whole. It works with Claude Code, Gemini CLI, Qwen Code, Cursor IDE, Codex CLI, and Open Code — installing artifacts to each agent's native path with the correct format.
 
-Each artifact is a `.md` file with YAML frontmatter. The CLI manages them locally, syncs with a remote HTTP registry (Node.js + SQLite), and includes sensitive data detection, IP firewall, Prometheus metrics, Grafana dashboard, Slack notifications, audit trail, and an interactive TUI browser.
+Each artifact is a `.md` file with YAML frontmatter. The CLI manages them locally, syncs with a remote HTTP registry (Bun + SQLite), and includes sensitive data detection, IP firewall, Prometheus metrics, Grafana dashboard, Slack notifications, audit trail, and an interactive TUI browser.
 
 ## Project structure
 
@@ -121,16 +121,16 @@ ihub version
 ihub agent show <name>          # = ihub show agent <name>
 
 # Server
-npm run server
+bun run server
 docker compose up -d
 kubectl apply -k k8s/
 ```
 
-Run tests: `npm test`
+Run tests: `bun test`
 
 ## Key conventions
 
-- Five artifact types: agent, skill, rule, memory, prompt; agents link to skills, rules, memories, and prompts via frontmatter arrays; prompts link to memories
+- Seven artifact types: agent, command, design, memory, prompt, rule, skill; agents link to skills, rules, memories, prompts, and commands via frontmatter arrays; commands link to agents, skills, and prompts; prompts link to memories
 - Multi-agent pull: `--agent claude,cursor` installs to each agent's native path; Claude/Gemini/Qwen/Codex/OpenCode use `<name>/SKILL.md` dirs; Cursor uses `.mdc`
 - `transformForAgent()` rewrites frontmatter per agent on pull; rules include `globs` for file-scoped applicability (mapped to Cursor `.mdc` globs and Claude Code rule globs)
 - `import` auto-detects source agent, maps fields, prompts for missing required fields
@@ -145,13 +145,14 @@ Run tests: `npm test`
 - Backup/Restore: `ihub backup` (SQLite) or `ihub backup --full` (JSON, any storage adapter); `ihub restore` auto-detects format (.db or .json)
 - Version pinning: `ihub pin/unpin/pins` — stored in `~/.ihubrc` under `pins`; pull uses pinned version instead of latest
 - Memories always install to local `memories/`
+- Designs always install as `DESIGN.md` in the project root
 - Attachments: companion files in `<type>/<name>/` uploaded on push, recreated on pull
 - Web UI: browser-based registry at `/ui` with full feature parity; includes artifact graph view (force-directed relationship map)
 - TUI (`ihub browse`): types, list, detail, comments, projects (`j`), metrics (`m`, side-by-side charts), audit (`t`), config (`i`), guide (`G`, 3-tab artifact reference), remove (`d` twice to confirm), write review (`w`), blocked (`B`), multi-select + bulk pull (`space`/`a`/`p`), split-pane preview (`{`/`}` scroll, auto-shown when terminal >= 120 cols), dynamic resize, search cancel with Esc/q, scroll clamping, footer pinned to bottom, mouse support, light theme (`IHUB_THEME=light`)
 
 ## After every change
 
-1. **Run tests**: `npm test` — all tests must pass
+1. **Run tests**: `bun test` — all tests must pass
 2. **Add tests**: for any new command, endpoint, or DB function
 3. **Update docs**: CLAUDE.md, README.md, CONTRIBUTING.md, CHANGELOG.md
 4. **Verify Docker build** if server code changed

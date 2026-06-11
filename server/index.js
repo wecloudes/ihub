@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 import { createServer } from "http";
 import { loadServerConfig, printConfig, validateConfig } from "./config.js";

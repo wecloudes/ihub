@@ -1,4 +1,4 @@
-import { describe, it, before, after } from "node:test";
+import { describe, it, beforeAll, afterAll } from "bun:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "fs";
 import { join } from "path";
@@ -12,14 +12,14 @@ process.env.IHUB_CONFIG = join(tmpDir, "nonexistent.json");
 
 const { resetConfig } = await import("../server/config.js");
 resetConfig();
-const { getDb, addWebhook, getWebhooks, deleteWebhook, getWebhooksForEvent } = await import("../server/db.js");
+const { getDb, resetDb, addWebhook, getWebhooks, deleteWebhook, getWebhooksForEvent } = await import("../server/db.js");
 const { sendWebhook } = await import("../server/webhooks.js");
 
 let hookServer;
 let hookServerUrl;
 let receivedRequests = [];
 
-before(async () => {
+beforeAll(async () => {
   hookServer = createServer((req, res) => {
     const chunks = [];
     req.on("data", (c) => chunks.push(c));
@@ -41,9 +41,9 @@ before(async () => {
   });
 });
 
-after(() => {
+afterAll(() => {
   hookServer.close();
-  getDb().close();
+  resetDb();
   rmSync(tmpDir, { recursive: true });
 });
 

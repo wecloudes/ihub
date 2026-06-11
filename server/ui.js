@@ -22,8 +22,8 @@ const HTML = `<!DOCTYPE html>
   --success:#2ecc71;--warning:#f39c12;--danger:#e74c3c;--info:#3498db;
   --star:#f1c40f;--star-empty:#333;
   --header-bg:rgba(12,12,22,.95);--nav-width:230px;--toast-bg:rgba(30,30,50,.95);
-  --type-agents:#3498db;--type-skills:#2ecc71;--type-rules:#f39c12;--type-memories:#e94560;--type-prompts:#9b59b6;
-  --glow-agents:rgba(52,152,219,.15);--glow-skills:rgba(46,204,113,.15);--glow-rules:rgba(243,156,18,.15);--glow-memories:rgba(233,69,96,.15);--glow-prompts:rgba(155,89,182,.15);
+  --type-agents:#3498db;--type-skills:#2ecc71;--type-rules:#f39c12;--type-memories:#e94560;--type-prompts:#9b59b6;--type-commands:#e67e22;--type-designs:#1abc9c;
+  --glow-agents:rgba(52,152,219,.15);--glow-skills:rgba(46,204,113,.15);--glow-rules:rgba(243,156,18,.15);--glow-memories:rgba(233,69,96,.15);--glow-prompts:rgba(155,89,182,.15);--glow-commands:rgba(230,126,34,.15);--glow-designs:rgba(26,188,156,.15);
   --font-display:'JetBrains Mono',monospace;--font-body:'DM Sans',sans-serif;
   --graph-center:rgba(20,20,40,.9);--graph-edge:var(--bg);--graph-text:#d0d0e0;--graph-line:rgba(255,255,255,.12);--graph-node-stroke:rgba(10,10,20,.8);
   color-scheme:dark;accent-color:var(--accent);
@@ -52,6 +52,7 @@ h1,h2,h3,h4{font-family:var(--font-display);letter-spacing:-.01em}
 .sidebar{width:var(--nav-width);background:var(--header-bg);backdrop-filter:blur(20px);border-right:1px solid var(--border);position:fixed;top:0;left:0;height:100vh;display:flex;flex-direction:column;z-index:100;transition:transform .3s}
 .sidebar .logo{padding:.8rem 1.5rem;font-family:var(--font-display);font-size:1.2rem;font-weight:700;color:var(--accent);border-bottom:1px solid var(--border);height:52px;display:flex;align-items:center;gap:.5rem;letter-spacing:-.02em}
 .sidebar .logo::before{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent)}
+.app-footer{text-align:center;padding:2rem 1.5rem 1.5rem;font-size:.7rem;color:var(--muted);letter-spacing:.03em;line-height:1.4;font-family:var(--font-body);opacity:.5}
 .sidebar nav{flex:1;padding:.5rem 0;overflow-y:auto}
 .sidebar .nav-label{padding:.6rem 1.5rem .2rem;font-size:.65rem;font-weight:600;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);opacity:.5}
 .sidebar nav a{display:flex;align-items:center;gap:.75rem;padding:.55rem 1.5rem;color:var(--muted);text-decoration:none;font-size:.85rem;font-weight:500;transition:all .2s;border-left:3px solid transparent;position:relative}
@@ -119,8 +120,8 @@ h1,h2,h3,h4{font-family:var(--font-display);letter-spacing:-.01em}
 .detail-header h2{font-size:1.4rem;font-weight:700}
 .detail-meta{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-bottom:1.2rem;font-size:.8rem;color:var(--muted)}
 .detail-meta span{padding:.2rem .6rem;background:rgba(255,255,255,.04);border-radius:6px}
-.detail-body{font-size:.88rem;line-height:1.7}
-.detail-body h1,.detail-body h2,.detail-body h3{font-family:var(--font-display);margin:1rem 0 .4rem;color:var(--accent)}
+.detail-body{font-size:.88rem;line-height:1.5}
+.detail-body h1,.detail-body h2,.detail-body h3{font-family:var(--font-display);margin:.6rem 0 .2rem;color:var(--accent)}
 .detail-body h1{font-size:1.2rem}
 .detail-body h2{font-size:1.08rem}
 .detail-body h3{font-size:.95rem}
@@ -128,8 +129,8 @@ h1,h2,h3,h4{font-family:var(--font-display);letter-spacing:-.01em}
 .detail-body pre{background:var(--bg);padding:1.2rem;border-radius:var(--radius);overflow-x:auto;margin:.8rem 0;border:1px solid var(--border)}
 .detail-body pre code{background:none;padding:0}
 .detail-body ul,.detail-body ol{padding-left:1.5rem;margin:.4rem 0}
-.detail-body li{margin-bottom:.15rem}
-.detail-body p{margin:.4rem 0}
+.detail-body li{margin-bottom:.1rem}
+.detail-body p{margin:.2rem 0}
 .detail-body a{color:var(--accent);text-decoration:none;border-bottom:1px solid transparent;transition:border-color .15s}
 .detail-body a:hover{border-bottom-color:var(--accent)}
 .detail-body blockquote{border-left:3px solid var(--accent);padding-left:1rem;color:var(--muted);margin:.6rem 0;background:rgba(233,69,96,.03);padding:.5rem 1rem;border-radius:0 var(--radius) var(--radius) 0}
@@ -348,6 +349,7 @@ h1,h2,h3,h4{font-family:var(--font-display);letter-spacing:-.01em}
       </div>
     </div>
     <div class="content" id="content"></div>
+    <footer class="app-footer">Harness engineering platform for AI coding agents. Publish once, install everywhere.</footer>
   </div>
 </div>
 
@@ -361,8 +363,8 @@ h1,h2,h3,h4{font-family:var(--font-display);letter-spacing:-.01em}
 
 <script>
 (function(){
-const TYPES=['agents','skills','rules','memories','prompts'];
-const TYPE_DESC={agents:'Autonomous coding agents',skills:'Reusable capabilities',rules:'Coding standards and constraints',memories:'Context and knowledge',prompts:'Prompt templates'};
+const TYPES=['agents','commands','designs','memories','prompts','rules','skills'];
+const TYPE_DESC={agents:'Agent harnesses',commands:'User-facing slash commands',designs:'UI/UX design artifacts',memories:'Context and knowledge',prompts:'Prompt templates',rules:'Coding standards and constraints',skills:'Reusable capabilities'};
 
 // State
 let state={
@@ -439,8 +441,9 @@ function renderMd(text){
   html=html.replace(/(<li>.*<\\/li>)/gs,'<ul>$1</ul>');
   // Blockquote
   html=html.replace(/^&gt; (.+)$/gm,'<blockquote>$1</blockquote>');
-  // Line breaks
+  // Line breaks — collapse multiple blank lines into one
   html=html.replace(/\\n/g,'<br>');
+  html=html.replace(/(<br>\\s*){2,}/g,'<br>');
   return html;
 }
 
@@ -1505,11 +1508,13 @@ function renderGuide(el){
 
   // Artifact types
   const types=[
-    {name:'Agent',icon:'\\u25c6',color:'var(--info)',q:'Who does the work?',desc:'An actor with capabilities, inputs, outputs. Orchestrates skills and follows rules.',ex:'code-reviewer, migration-assistant, security-scanner'},
-    {name:'Skill',icon:'\\u25b6',color:'var(--success)',q:'How to do X?',desc:'A reusable action or procedure. Has triggers, args, and can be shared across agents.',ex:'test-generator, db-migration, changelog-gen'},
-    {name:'Rule',icon:'\\u25a0',color:'var(--warning)',q:'What must be enforced?',desc:'A constraint or policy. Has scope (global/project) and severity (error/warning/info).',ex:'no-any-type, require-tests, semantic-commits'},
+    {name:'Agent',icon:'\\u25c6',color:'var(--info)',q:'What\\u2019s the full harness?',desc:'The top-level composition unit. Wires skills, rules, memories, and prompts into a complete AI agent configuration.',ex:'code-reviewer, migration-assistant, security-scanner'},
+    {name:'Command',icon:'\\u2318',color:'var(--type-commands)',q:'What can the user invoke?',desc:'A slash command that maps to an agent+skill combination. The UX trigger layer of the harness.',ex:'/commit, /review-pr, /deploy'},
+    {name:'Design',icon:'\\u25c7',color:'var(--type-designs)',q:'What should it look like?',desc:'UI/UX design artifacts \\u2014 wireframes, component specs, design tokens, style guides.',ex:'login-page, dashboard-layout, design-tokens'},
     {name:'Memory',icon:'\\u25cf',color:'var(--accent)',q:'What do we know?',desc:'Knowledge and context that persists across sessions. NOT actions or constraints.',ex:'adr-001-database-choice, system-topology, incident-2026-04'},
     {name:'Prompt',icon:'\\u25b2',color:'#9b59b6',q:'What should the AI say?',desc:'A reusable instruction template for AI models. Has variables and expected output.',ex:'code-review-feedback, debug-assistant, write-tests'},
+    {name:'Rule',icon:'\\u25a0',color:'var(--warning)',q:'What must be enforced?',desc:'A constraint or policy. Has scope (global/project) and severity (error/warning/info).',ex:'no-any-type, require-tests, semantic-commits'},
+    {name:'Skill',icon:'\\u25b6',color:'var(--success)',q:'How to do X?',desc:'A reusable action or procedure. Has triggers, args, and can be shared across agents.',ex:'test-generator, db-migration, changelog-gen'},
   ];
   types.forEach(t=>{
     html+='<div class="bar-chart" style="border:1px solid var(--border);padding:1.2rem;border-radius:var(--radius)">';
@@ -1523,11 +1528,13 @@ function renderGuide(el){
   // Boundaries table
   html+='<h3 style="margin-top:1.5rem">Boundaries</h3>';
   html+='<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>Type</th><th>Stores</th><th>Does NOT store</th></tr></thead><tbody>';
-  html+='<tr><td style="color:var(--info);font-weight:600">Agent</td><td>Actor, orchestration</td><td style="color:var(--muted)">Knowledge, constraints</td></tr>';
-  html+='<tr><td style="color:var(--success);font-weight:600">Skill</td><td>Procedures, how-to</td><td style="color:var(--muted)">Why we do X, what X must follow</td></tr>';
-  html+='<tr><td style="color:var(--warning);font-weight:600">Rule</td><td>Constraints, policies</td><td style="color:var(--muted)">Why it was decided, how to implement</td></tr>';
+  html+='<tr><td style="color:var(--info);font-weight:600">Agent</td><td>Harness, composition, wiring</td><td style="color:var(--muted)">Knowledge, constraints</td></tr>';
+  html+='<tr><td style="color:var(--type-commands);font-weight:600">Command</td><td>Slash triggers, UX layer</td><td style="color:var(--muted)">Implementation details</td></tr>';
+  html+='<tr><td style="color:var(--type-designs);font-weight:600">Design</td><td>Visual specs, mockups</td><td style="color:var(--muted)">Business logic, code</td></tr>';
   html+='<tr><td style="color:var(--accent);font-weight:600">Memory</td><td>Knowledge, evidence</td><td style="color:var(--muted)">Actions, constraints, instructions</td></tr>';
   html+='<tr><td style="color:#9b59b6;font-weight:600">Prompt</td><td>AI instructions</td><td style="color:var(--muted)">Execution logic, actor definitions</td></tr>';
+  html+='<tr><td style="color:var(--warning);font-weight:600">Rule</td><td>Constraints, policies</td><td style="color:var(--muted)">Why it was decided, how to implement</td></tr>';
+  html+='<tr><td style="color:var(--success);font-weight:600">Skill</td><td>Procedures, how-to</td><td style="color:var(--muted)">Why we do X, what X must follow</td></tr>';
   html+='</tbody></table></div>';
 
   // Memory context types
@@ -1549,16 +1556,28 @@ function renderGuide(el){
   // Decision tree
   html+='<h3 style="margin-top:1.5rem">Decision Tree</h3>';
   html+='<div style="background:var(--bg);padding:1.2rem;border-radius:var(--radius);border:1px solid var(--border);font-size:.9rem;line-height:2">';
-  html+='Is it a complete workflow? \\u2192 <strong style="color:var(--info)">Agent</strong><br>';
-  html+='Is it a reusable action? \\u2192 <strong style="color:var(--success)">Skill</strong><br>';
-  html+='Is it a constraint to enforce? \\u2192 <strong style="color:var(--warning)">Rule</strong><br>';
+  html+='Is it a full agent configuration? \\u2192 <strong style="color:var(--info)">Agent</strong><br>';
+  html+='Is it a user-facing trigger? \\u2192 <strong style="color:var(--type-commands)">Command</strong><br>';
+  html+='Is it a visual spec or mockup? \\u2192 <strong style="color:var(--type-designs)">Design</strong><br>';
   html+='Is it knowledge to recall? \\u2192 <strong style="color:var(--accent)">Memory</strong><br>';
-  html+='Is it an instruction for AI? \\u2192 <strong style="color:#9b59b6">Prompt</strong>';
+  html+='Is it an instruction for AI? \\u2192 <strong style="color:#9b59b6">Prompt</strong><br>';
+  html+='Is it a constraint to enforce? \\u2192 <strong style="color:var(--warning)">Rule</strong><br>';
+  html+='Is it a reusable action? \\u2192 <strong style="color:var(--success)">Skill</strong>';
   html+='</div>';
+
+  // The harness metaphor
+  html+='<h3 style="margin-top:1.5rem">The Harness Metaphor</h3>';
+  html+='<p style="font-size:.88rem;color:var(--muted);line-height:1.6;max-width:700px">The industry borrows from horse tack to explain why raw models aren\\u2019t agents on their own:</p>';
+  html+='<div style="background:var(--bg);padding:1rem;border-radius:var(--radius);border:1px solid var(--border);font-size:.85rem;margin-top:.8rem;max-width:700px;line-height:1.8">';
+  html+='<strong style="color:var(--info)">The Model (The Horse)</strong> \\u2014 High power, high speed, high intelligence, but directionless. Left alone it runs in an open field.<br>';
+  html+='<strong style="color:var(--success)">The Harness (The Infrastructure)</strong> \\u2014 The software layer that channels that power: tools (skills), memory (context), and guardrails (rules).<br>';
+  html+='<strong style="color:var(--warning)">The Human (The Rider)</strong> \\u2014 Sets the destination and adjusts the harness.';
+  html+='</div>';
+  html+='<p style="font-size:.88rem;color:var(--text);line-height:1.6;max-width:700px;margin-top:.6rem">An <strong style="color:var(--info)">Agent</strong> in ihub <em>is</em> the harness \\u2014 it wires skills, rules, memories, and prompts into a coherent configuration that turns a raw model into a directed coding assistant.</p>';
 
   // Why "prompts" not "instructions"
   html+='<h3 style="margin-top:1.5rem">Why \\u201cPrompts\\u201d and not \\u201cInstructions\\u201d?</h3>';
-  html+='<p style="font-size:.88rem;color:var(--muted);line-height:1.6;max-width:700px">Every artifact type is an instruction to an AI in some sense \\u2014 rules instruct what to enforce, skills instruct how to act, agents instruct who does what. Calling the fifth type \\u201cinstructions\\u201d would blur the line between all of them.</p>';
+  html+='<p style="font-size:.88rem;color:var(--muted);line-height:1.6;max-width:700px">Every artifact type is an instruction to an AI in some sense \\u2014 rules instruct what to enforce, skills instruct how to act, agents define the full harness. Calling the fifth type \\u201cinstructions\\u201d would blur the line between all of them.</p>';
   html+='<p style="font-size:.88rem;color:var(--text);line-height:1.6;max-width:700px"><strong style="color:#9b59b6">Prompt</strong> is specific: it means the exact text you send to a model \\u2014 with variables, expected output format, and a target model. It answers a question no other type covers: <em>\\u201cWhat do we say to the model?\\u201d</em></p>';
   html+='<h3 style="margin-top:1.5rem">When to use a Prompt</h3>';
   html+='<p style="font-size:.88rem;color:var(--muted);line-height:1.6;max-width:700px">Use a prompt when you need <strong style="color:var(--text)">deterministic, repeatable output</strong> \\u2014 the same template producing the same shape of result every time, just with different inputs. The litmus test: if you can paste the body into a model\\u2019s chat with variables filled in and get a predictable, structured response \\u2014 it\\u2019s a prompt.</p>';

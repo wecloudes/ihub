@@ -1,4 +1,4 @@
-import { describe, it, before, after } from "node:test";
+import { describe, it, beforeAll, afterAll } from "bun:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "fs";
 import { join } from "path";
@@ -9,7 +9,7 @@ const tmpDir = mkdtempSync(join(tmpdir(), "ihub-db-test-"));
 process.env.IHUB_DB_PATH = join(tmpDir, "test.db");
 
 const {
-  getDb, upsertEntry, getEntry, getEntryOwner, listEntries, listVersions,
+  getDb, resetDb, upsertEntry, getEntry, getEntryOwner, listEntries, listVersions,
   deleteEntry, searchEntries, registerUser, authenticateKey, getUser,
   getUserCount, setUserRole, changeApiKey, backupDb, restoreDb, logAction, getAuditLog,
   addComment, getComments, deleteComment, getAverageRating,
@@ -17,8 +17,8 @@ const {
 } = await import("../server/db.js");
 
 describe("database", () => {
-  after(() => {
-    getDb().close();
+  afterAll(() => {
+    resetDb();
     rmSync(tmpDir, { recursive: true });
   });
 
@@ -49,7 +49,7 @@ describe("database", () => {
   });
 
   it("returns undefined for nonexistent user", () => {
-    assert.equal(getUser("nobody"), undefined);
+    assert.equal(getUser("nobody"), null);
   });
 
   it("counts users", () => {

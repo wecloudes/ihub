@@ -1,6 +1,6 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Seed cross-references between artifacts for the graph view.
-// Usage: IHUB_REGISTRY=http://localhost:3002 IHUB_TOKEN=<token> node scripts/seed-connections.js
+// Usage: IHUB_REGISTRY=http://localhost:3002 IHUB_TOKEN=<token> bun scripts/seed-connections.js
 
 const BASE = process.env.IHUB_REGISTRY || "http://localhost:3002";
 const TOKEN = process.env.IHUB_TOKEN || "admin";
@@ -48,7 +48,7 @@ async function pushMeta(type, name, extraMeta) {
 async function main() {
   // Load owner tokens from DB
   try {
-    const Database = (await import("better-sqlite3")).default;
+    const { Database } = await import("bun:sqlite");
     const db = new Database(process.env.IHUB_DB_PATH || "./ihub.db", { readonly: true });
     for (const { username, api_key } of db.prepare("SELECT username, api_key FROM users").all()) {
       OWNER_TOKENS[username] = api_key;

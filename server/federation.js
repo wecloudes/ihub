@@ -3,7 +3,7 @@
 import { loadServerConfig } from "./config.js";
 import { upsertEntry, getDb } from "./db.js";
 
-const VALID_TYPES = ["agents", "skills", "rules", "memories", "prompts"];
+const VALID_TYPES = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
 
 // In-memory state: last sync timestamps per upstream URL
 const syncState = new Map();

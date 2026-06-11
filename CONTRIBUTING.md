@@ -4,9 +4,9 @@
 
 ```bash
 git clone <repo-url> && cd ihub
-npm install
-npm test          # run all tests (should pass before you start)
-npm run server    # start the registry server locally
+bun install
+bun test          # run all tests (should pass before you start)
+bun run server    # start the registry server locally
 ```
 
 ## Project layout
@@ -62,12 +62,12 @@ docker-compose.yml  ihub + VictoriaMetrics + VictoriaLogs + Grafana stack
 ## Running tests
 
 ```bash
-npm test                           # run all tests
-node --test tests/parse.test.js    # run a single test file
-node --test --test-name-pattern "push" tests/cli.test.js  # run matching tests
+bun test                           # run all tests
+bun test tests/parse.test.js       # run a single test file
+bun test --test-name-pattern "push" tests/cli.test.js  # run matching tests
 ```
 
-Tests use Node's built-in test runner (`node:test`). No test framework dependencies.
+Tests use Bun's built-in test runner with `node:test` compatibility. No test framework dependencies.
 
 CLI integration tests (`tests/cli.test.js`) spawn a real server process on a random port with an isolated DB and HOME directory.
 
@@ -115,14 +115,14 @@ CLI integration tests (`tests/cli.test.js`) spawn a real server process on a ran
 
 - ESM throughout (`"type": "module"`)
 - No external dependencies in the CLI (uses native `fetch`, `readline`, `fs`)
-- Server's only dependency is `better-sqlite3`
+- Server uses Bun's built-in `bun:sqlite`; the only external dependency is `files-sdk` (storage backends)
 - Terminal rendering uses raw ANSI escape codes, no dependencies
 - Frontmatter parser handles simple YAML only (no nested objects, no multi-line values)
 - Cross-references between entries are validated by `ihub validate`
 
 ## Before submitting
 
-1. Run `npm test` and ensure all tests pass
+1. Run `bun test` and ensure all tests pass
 2. Add tests for any new commands, endpoints, or DB functions
 3. Run `ihub validate` to check registry integrity
 4. If you added a command, verify it works with both syntaxes (`ihub push agent x` and `ihub agent push x`)

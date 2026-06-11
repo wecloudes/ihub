@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
 
 // Import without SLACK_WEBHOOK_URL set — all sends are no-ops

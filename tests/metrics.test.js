@@ -1,4 +1,4 @@
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, beforeEach } from "bun:test";
 import assert from "node:assert/strict";
 import { inc, gauge, serialize, reset, register } from "../server/metrics.js";
 

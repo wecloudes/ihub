@@ -1,4 +1,4 @@
-import { describe, it, before, after } from "node:test";
+import { describe, it, beforeAll, afterAll } from "bun:test";
 import assert from "node:assert/strict";
 import { createServer } from "http";
 import { initVLogs, isVLogsEnabled, shipLog } from "../server/vlogs.js";
@@ -7,7 +7,7 @@ describe("VictoriaLogs client", () => {
   let server;
   let receivedLogs = [];
 
-  before(async () => {
+  beforeAll(async () => {
     // Mock VictoriaLogs server
     server = createServer((req, res) => {
       let body = "";
@@ -24,7 +24,7 @@ describe("VictoriaLogs client", () => {
     await new Promise((resolve) => server.listen(0, resolve));
   });
 
-  after(() => {
+  afterAll(() => {
     server.close();
   });
 

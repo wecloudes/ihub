@@ -24,6 +24,8 @@ export const CODING_AGENTS = {
       rules:    { global: join(HOME, ".claude", "rules"),    local: join(".claude", "rules") },
       prompts:  { global: join(HOME, ".claude", "skills"),   local: join(".claude", "skills") },
       memories: { global: null,                              local: null, note: "Auto-managed by Claude Code" },
+      commands: { global: join(HOME, ".claude", "skills"),   local: join(".claude", "skills") },
+      designs:  { global: null,                              local: null, note: "Installs as DESIGN.md in project root" },
     },
     // Skills install as <name>/SKILL.md directory structure
     skillAsDir: true,
@@ -40,6 +42,8 @@ export const CODING_AGENTS = {
       rules:    { global: null,                              local: join(".gemini", "skills"), note: "Rules as skills" },
       prompts:  { global: join(HOME, ".gemini", "skills"),   local: join(".gemini", "skills") },
       memories: { global: null,                              local: null, note: "Managed cloud context" },
+      commands: { global: join(HOME, ".gemini", "skills"),   local: join(".gemini", "skills") },
+      designs:  { global: null,                              local: null, note: "Installs as DESIGN.md in project root" },
     },
     skillAsDir: true,
     skillFilename: "SKILL.md",
@@ -53,6 +57,8 @@ export const CODING_AGENTS = {
       rules:    { global: null,                              local: join(".qwen", "skills") },
       prompts:  { global: join(HOME, ".qwen", "skills"),     local: join(".qwen", "skills") },
       memories: { global: null,                              local: null, note: "Managed by Qwen Code" },
+      commands: { global: join(HOME, ".qwen", "skills"),     local: join(".qwen", "skills") },
+      designs:  { global: null,                              local: null, note: "Installs as DESIGN.md in project root" },
     },
     skillAsDir: true,
     skillFilename: "SKILL.md",
@@ -66,6 +72,8 @@ export const CODING_AGENTS = {
       rules:    { global: null,                                          local: join(".opencode", "rules") },
       prompts:  { global: join(HOME, ".config", "opencode", "skills"),  local: join(".opencode", "skills") },
       memories: { global: null,                                          local: null, note: "SQLite (project-aware)" },
+      commands: { global: join(HOME, ".config", "opencode", "skills"),  local: join(".opencode", "skills") },
+      designs:  { global: null,                                          local: null, note: "Not natively supported" },
     },
     skillAsDir: true,
     skillFilename: "SKILL.md",
@@ -82,6 +90,8 @@ export const CODING_AGENTS = {
       rules:    { global: null,                              local: null, note: "Codex uses .rules (Starlark format)" },
       prompts:  { global: join(HOME, ".agents", "skills"),   local: join(".agents", "skills") },
       memories: { global: null,                              local: null, note: "Managed via config.toml" },
+      commands: { global: join(HOME, ".agents", "skills"),   local: join(".agents", "skills") },
+      designs:  { global: null,                              local: null, note: "Installs as DESIGN.md in project root" },
     },
     skillAsDir: true,
     skillFilename: "SKILL.md",
@@ -95,6 +105,8 @@ export const CODING_AGENTS = {
       rules:    { global: null,                              local: join(".cursor", "rules"), ext: ".mdc" },
       prompts:  { global: null,                              local: join(".cursor", "rules"), ext: ".mdc" },
       memories: { global: null,                              local: null, note: "Project Index (SQLite)" },
+      commands: { global: join(HOME, ".cursor", "skills"),   local: join(".cursor", "skills") },
+      designs:  { global: null,                              local: null, note: "Installs as DESIGN.md in project root" },
     },
   },
   ihub: {
@@ -105,6 +117,8 @@ export const CODING_AGENTS = {
       rules:    { global: join(HOME, ".claude", "rules"),    local: "rules" },
       prompts:  { global: null,                              local: "prompts" },
       memories: { global: null,                              local: "memories" },
+      commands: { global: null,                              local: "commands" },
+      designs:  { global: null,                              local: null, note: "Installs as DESIGN.md in project root" },
     },
   },
 };
@@ -125,6 +139,8 @@ export function getInstallPath(agent, artifactType, scope) {
     rule: "rules", rules: "rules",
     prompt: "prompts", prompts: "prompts",
     memory: "memories", memories: "memories",
+    command: "commands", commands: "commands",
+    design: "designs", designs: "designs",
   };
   const type = typeMap[artifactType] || artifactType;
 

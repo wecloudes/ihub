@@ -1,4 +1,4 @@
-import { describe, it, before, after, beforeEach } from "node:test";
+import { describe, it, beforeAll, afterAll, beforeEach } from "bun:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -41,7 +41,7 @@ const { resetConfig } = await import("../server/config.js");
 resetConfig();
 const { loadPlugins, runBeforePush, runAfterPush, runBeforePull, resetPlugins } = await import("../server/plugins.js");
 
-after(() => {
+afterAll(() => {
   rmSync(tmpDir, { recursive: true });
 });
 

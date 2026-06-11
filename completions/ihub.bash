@@ -7,7 +7,7 @@ _ihub() {
   _init_completion || return
 
   local commands="list search show preview validate projects create push pull remove comment comments register login passwd whoami config audit metrics backup admin version help"
-  local types="agent agents skill skills rule rules memory memories prompt prompts"
+  local types="agent agents command commands design designs memory memories prompt prompts rule rules skill skills"
   local type_commands="list show preview create push pull remove comment comments search"
 
   # Position-based completion
@@ -20,13 +20,13 @@ _ihub() {
       case "$prev" in
         # Commands that take a type
         list)
-          COMPREPLY=($(compgen -W "agents skills rules memories prompts" -- "$cur"))
+          COMPREPLY=($(compgen -W "agents commands designs memories prompts rules skills" -- "$cur"))
           ;;
         show|preview|create|push|pull|remove|comment|comments)
-          COMPREPLY=($(compgen -W "agent skill rule memory prompt" -- "$cur"))
+          COMPREPLY=($(compgen -W "agent command design memory prompt rule skill" -- "$cur"))
           ;;
         # Type-first: type was first arg, now complete subcommand
-        agent|agents|skill|skills|rule|rules|memory|memories|prompt|prompts)
+        agent|agents|skill|skills|rule|rules|memory|memories|prompt|prompts|command|commands|design|designs)
           COMPREPLY=($(compgen -W "$type_commands" -- "$cur"))
           ;;
         # Commands with URL arg
@@ -70,7 +70,7 @@ _ihub() {
           fi
           ;;
         # Type-first: third arg is artifact name
-        agent|agents|skill|skills|rule|rules|memory|memories|prompt|prompts)
+        agent|agents|skill|skills|rule|rules|memory|memories|prompt|prompts|command|commands|design|designs)
           local subcmd="$type"
           case "$subcmd" in
             show|preview|push|remove|comment|comments|pull)
@@ -98,7 +98,7 @@ _ihub() {
           fi
           ;;
         # Type-first pull/create flags
-        agent|agents|skill|skills|rule|rules|memory|memories|prompt|prompts)
+        agent|agents|skill|skills|rule|rules|memory|memories|prompt|prompts|command|commands|design|designs)
           local subcmd="${words[2]}"
           case "$subcmd" in
             pull) COMPREPLY=($(compgen -W "--local --global -l -g" -- "$cur")) ;;
@@ -131,6 +131,8 @@ _ihub_complete_names() {
     rule|rules)   dir="rules" ;;
     memory|memories) dir="memories" ;;
     prompt|prompts) dir="prompts" ;;
+    command|commands) dir="commands" ;;
+    design|designs) dir="designs" ;;
   esac
 
   if [[ -n "$dir" && -d "$dir" ]]; then

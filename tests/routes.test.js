@@ -1,4 +1,4 @@
-import { describe, it, before, after } from "node:test";
+import { describe, it, beforeAll, afterAll } from "bun:test";
 import assert from "node:assert/strict";
 import { createServer } from "http";
 import { mkdtempSync, rmSync } from "fs";
@@ -13,14 +13,14 @@ process.env.IHUB_CONFIG = join(tmpDir, "nonexistent-config.json");
 const { resetConfig } = await import("../server/config.js");
 resetConfig();
 const { handleRequest } = await import("../server/routes.js");
-const { getDb } = await import("../server/db.js");
+const { resetDb } = await import("../server/db.js");
 
 let server;
 let baseUrl;
 let aliceKey;
 let bobKey;
 
-before(async () => {
+beforeAll(async () => {
   server = createServer(handleRequest);
   await new Promise((resolve) => {
     server.listen(0, () => {
@@ -30,9 +30,9 @@ before(async () => {
   });
 });
 
-after(() => {
+afterAll(() => {
   server.close();
-  getDb().close();
+  resetDb();
   rmSync(tmpDir, { recursive: true });
 });
 

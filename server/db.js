@@ -1,19 +1,28 @@
-import Database from "better-sqlite3";
+import { Database } from "bun:sqlite";
 import { join } from "path";
 import { copyFileSync } from "fs";
 
-const DB_PATH = process.env.IHUB_DB_PATH || join(process.cwd(), "ihub.db");
+function getDbPath() {
+  return process.env.IHUB_DB_PATH || join(process.cwd(), "ihub.db");
+}
 
 let db;
 
 export function getDb() {
   if (!db) {
-    db = new Database(DB_PATH);
-    db.pragma("journal_mode = WAL");
-    db.pragma("foreign_keys = ON");
+    db = new Database(getDbPath());
+    db.exec("PRAGMA journal_mode = WAL");
+    db.exec("PRAGMA foreign_keys = ON");
     init(db);
   }
   return db;
+}
+
+export function resetDb() {
+  if (db) {
+    try { db.close(); } catch {}
+    db = null;
+  }
 }
 
 function init(db) {
@@ -151,14 +160,12 @@ export function setUserRole(username, role) {
 
 export function backupDb(destPath) {
   const db = getDb();
-  return db.backup(destPath);
+  copyFileSync(getDbPath(), destPath);
 }
 
 export function restoreDb(sourcePath) {
-  const currentDb = getDb();
-  currentDb.close();
-  db = null;
-  copyFileSync(sourcePath, DB_PATH);
+  resetDb();
+  copyFileSync(sourcePath, getDbPath());
   // Reopen and re-init
   getDb();
 }

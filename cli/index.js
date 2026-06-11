@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 import { resolve, dirname, join, basename } from "path";
 import { fileURLToPath } from "url";
@@ -54,6 +54,7 @@ const TYPE_FIELDS = {
     { key: "rules", label: "Rules (comma-separated)", type: "array" },
     { key: "memories", label: "Memories (comma-separated)", type: "array" },
     { key: "prompts", label: "Prompts (comma-separated)", type: "array" },
+    { key: "commands", label: "Commands (comma-separated)", type: "array" },
   ],
   skill: [
     { key: "description", label: "Description", type: "string", required: true },
@@ -95,6 +96,30 @@ const TYPE_FIELDS = {
     { key: "model", label: "Target model", type: "string" },
     { key: "compatible_agents", label: "Compatible agents (comma-separated)", type: "array" },
     { key: "memories", label: "Memories (comma-separated)", type: "array" },
+  ],
+  command: [
+    { key: "description", label: "Description", type: "string", required: true },
+    { key: "version", label: "Version", type: "string", default: "0.1.0" },
+    { key: "author", label: "Author", type: "string" },
+    { key: "project", label: "Project", type: "string" },
+    { key: "tags", label: "Tags (comma-separated)", type: "array" },
+    { key: "trigger", label: "Trigger (e.g. /commit)", type: "string" },
+    { key: "agent", label: "Agent this command invokes", type: "string" },
+    { key: "skills", label: "Skills (comma-separated)", type: "array" },
+    { key: "prompts", label: "Prompts (comma-separated)", type: "array" },
+    { key: "args", label: "Arguments (comma-separated)", type: "array" },
+    { key: "compatible_agents", label: "Compatible agents (comma-separated)", type: "array" },
+  ],
+  design: [
+    { key: "description", label: "Description", type: "string", required: true },
+    { key: "version", label: "Version", type: "string", default: "0.1.0" },
+    { key: "author", label: "Author", type: "string" },
+    { key: "project", label: "Project", type: "string" },
+    { key: "tags", label: "Tags (comma-separated)", type: "array" },
+    { key: "platform", label: "Platform (web/mobile/desktop)", type: "string" },
+    { key: "component_type", label: "Component type (page/component/layout/token/style-guide)", type: "string" },
+    { key: "design_system", label: "Design system name", type: "string" },
+    { key: "format", label: "Format (figma/sketch/html/css/svg)", type: "string" },
   ],
 };
 
@@ -194,6 +219,7 @@ const commands = {
 const PLURAL_MAP = {
   agent: "agents", skill: "skills", rule: "rules",
   memory: "memories", prompt: "prompts",
+  command: "commands", design: "designs",
 };
 const SINGULAR_MAP = Object.fromEntries(
   Object.entries(PLURAL_MAP).map(([s, p]) => [p, s])
@@ -202,6 +228,7 @@ const TYPE_ALIASES = {
   ...PLURAL_MAP,
   agents: "agents", skills: "skills", rules: "rules",
   memories: "memories", prompts: "prompts",
+  commands: "commands", designs: "designs",
 };
 
 function pluralize(type) {
@@ -315,7 +342,7 @@ async function list(args) {
   const filtered = args.filter((a) => a !== "--json");
   const type = filtered[0];
 
-  const types = type ? [type] : ["agents", "skills", "rules", "memories", "prompts"];
+  const types = type ? [type] : ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
 
   // Merge remote registry + local entries (dedup by name, remote wins)
   const config = loadConfig();
@@ -629,7 +656,7 @@ async function projects(args) {
   const localOnly = args.includes("--local");
   const filtered = args.filter((a) => a !== "--json" && a !== "--local");
   const [projectName] = filtered;
-  const TYPES = ["agents", "skills", "rules", "memories", "prompts"];
+  const TYPES = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
 
   // Load entries — remote by default, local with --local
   let allEntries = {};
@@ -667,13 +694,14 @@ async function projects(args) {
 
   // Collect all projects
   const projectMap = {};
-  const unassigned = { agents: [], skills: [], rules: [], memories: [], prompts: [] };
+  const emptyBuckets = () => Object.fromEntries(TYPES.map(t => [t, []]));
+  const unassigned = emptyBuckets();
 
   for (const type of TYPES) {
     for (const entry of (allEntries[type] || [])) {
       const proj = entry.project || "";
       if (proj) {
-        if (!projectMap[proj]) projectMap[proj] = { agents: [], skills: [], rules: [], memories: [], prompts: [] };
+        if (!projectMap[proj]) projectMap[proj] = emptyBuckets();
         projectMap[proj][type].push(entry);
       } else {
         unassigned[type].push(entry);
@@ -732,7 +760,7 @@ async function projects(args) {
 }
 
 function printProjectTree(name, data) {
-  const TYPES = ["agents", "skills", "rules", "memories", "prompts"];
+  const TYPES = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
   const typesWithEntries = TYPES.filter((t) => data[t].length > 0);
 
   console.log(`\n\x1b[1m\x1b[36m${name}\x1b[0m`);
@@ -1380,7 +1408,7 @@ async function pull(args) {
 
   const singularType = singularize(type);
   const pluralType = pluralize(singularType);
-  const validTypes = ["agents", "skills", "rules", "memories", "prompts"];
+  const validTypes = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
   if (!validTypes.includes(pluralType)) {
     console.error(`Unknown type: ${type}`);
     process.exit(1);
@@ -1412,6 +1440,19 @@ async function pull(args) {
   if (singularType === "memory") {
     const targetPath = resolve(ROOT, pluralType, `${name}.md`);
     mkdirSync(dirname(targetPath), { recursive: true });
+    writeFileSync(targetPath, markdown);
+    console.log(`Pulled ${pluralType}/${name}@${ver} → ${targetPath}`);
+    await downloadAttachmentsTo(pluralType, name, targetPath, entry.attachments);
+    return;
+  }
+
+  // Designs always install as DESIGN.md in the project root — global not supported
+  if (singularType === "design") {
+    if (destination === "global") {
+      console.error("Designs can only be pulled into the project directory, not globally.");
+      process.exit(1);
+    }
+    const targetPath = resolve(ROOT, "DESIGN.md");
     writeFileSync(targetPath, markdown);
     console.log(`Pulled ${pluralType}/${name}@${ver} → ${targetPath}`);
     await downloadAttachmentsTo(pluralType, name, targetPath, entry.attachments);
@@ -1648,7 +1689,7 @@ function transformForAgent(agent, pluralType, entry, defaultMarkdown) {
   }
 
   if ((agent === "claude" || agent === "qwen" || agent === "opencode") &&
-      (pluralType === "skills" || pluralType === "agents" || pluralType === "prompts")) {
+      (pluralType === "skills" || pluralType === "agents" || pluralType === "prompts" || pluralType === "commands" || pluralType === "designs")) {
     // Claude/Qwen/OpenCode SKILL.md format: name, description
     const lines = ["---"];
     lines.push(`name: ${meta.name || entry.name || ""}`);
@@ -2356,7 +2397,7 @@ async function outdated() {
   const config = loadConfig();
   const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
   const registry = loadRegistry(ROOT);
-  const TYPES = ["agents", "skills", "rules", "memories", "prompts"];
+  const TYPES = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
 
   let found = 0;
   console.log("");
@@ -2394,7 +2435,7 @@ async function doctor() {
   const config = loadConfig();
   const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
   const token = config.token || process.env.IHUB_TOKEN || "";
-  const TYPES = ["agents", "skills", "rules", "memories", "prompts"];
+  const TYPES = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
 
   console.log("\nihub doctor\n");
 
@@ -2598,12 +2639,12 @@ function version() {
 
 function help() {
   console.log(`
-ihub — AI artifact registry for agents, skills, rules, memories, and prompts
+ihub — harness engineering platform for AI coding agents
 
 Commands:
   browse                     Interactive TUI browser for the registry
   open                       Open the web UI in your default browser
-  list [type]                 List entries (agents, skills, rules, memories, prompts, or all)
+  list [type]                 List entries (agents, commands, designs, memories, prompts, rules, skills, or all)
   search <query>              Full-text search across local entries
   show <type> <name>          Show metadata for a specific entry
   preview <type> <name>       Render an entry with markdown formatting
@@ -2666,7 +2707,7 @@ Type-first syntax (equivalent):
   ihub rule push <name>       Same as: ihub push rule <name>
   ihub memory pull <name>     Same as: ihub pull memory <name>
 
-Types: agent(s), skill(s), rule(s), memory/memories, prompt(s)
+Types: agent(s), command(s), design(s), memory/memories, prompt(s), rule(s), skill(s)
 `);
 }
 
@@ -2682,7 +2723,7 @@ async function watch() {
     process.exit(1);
   }
 
-  const dirs = ["agents", "skills", "rules", "memories", "prompts"];
+  const dirs = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
   const debounceTimers = {};
 
   function timestamp() {
@@ -2751,7 +2792,7 @@ async function pullFromUrl(url, destination) {
   // Look for /api/<type>/<name> pattern
   let pluralType = null;
   let name = null;
-  const validTypes = ["agents", "skills", "rules", "memories", "prompts"];
+  const validTypes = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
 
   for (let i = 0; i < pathParts.length - 1; i++) {
     if (pathParts[i] === "api" && i + 2 < pathParts.length) {

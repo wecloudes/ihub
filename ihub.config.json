@@ -40,5 +40,15 @@
   "firewall": {
     "enabled": false,
     "whitelist": []
+  },
+
+  "federation": {
+    "enabled": false,
+    "upstreams": []
+  },
+
+  "signing": {
+    "enabled": false,
+    "key": ""
   }
 }

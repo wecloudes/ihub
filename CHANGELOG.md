@@ -2,6 +2,22 @@
 
 All notable changes to ihub are documented in this file.
 
+## [0.6.0] - 2026-06-11
+
+### Added
+
+- **`command` artifact type**: slash-command definitions with `trigger`, `agent`, `skills`, `prompts`, and `args` frontmatter; agents can declare `commands` they expose; installs to each coding agent's skills path
+- **`design` artifact type**: design specs with `platform`, `component_type`, and `design_system` frontmatter; always installs as `DESIGN.md` in the project root
+- Example artifacts for both new types under `examples/commands/` and `examples/designs/`
+- `federation` and `signing` sections scaffolded in `ihub.config.json`
+- `engines` field in `package.json` documenting the Bun requirement
+
+### Changed
+
+- **Runtime migrated from Node.js to Bun**: `better-sqlite3` replaced with built-in `bun:sqlite` (only external dependency is now `files-sdk`); test suite runs on `bun test`; CLI and server shebangs use `bun`; `package-lock.json` replaced with `bun.lock`
+- **Docker image based on `oven/bun:1`** (was `node:22-slim`); `tini` removed — Bun handles PID 1 signal forwarding (verified: container stops in ~1s)
+- Shell completions, man page, and docs updated for the new artifact types and Bun runtime
+
 ## [0.5.0] - 2026-05-21
 
 ### Added

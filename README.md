@@ -1,15 +1,27 @@
 # ihub
 
-An AI artifact registry for agents, skills, rules, memories, and prompts. Publish once, install everywhere — ihub works with Claude Code, Gemini CLI, Qwen Code, Cursor IDE, Codex CLI, and Open Code, installing artifacts to each coding agent's native path with the correct format.
+A harness engineering platform for AI coding agents. Publish once, install everywhere — ihub works with Claude Code, Gemini CLI, Qwen Code, Cursor IDE, Codex CLI, and Open Code, installing artifacts to each coding agent's native path with the correct format.
 
 Each artifact is a `.md` file with YAML frontmatter. No vendor lock-in, no proprietary formats — just files you can edit, version with git, and share across your team and AI toolchain.
 
+## The harness metaphor
+
+The industry borrows from horse tack to explain why raw models aren't agents on their own:
+
+- **The Model (The Horse)** — High power, high speed, high intelligence, but directionless. Left alone it runs in an open field — it may produce brilliant text but won't complete a complex task.
+- **The Harness (The Infrastructure)** — The software layer that channels that power. It provides the tools (skills), the memory (context), and the guardrails (rules) that keep the model on track.
+- **The Human (The Rider)** — Sets the destination and adjusts the harness.
+
+An **agent** in ihub is the harness. It wires skills, rules, memories, and prompts into a coherent configuration that turns a raw model into a directed coding assistant. ihub is where you engineer, publish, and share those harnesses.
+
 ## Install
+
+Requires [Bun](https://bun.sh) >= 1.0 — the CLI and server run on Bun (`bun:sqlite`, `bun test`).
 
 ```bash
 git clone <repo-url> && cd ihub
-npm install
-npm link                    # makes `ihub` available globally
+bun install
+bun link                    # makes `ihub` available globally
 eval "$(ihub completions zsh)"  # or bash — enables tab completion
 ```
 
@@ -28,11 +40,11 @@ ihub projects                       # see everything organized by project
 
 ## Understanding artifact types
 
-ihub manages five types of AI artifacts. Each serves a different role in the lifecycle of an AI-assisted workflow. Choosing the right type matters — it determines the frontmatter fields, how the artifact is discovered, and how it connects to other artifacts.
+ihub manages five artifact types. An agent is the harness — the top-level unit that composes skills, rules, memories, and prompts into a complete AI coding agent configuration. Choosing the right type matters — it determines the frontmatter fields, how the artifact is discovered, and how it connects to other artifacts.
 
-### Agent — _"Who does the work?"_
+### Agent — _"What's the full harness?"_
 
-An agent is an autonomous actor. It takes inputs, follows a strategy, produces outputs, and declares which skills it uses and which rules it follows. Use an agent when you want to describe **a complete workflow performer**.
+An agent is a harness — the top-level composition unit that shapes how an AI coding assistant behaves. It declares which skills to use, which rules to follow, which memories to recall, and which prompts to run. Use an agent when you want to describe **the complete configuration for an AI persona**.
 
 ```yaml
 name: code-reviewer
@@ -46,9 +58,9 @@ prompts: [code-review-feedback, summarize-pr]
 ```
 
 **Use an agent when:**
-- You have an end-to-end task that takes inputs and produces outputs
-- The task uses multiple skills and must follow specific rules
-- You want to describe _what_ gets done, not _how_ each step works
+- You need a complete AI agent configuration that wires everything together
+- The configuration uses multiple skills and must follow specific rules
+- You want to describe _the full harness_, not individual components
 
 **Real examples:** `code-reviewer` (reviews PRs), `security-scanner` (finds vulnerabilities), `doc-generator` (produces API docs from code), `migration-assistant` (generates database migration scripts)
 
@@ -74,7 +86,7 @@ compatible_agents: [code-reviewer, security-scanner]
 
 **Real examples:** `lint-check` (runs linters), `dependency-audit` (checks for CVEs), `git-commit-msg` (generates commit messages), `test-generator` (writes unit tests), `docx` (creates Word documents — with 59 attached Python scripts)
 
-**Agent vs Skill:** An agent is a _person_ doing a job. A skill is a _tool_ in their toolbox. The `code-reviewer` agent _uses_ the `lint-check` skill. You can give the same skill to different agents.
+**Agent vs Skill:** An agent is the _harness_ — the full wiring. A skill is a single _capability_ it uses. The `code-reviewer` agent _uses_ the `lint-check` skill. You can wire the same skill into different harnesses.
 
 ---
 
@@ -167,6 +179,54 @@ memories: [api-versioning-strategy]
 - "Run linters on changed files" → an action → **Skill** (execution, not model text)
 - "Always use semantic commits" → a constraint → **Rule** (enforced, not templated)
 - "We chose PostgreSQL because..." → knowledge → **Memory** (recalled, not sent to a model)
+
+---
+
+### Command — _"What can the user invoke?"_
+
+A command is a user-facing slash command — a shortcut that maps to an agent+skill combination. It's the UX trigger layer of the harness. Use a command when you want to give users a **one-word way to invoke a complex workflow**.
+
+```yaml
+name: commit
+description: Generate a conventional commit message from staged changes
+trigger: /commit
+agent: code-reviewer
+skills: [git-commit-msg]
+prompts: [code-review-feedback]
+args: [message, scope, breaking]
+compatible_agents: [claude, cursor, gemini]
+```
+
+**Use a command when:**
+- You want a simple `/trigger` to invoke an agent+skill combo
+- The workflow has clear arguments and a predictable outcome
+- Multiple coding agents should support the same shortcut
+
+**Real examples:** `/commit` (generates commit messages), `/review-pr` (triggers code review), `/deploy` (runs deployment workflow), `/test` (generates and runs tests)
+
+**Command vs Skill:** A command is what the _user_ types. A skill is what the _agent_ does. The `/commit` command invokes the `git-commit-msg` skill through the `code-reviewer` agent.
+
+---
+
+### Design — _"What should it look like?"_
+
+A design is a UI/UX artifact — wireframes, component specs, design tokens, or style guides. Designs are standalone visual references that any artifact can use. Use a design when you want to capture **how something should look** as a shareable, versionable artifact.
+
+```yaml
+name: login-page
+description: Login page wireframe with OAuth and email/password flows
+platform: web
+component_type: page
+design_system: minimal-ui
+format: html
+```
+
+**Use a design when:**
+- You have a wireframe, component spec, or design token set
+- Multiple skills or agents need the same visual reference
+- You want to version and iterate on UI decisions
+
+**Real examples:** `login-page` (auth flow wireframe), `dashboard-layout` (admin dashboard structure), `design-tokens` (color/spacing/typography system), `mobile-nav` (navigation patterns)
 
 ---
 
@@ -717,7 +777,7 @@ The import command detects the source agent from the path, maps agent-specific f
 ## Registry server
 
 ```bash
-npm run server                                  # start on :3000
+bun run server                                  # start on :3000
 docker compose up -d                            # full stack with VictoriaMetrics + VictoriaLogs + Grafana
 ```
 

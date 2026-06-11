@@ -1,4 +1,4 @@
-import { describe, it, before, after } from "node:test";
+import { describe, it, beforeAll, afterAll } from "bun:test";
 import assert from "node:assert/strict";
 import { spawn } from "child_process";
 import { mkdtempSync, rmSync, readdirSync, unlinkSync } from "fs";
@@ -22,7 +22,7 @@ let userToken;
  * Returns a controller with send(), waitFor(), and kill().
  */
 function spawnTui(env = {}) {
-  const proc = spawn("node", [CLI, "browse"], {
+  const proc = spawn(process.execPath, [CLI, "browse"], {
     cwd: ROOT,
     env: {
       PATH: process.env.PATH,
@@ -54,8 +54,8 @@ function spawnTui(env = {}) {
       });
     },
     async switchToSkills() {
-      // Navigate right until skills tab is active, then wait for skill items
-      await this.send("\x1b[C", 150);
+      // Navigate right until skills tab is active (alphabetical: agents→commands→designs→memories→prompts→rules→skills)
+      for (let i = 0; i < 6; i++) await this.send("\x1b[C", 150);
       await this.waitFor("test-skill-1", 3000);
     },
     async waitFor(pattern, timeoutMs = 3000) {
@@ -90,9 +90,9 @@ async function apiPost(path, body, token) {
 }
 
 describe("TUI integration tests", () => {
-  before(async () => {
+  beforeAll(async () => {
     // Start server
-    serverProc = spawn("node", [join(ROOT, "server", "index.js")], {
+    serverProc = spawn(process.execPath, [join(ROOT, "server", "index.js")], {
       env: {
         PATH: process.env.PATH,
         IHUB_DB_PATH: DB_PATH,
@@ -142,11 +142,11 @@ describe("TUI integration tests", () => {
     await apiPost("/api/skills/test-skill-1/comments", { rating: 5, body: "Great skill!" }, userToken);
   });
 
-  after(() => {
+  afterAll(() => {
     if (serverProc) serverProc.kill();
     rmSync(tmpDir, { recursive: true, force: true });
     // Clean up any files the TUI pull tests created in working dirs
-    for (const dir of ["agents", "skills", "rules", "memories", "prompts"]) {
+    for (const dir of ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"]) {
       const d = join(ROOT, dir);
       try {
         for (const f of readdirSync(d)) {
@@ -183,8 +183,7 @@ describe("TUI integration tests", () => {
     const tui = spawnTui();
     try {
       await tui.waitFor("agents");
-      await tui.send("\x1b[C"); // Right arrow to skills
-      await tui.waitFor("test-skill-1", 3000);
+      await tui.switchToSkills();
     } finally {
       await tui.kill();
     }
@@ -499,9 +498,13 @@ describe("TUI integration tests", () => {
     const tui = spawnTui();
     try {
       await tui.waitFor("test-agent"); // starts in agents list
-      await tui.send("\x1b[C"); // right arrow → skills
-      await tui.waitFor("test-skill-1", 3000);
-      await tui.send("\x1b[D"); // left arrow → back to agents
+      await tui.switchToSkills(); // right arrows → skills (alphabetical)
+      await tui.send("\x1b[D"); // left arrow → back to rules
+      await tui.send("\x1b[D"); // left → prompts
+      await tui.send("\x1b[D"); // left → memories
+      await tui.send("\x1b[D"); // left → designs
+      await tui.send("\x1b[D"); // left → commands
+      await tui.send("\x1b[D"); // left → back to agents
       await tui.waitFor("test-agent", 3000);
     } finally { await tui.kill(); }
   });

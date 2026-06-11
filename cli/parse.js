@@ -80,9 +80,11 @@ export function loadEntries(dir) {
 export function loadRegistry(root) {
   return {
     agents: loadEntries(join(root, "agents")),
-    skills: loadEntries(join(root, "skills")),
-    rules: loadEntries(join(root, "rules")),
+    commands: loadEntries(join(root, "commands")),
+    designs: loadEntries(join(root, "designs")),
     memories: loadEntries(join(root, "memories")),
     prompts: loadEntries(join(root, "prompts")),
+    rules: loadEntries(join(root, "rules")),
+    skills: loadEntries(join(root, "skills")),
   };
 }

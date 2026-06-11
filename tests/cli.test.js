@@ -1,4 +1,4 @@
-import { describe, it, before, after } from "node:test";
+import { describe, it, beforeAll, afterAll } from "bun:test";
 import assert from "node:assert/strict";
 import { rmSync, existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, readdirSync, copyFileSync } from "fs";
 import { join } from "path";
@@ -20,7 +20,7 @@ let serverProc;
 let userToken;
 
 function ihub(args, env = {}) {
-  return execFileSync("node", [CLI, ...args], {
+  return execFileSync(process.execPath, [CLI, ...args], {
     cwd: ROOT,
     input: "",
     env: {
@@ -55,8 +55,8 @@ async function apiPost(path, body) {
 }
 
 describe("CLI end-to-end", () => {
-  before(async () => {
-    serverProc = spawn("node", [join(ROOT, "server", "index.js")], {
+  beforeAll(async () => {
+    serverProc = spawn(process.execPath, [join(ROOT, "server", "index.js")], {
       env: {
         PATH: process.env.PATH,
         IHUB_DB_PATH: DB_PATH,
@@ -82,7 +82,7 @@ describe("CLI end-to-end", () => {
     userToken = data.api_key;
 
     // Copy example entries into working directories
-    const TYPES = ["agents", "skills", "rules", "memories", "prompts"];
+    const TYPES = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
     for (const type of TYPES) {
       const exDir = join(ROOT, "examples", type);
       const workDir = join(ROOT, type);
@@ -95,11 +95,11 @@ describe("CLI end-to-end", () => {
     }
   });
 
-  after(() => {
+  afterAll(() => {
     if (serverProc) serverProc.kill();
     rmSync(tmpDir, { recursive: true, force: true });
     // Clean up copied example entries
-    const TYPES = ["agents", "skills", "rules", "memories", "prompts"];
+    const TYPES = ["agents", "commands", "designs", "memories", "prompts", "rules", "skills"];
     for (const type of TYPES) {
       const exDir = join(ROOT, "examples", type);
       const workDir = join(ROOT, type);
@@ -262,7 +262,7 @@ describe("CLI end-to-end", () => {
 
     const agentPath = join(ROOT, "agents", "interactive-test.md");
     try {
-      const out = execFileSync("node", [CLI, "create", "agent", "interactive-test", "-i"], {
+      const out = execFileSync(process.execPath, [CLI, "create", "agent", "interactive-test", "-i"], {
         cwd: ROOT,
         input,
         env: { PATH: process.env.PATH, HOME: fakeHome },
@@ -301,7 +301,7 @@ describe("CLI end-to-end", () => {
 
     const memPath = join(ROOT, "memories", "my-memory.md");
     try {
-      const out = execFileSync("node", [CLI, "create", "-i"], {
+      const out = execFileSync(process.execPath, [CLI, "create", "-i"], {
         cwd: ROOT,
         input,
         env: { PATH: process.env.PATH, HOME: fakeHome },
@@ -427,7 +427,7 @@ describe("CLI end-to-end", () => {
 
   it("pull memory is always local (no prompt)", () => {
     // Push memory directly via API
-    execFileSync("node", ["-e", `
+    execFileSync(process.execPath, ["-e", `
       fetch("http://localhost:${PORT}/api/memories/test-memory", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": "Bearer " + process.env.TEST_TOKEN },
@@ -453,7 +453,7 @@ describe("CLI end-to-end", () => {
   });
 
   it("comment adds a review (piped input)", () => {
-    const out = execFileSync("node", [CLI, "comment", "agent", "code-reviewer"], {
+    const out = execFileSync(process.execPath, [CLI, "comment", "agent", "code-reviewer"], {
       cwd: ROOT,
       input: "4\nWorks well for PRs\n",
       env: { PATH: process.env.PATH, HOME: fakeHome, IHUB_REGISTRY: REGISTRY, IHUB_TOKEN: userToken },
@@ -858,7 +858,7 @@ describe("CLI end-to-end", () => {
 
   it("diff command compares two versions", () => {
     // Push v1 via API
-    execFileSync("node", ["-e", `
+    execFileSync(process.execPath, ["-e", `
       fetch("http://localhost:${PORT}/api/skills/diff-skill", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": "Bearer " + process.env.TEST_TOKEN },
@@ -867,7 +867,7 @@ describe("CLI end-to-end", () => {
     `], { encoding: "utf-8", timeout: 5000, env: { ...process.env, TEST_TOKEN: userToken } });
 
     // Push v2 via API
-    execFileSync("node", ["-e", `
+    execFileSync(process.execPath, ["-e", `
       fetch("http://localhost:${PORT}/api/skills/diff-skill", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": "Bearer " + process.env.TEST_TOKEN },

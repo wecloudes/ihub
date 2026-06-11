@@ -32,7 +32,7 @@ commands=(
   'help:Show help'
 )
 
-types=(agent agents skill skills rule rules memory memories prompt prompts)
+types=(agent agents command commands design designs memory memories prompt prompts rule rules skill skills)
 
 type_commands=(
   'list:List entries'
@@ -49,13 +49,13 @@ type_commands=(
 
 _ihub_types() {
   local -a singular_types
-  singular_types=(agent skill rule memory prompt)
+  singular_types=(agent command design memory prompt rule skill)
   _describe 'type' singular_types
 }
 
 _ihub_plural_types() {
   local -a plural_types
-  plural_types=(agents skills rules memories prompts)
+  plural_types=(agents commands designs memories prompts rules skills)
   _describe 'type' plural_types
 }
 
@@ -68,6 +68,8 @@ _ihub_names() {
     rule|rules)   dir="rules" ;;
     memory|memories) dir="memories" ;;
     prompt|prompts) dir="prompts" ;;
+    command|commands) dir="commands" ;;
+    design|designs) dir="designs" ;;
   esac
 
   if [[ -n "$dir" && -d "$dir" ]]; then
@@ -144,7 +146,7 @@ _ihub() {
           ;;
         metrics)
           _arguments \
-            '--type[Filter by type]:type:(agents skills rules memories prompts)' \
+            '--type[Filter by type]:type:(agents commands designs memories prompts rules skills)' \
             '--user[Filter by user]:username:' \
             '--name[Filter by name]:name:' \
             '--project[Filter by project]:project:'
@@ -153,7 +155,7 @@ _ihub() {
           _arguments '1:output path:_files'
           ;;
         # Type-first syntax
-        agent|agents|skill|skills|rule|rules|memory|memories|prompt|prompts)
+        agent|agents|skill|skills|rule|rules|memory|memories|prompt|prompts|command|commands|design|designs)
           _arguments \
             '1:subcommand:_describe "command" type_commands' \
             '2:name:_ihub_names ${cmd}'

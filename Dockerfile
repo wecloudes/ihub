@@ -1,13 +1,11 @@
-FROM node:22-slim AS build
+FROM oven/bun:1 AS build
 
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev
+COPY package.json bun.lock* ./
+RUN bun install --production
 
-FROM node:22-slim
-
-RUN apt-get update && apt-get install -y --no-install-recommends tini && rm -rf /var/lib/apt/lists/*
+FROM oven/bun:1
 
 WORKDIR /app
 
@@ -16,9 +14,9 @@ COPY package.json ./
 COPY ihub.config.json ./
 COPY server/ ./server/
 
-RUN mkdir -p /data && chown node:node /data
+RUN mkdir -p /data && chown bun:bun /data
 
-USER node
+USER bun
 
 ENV IHUB_PORT=3000
 ENV IHUB_DB_PATH=/data/ihub.db
@@ -27,5 +25,4 @@ EXPOSE 3000
 
 VOLUME /data
 
-ENTRYPOINT ["tini", "--"]
-CMD ["node", "server/index.js"]
+CMD ["bun", "server/index.js"]

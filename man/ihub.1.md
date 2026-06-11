@@ -1,11 +1,11 @@
 ---
 name: ihub
-description: Manual page for ihub — registry for agents, skills, rules, memories, and prompts
+description: Manual page for ihub — harness engineering platform for AI coding agents
 ---
 
 # ihub
 
-An AI artifact registry for agents, skills, rules, memories, and prompts.
+A harness engineering platform for AI coding agents.
 
 ## Synopsis
 
@@ -16,7 +16,7 @@ ihub <type> <command> [arguments] [flags]
 
 ## Description
 
-ihub is an AI artifact registry for managing agents, skills, rules, memories, and prompts as markdown files with YAML frontmatter. It works with Claude Code, Gemini CLI, Qwen Code, Cursor IDE, Codex CLI, and Open Code — installing artifacts to each coding agent's native path with the correct format.
+ihub is a harness engineering platform for AI coding agents. Agents are the harness — the top-level unit that composes skills, rules, memories, and prompts into a complete configuration. All artifacts are markdown files with YAML frontmatter. ihub works with Claude Code, Gemini CLI, Qwen Code, Cursor IDE, Codex CLI, and Open Code — installing artifacts to each coding agent's native path with the correct format.
 
 Artifacts can be created locally, imported from any coding agent, validated for cross-references, published to a remote registry, and discovered by other users. The registry supports versioning, ownership, comments with ratings, user roles, sensitive data detection, IP firewall, audit trails, VictoriaMetrics metrics, VictoriaLogs structured logging, and an interactive TUI browser.
 
@@ -148,7 +148,7 @@ Types accept singular or plural: agent/agents, skill/skills, rule/rules, memory/
 
 ## Artifact types
 
-**agent** — An autonomous actor that performs a task. Defines inputs, outputs, skills used, rules followed, memories recalled, and prompts run.
+**agent** — The harness. Wires skills, rules, memories, and prompts into a complete AI agent configuration. Defines inputs, outputs, and all component references.
 
 **skill** — A reusable capability or procedure. Defines triggers, arguments, and compatible agents.
 
@@ -157,6 +157,10 @@ Types accept singular or plural: agent/agents, skill/skills, rule/rules, memory/
 **memory** — Captured context or knowledge that persists across sessions. Defines scope, context type (decision/architecture/incident/domain/context/learning), and related entries.
 
 **prompt** — A reusable instruction template. Defines the prompt text, variables, target model, compatible agents, and memories needed for context.
+
+**command** — A user-facing slash command that maps to an agent+skill combination. Defines the trigger pattern, target agent, skills, prompts, arguments, and compatible coding agents.
+
+**design** — A UI/UX design artifact. Defines platform, component type, design system, and format. Stores wireframes, component specs, design tokens, and style guides.
 
 **Why "prompts" and not "instructions"?** Every type is an instruction to an AI in some sense. "Prompt" is specific — it means the exact text sent to a model, with variables and expected output. It answers "What do we say to the model?" — a question no other type covers.
 
