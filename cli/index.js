@@ -662,7 +662,10 @@ function validate() {
       }
       if (Array.isArray(entry.compatible_agents)) {
         for (const ref of entry.compatible_agents) {
-          if (!registry.agents.find((a) => (a.name || a.file) === ref)) {
+          // For mcps/hooks, compatible_agents names coding agents (claude, cursor, ...);
+          // for other types it references agent artifacts
+          const isCodingAgentRef = (type === "mcps" || type === "hooks") && AGENT_NAMES.includes(ref);
+          if (!isCodingAgentRef && !registry.agents.find((a) => (a.name || a.file) === ref)) {
             console.error(`  BROKEN ref: agent "${ref}" in ${label}`);
             errors++;
           }
