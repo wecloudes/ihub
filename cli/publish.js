@@ -7,9 +7,10 @@ import { maskSensitiveData, formatFindings } from "../server/sensitive.js";
 import {
   pushEntry, pullEntry, removeEntry, commentEntry, getEntryComments,
   downloadAttachment, entryToMarkdown, loadConfig, saveConfig,
+  getBaseUrl, getToken, authHeaders,
 } from "./registry.js";
 import { loadRegistry } from "./parse.js";
-import { ROOT, pluralize, singularize, prompt, closeReadline } from "./context.js";
+import { ROOT, pluralize, singularize, prompt, closeReadline, parseJsonFlag } from "./context.js";
 
 export async function push(args) {
   const force = args.includes("--force");
@@ -75,13 +76,10 @@ export async function push(args) {
 }
 
 export async function showPushDiff(pluralType, name, localEntry) {
-  const config = loadConfig();
-  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
-  const token = config.token || process.env.IHUB_TOKEN || "";
+  const base = getBaseUrl();
 
   try {
-    const hdrs = { "Content-Type": "application/json" };
-    if (token) hdrs["Authorization"] = `Bearer ${token}`;
+    const hdrs = { "Content-Type": "application/json", ...authHeaders() };
     const res = await fetch(`${base}/api/${pluralType}/${name}`, { headers: hdrs });
     if (!res.ok) {
       if (res.status === 404) {
@@ -703,8 +701,7 @@ export async function comment(args) {
 }
 
 export async function comments(args) {
-  const jsonMode = args.includes("--json");
-  const filtered = args.filter((a) => a !== "--json");
+  const { jsonMode, rest: filtered } = parseJsonFlag(args);
   const [type, name] = filtered;
   if (!type || !name) {
     console.error("Usage: ihub comments <type> <name>");
@@ -821,17 +818,16 @@ async function showConfig() {
 }
 
 async function audit(args) {
-  const jsonMode = args.includes("--json");
+  const { jsonMode, rest } = parseJsonFlag(args);
   const opts = { limit: 50, offset: 0 };
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--json") continue;
-    if (args[i] === "--user" && args[i + 1]) opts.user = args[++i];
-    else if (args[i] === "--action" && args[i + 1]) opts.action = args[++i];
-    else if (args[i] === "--page" && args[i + 1]) {
-      const page = parseInt(args[++i], 10);
+  for (let i = 0; i < rest.length; i++) {
+    if (rest[i] === "--user" && rest[i + 1]) opts.user = rest[++i];
+    else if (rest[i] === "--action" && rest[i + 1]) opts.action = rest[++i];
+    else if (rest[i] === "--page" && rest[i + 1]) {
+      const page = parseInt(rest[++i], 10);
       if (page > 1) opts.offset = (page - 1) * opts.limit;
     }
-    else if (args[i] === "--limit" && args[i + 1]) opts.limit = parseInt(args[++i], 10);
+    else if (rest[i] === "--limit" && rest[i + 1]) opts.limit = parseInt(rest[++i], 10);
   }
 
   const data = await fetchAuditLog(opts);
@@ -916,8 +912,7 @@ function getActionColor(action) {
 }
 
 async function metrics(args) {
-  const jsonMode = args.includes("--json");
-  const filteredMetricArgs = args.filter((a) => a !== "--json");
+  const { jsonMode, rest: filteredMetricArgs } = parseJsonFlag(args);
   const filters = parseFilters(filteredMetricArgs);
   const raw = await fetchMetrics();
 
@@ -939,11 +934,8 @@ async function backup(args) {
   if (isFull) {
     // Full JSON backup — works with any storage adapter (S3, R2, etc.)
     const outputPath = filtered[0] || `ihub-backup-${timestamp}.json`;
-    const config = loadConfig();
-    const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
-    const token = config.token || process.env.IHUB_TOKEN || "";
-    const authHeaders = token ? { "Authorization": `Bearer ${token}` } : {};
-    const res = await fetch(`${base}/api/backup/full`, { headers: authHeaders });
+    const base = getBaseUrl();
+    const res = await fetch(`${base}/api/backup/full`, { headers: authHeaders() });
     if (!res.ok) { const e = await res.json().catch(() => ({})); console.error(`Backup failed: ${e.error || res.status}`); process.exit(1); }
     const data = await res.text();
     writeFileSync(outputPath, data);
@@ -970,10 +962,8 @@ async function restore(args) {
     console.error(`File not found: ${filePath}`);
     process.exit(1);
   }
-  const config = loadConfig();
-  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
-  const token = config.token || process.env.IHUB_TOKEN || "";
-  const authHeaders = token ? { "Content-Type": "application/json", "Authorization": `Bearer ${token}` } : {};
+  const base = getBaseUrl();
+  const auth = authHeaders();
   const buf = readFileSync(filePath);
 
   // Detect format
@@ -989,7 +979,7 @@ async function restore(args) {
     console.log(`  ${bundle.artifacts.length} artifacts, ${bundle.comments?.length || 0} comments`);
     const res = await fetch(`${base}/api/backup/full`, {
       method: "POST",
-      headers: { ...authHeaders, "Content-Type": "application/json" },
+      headers: { ...auth, "Content-Type": "application/json" },
       body: buf,
     });
     const data = await res.json();
@@ -1000,7 +990,7 @@ async function restore(args) {
     console.log(`Restoring SQLite backup from ${filePath} (${buf.length} bytes)...`);
     const res = await fetch(`${base}/api/backup`, {
       method: "POST",
-      headers: { ...authHeaders, "Content-Type": "application/octet-stream" },
+      headers: { ...auth, "Content-Type": "application/octet-stream" },
       body: buf,
     });
     const data = await res.json();
@@ -1040,11 +1030,10 @@ async function admin(args) {
       process.exit(1);
     }
     const [aType, aName] = target.split("/");
-    const base = loadConfig().registry || process.env.IHUB_REGISTRY || "http://localhost:3000";
-    const token = loadConfig().token || process.env.IHUB_TOKEN;
+    const base = getBaseUrl();
     const res = await fetch(`${base}/api/${aType}/${aName}/approve`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Approve failed");
@@ -1053,10 +1042,9 @@ async function admin(args) {
   }
 
   if (subcommand === "blocked") {
-    const base = loadConfig().registry || process.env.IHUB_REGISTRY || "http://localhost:3000";
-    const token = loadConfig().token || process.env.IHUB_TOKEN;
+    const base = getBaseUrl();
     const res = await fetch(`${base}/api/blocked`, {
-      headers: { "Authorization": `Bearer ${token}` },
+      headers: authHeaders(),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to list blocked");
@@ -1082,19 +1070,18 @@ async function admin(args) {
 
 async function webhook(args) {
   const [subcommand, ...subArgs] = args;
-  const config = loadConfig();
-  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
-  const token = config.token || process.env.IHUB_TOKEN;
+  const base = getBaseUrl();
+  const token = getToken();
 
   if (!token) {
     console.error("Not logged in. Run: ihub login <url>");
     process.exit(1);
   }
 
-  const authHeaders = { "Content-Type": "application/json", "Authorization": `Bearer ${token}` };
+  const hdrs = { "Content-Type": "application/json", ...authHeaders() };
 
   if (subcommand === "list") {
-    const res = await fetch(`${base}/api/webhooks`, { headers: authHeaders });
+    const res = await fetch(`${base}/api/webhooks`, { headers: hdrs });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to list webhooks");
     if (data.length === 0) {
@@ -1128,7 +1115,7 @@ async function webhook(args) {
     if (secret) body.secret = secret;
     const res = await fetch(`${base}/api/webhooks`, {
       method: "POST",
-      headers: authHeaders,
+      headers: hdrs,
       body: JSON.stringify(body),
     });
     const data = await res.json();
@@ -1145,7 +1132,7 @@ async function webhook(args) {
     }
     const res = await fetch(`${base}/api/webhooks/${id}`, {
       method: "DELETE",
-      headers: authHeaders,
+      headers: hdrs,
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to remove webhook");
@@ -1318,15 +1305,14 @@ async function loginAuth0(registryUrl) {
 
 async function whoami(args = []) {
   const jsonMode = args.includes("--json");
-  const config = loadConfig();
-  if (!config.token) {
+  if (!getToken()) {
     console.error("Not logged in. Run: ihub register <url> or ihub login <url>");
     process.exit(1);
   }
 
-  const base = config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000";
-  const res = await fetch(`${base.replace(/\/+$/, "")}/api/whoami`, {
-    headers: { "Authorization": `Bearer ${config.token}` },
+  const base = getBaseUrl();
+  const res = await fetch(`${base}/api/whoami`, {
+    headers: authHeaders(),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Not authenticated");
@@ -1341,8 +1327,7 @@ async function whoami(args = []) {
 }
 
 async function outdated() {
-  const config = loadConfig();
-  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
+  const base = getBaseUrl();
   const registry = loadRegistry(ROOT);
   const TYPES = ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"];
 
@@ -1379,9 +1364,8 @@ async function outdated() {
 }
 
 async function doctor() {
-  const config = loadConfig();
-  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
-  const token = config.token || process.env.IHUB_TOKEN || "";
+  const base = getBaseUrl();
+  const token = getToken();
   const TYPES = ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"];
 
   console.log("\nihub doctor\n");
@@ -1402,7 +1386,7 @@ async function doctor() {
   if (token) {
     try {
       const res = await fetch(`${base}/api/whoami`, {
-        headers: { "Authorization": `Bearer ${token}` },
+        headers: authHeaders(),
       });
       if (res.ok) {
         const data = await res.json();
@@ -1460,14 +1444,12 @@ async function doctor() {
 
 async function federation(args) {
   const [subcommand] = args;
-  const config = loadConfig();
-  const base = config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000";
-  const token = config.token || process.env.IHUB_TOKEN;
+  const base = getBaseUrl();
 
   if (subcommand === "sync") {
-    const res = await fetch(`${base.replace(/\/+$/, "")}/api/federation/sync`, {
+    const res = await fetch(`${base}/api/federation/sync`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Federation sync failed");
@@ -1482,8 +1464,8 @@ async function federation(args) {
   }
 
   if (subcommand === "status") {
-    const res = await fetch(`${base.replace(/\/+$/, "")}/api/federation/status`, {
-      headers: { "Authorization": `Bearer ${token}` },
+    const res = await fetch(`${base}/api/federation/status`, {
+      headers: authHeaders(),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to get federation status");
@@ -1516,12 +1498,10 @@ async function verify(args) {
 
   const singularType = singularize(type);
   const pluralType = pluralize(singularType);
-  const config = loadConfig();
-  const base = config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000";
-  const token = config.token || process.env.IHUB_TOKEN;
+  const base = getBaseUrl();
 
-  const res = await fetch(`${base.replace(/\/+$/, "")}/api/${pluralType}/${name}`, {
-    headers: token ? { "Authorization": `Bearer ${token}` } : {},
+  const res = await fetch(`${base}/api/${pluralType}/${name}`, {
+    headers: authHeaders(),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || `Not found: ${pluralType}/${name}`);
@@ -1546,9 +1526,8 @@ async function diff(args) {
 
   const singularType = singularize(type);
   const pluralType = pluralize(singularType);
-  const config = loadConfig();
-  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
-  const hdrs = config.token ? { Authorization: `Bearer ${config.token}` } : {};
+  const base = getBaseUrl();
+  const hdrs = authHeaders();
 
   const [r1, r2] = await Promise.all([
     fetch(`${base}/api/${pluralType}/${name}?version=${encodeURIComponent(v1)}`, { headers: hdrs }),
@@ -1661,9 +1640,8 @@ Types: agent(s), command(s), design(s), memory/memories, prompt(s), rule(s), ski
 // --- Watch Command ---
 
 export async function watch() {
-  const config = loadConfig();
-  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
-  const token = config.token || process.env.IHUB_TOKEN || "";
+  const base = getBaseUrl();
+  const token = getToken();
 
   if (!token) {
     console.error("Not logged in. Run: ihub register <url> or ihub login <url>");
