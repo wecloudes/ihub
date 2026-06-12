@@ -94,6 +94,10 @@ h1,h2,h3,h4{font-family:var(--font-display);letter-spacing:-.01em}
 .type-tab[data-type="rules"].active{background:var(--type-rules)}
 .type-tab[data-type="memories"].active{background:var(--type-memories)}
 .type-tab[data-type="prompts"].active{background:var(--type-prompts)}
+.type-tab[data-type="commands"].active{background:var(--type-commands)}
+.type-tab[data-type="designs"].active{background:var(--type-designs)}
+.type-tab[data-type="hooks"].active{background:var(--type-hooks)}
+.type-tab[data-type="mcps"].active{background:var(--type-mcps)}
 .type-tab.active{background:var(--accent)}
 
 /* Sort */
@@ -434,8 +438,8 @@ function renderMd(text){
   // Bold and italic
   html=html.replace(/\\*\\*(.+?)\\*\\*/g,'<strong>$1</strong>');
   html=html.replace(/\\*(.+?)\\*/g,'<em>$1</em>');
-  // Links
-  html=html.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g,'<a href="$2" target="_blank">$1</a>');
+  // Links — http(s) only, never javascript: or data: URLs
+  html=html.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g,function(m,txt,href){return /^https?:\\/\\//i.test(href)?'<a href="'+href+'" target="_blank" rel="noopener noreferrer">'+txt+'</a>':txt;});
   // Lists
   html=html.replace(/^- (.+)$/gm,'<li>$1</li>');
   html=html.replace(/(<li>.*<\\/li>)/gs,'<ul>$1</ul>');
@@ -475,6 +479,7 @@ function navigate(view){
   state.view=view;
   state.detail=null;
   document.querySelectorAll('.sidebar nav a').forEach(a=>a.classList.toggle('active',a.dataset.view===view));
+  setHash(view==='browse'?'':view);
   render();
   // Close mobile sidebar
   \$('sidebar').classList.remove('open');
@@ -531,6 +536,26 @@ window.logout=function(){
 };
 
 window.navigate=navigate;
+
+// --- Hash routing (deep links: #view or #type/name) ---
+let _settingHash=false;
+function setHash(h){
+  if(('#'+h)===location.hash||(h===''&&!location.hash))return;
+  _settingHash=true;
+  location.hash=h;
+  setTimeout(function(){_settingHash=false;},0);
+}
+function applyHash(){
+  const h=decodeURIComponent(location.hash.replace(/^#\\/?/,''));
+  if(!h){state.detail=null;navigate('browse');return;}
+  const slash=h.indexOf('/');
+  if(slash>0){
+    const type=h.slice(0,slash),name=h.slice(slash+1);
+    if(TYPES.includes(type)){state.currentType=type;state.view='browse';document.querySelectorAll('.sidebar nav a').forEach(a=>a.classList.toggle('active',a.dataset.view==='browse'));showDetail(name);return;}
+  }
+  navigate(h);
+}
+window.addEventListener('hashchange',function(){if(!_settingHash)applyHash();});
 
 function showLoginForm(){
   showModal(\`
@@ -590,7 +615,7 @@ function renderCard(i,type){
   const color=typeColorMap[type]||'var(--accent)';
   const delay=Math.min(_cardIdx*0.04,0.8);_cardIdx++;
   let h='<div class="card" style="border-left-color:'+color+';animation-delay:'+delay+'s" onclick="showDetailTyped(\\''+esc(type)+'\\',\\''+esc(i.name).replace(/'/g,"\\\\'")+'\\')">';
-  if(state.bulkMode)h+='<div class="card-select'+(state.selected.has(selKey)?' checked':'')+'" onclick="event.stopPropagation();toggleSelect(\\''+esc(selKey)+'\\')">'+(state.selected.has(selKey)?'\\u2713':'')+'</div>';
+  if(state.bulkMode)h+='<div class="card-select'+(state.selected.has(selKey)?' checked':'')+'" onclick="event.stopPropagation();toggleSelect(\\''+esc(selKey).replace(/'/g,"\\\\'")+'\\')">'+(state.selected.has(selKey)?'\\u2713':'')+'</div>';
   h+='<h3>'+esc(i.name)+'</h3><p>'+esc(i.description||'')+'</p>';
   h+='<div class="card-meta">'+tags+'</div>';
   h+='<div class="card-footer">'+stars+(pullsLabel?' <span style="color:var(--muted);margin-left:.5rem">'+pullsLabel+'</span>':'')+'<span style="font-family:var(--font-display);font-size:.7rem">'+(i.version?'v'+esc(i.version):'')+(i.owner?' \\u00b7 '+esc(i.owner):'')+'</span></div>';
@@ -609,6 +634,11 @@ function renderBrowse(el){
     html+='<div class="search-results">';
     TYPES.forEach(t=>{
       const matches=filterItems(state.allItems[t]||[]);
+      // Merge server search results (matches inside bodies) not caught by the client filter
+      const seen=new Set(matches.map(m=>m.name));
+      (Array.isArray(state.serverResults)?state.serverResults:[]).forEach(r=>{
+        if(r.type===t&&r.name&&!seen.has(r.name)){seen.add(r.name);matches.push(r);}
+      });
       if(!matches.length)return;
       totalResults+=matches.length;
       html+='<div class="search-group"><h3>'+t+' ('+matches.length+')</h3><div class="card-grid">';
@@ -676,6 +706,7 @@ window.showDetail=async function(name){
     try{const vr=await api('/'+state.currentType+'/'+encodeURIComponent(name)+'/versions');state.versions=await vr.json();}catch{state.versions=null;}
     try{const ar=await api('/'+state.currentType+'/'+encodeURIComponent(name)+'/attachments');state.attachments=await ar.json();}catch{state.attachments=null;}
     state.diffVersions=null;
+    setHash(state.currentType+'/'+encodeURIComponent(name));
   }catch(e){
     toast('Error loading: '+e.message,'error');
     \$('content').innerHTML='<div class="empty-state"><div class="icon">\\u26a0</div><p>Could not load '+esc(name)+': '+esc(e.message)+'</p><button class="btn btn-sm" onclick="state.detail=null;render()">\\u2190 Back</button></div>';
@@ -711,6 +742,7 @@ function renderDetail(el){
   if(state.token)html+='<button class="btn btn-danger btn-sm" onclick="confirmDelete(\\''+esc(d.name).replace(/'/g,"\\\\'")+'\\')" title="Delete">\\u2716 Delete</button>';
   html+='</div></div>';
   html+='<h2>'+esc(d.name)+'</h2>';
+  if(d.description)html+='<p style="color:var(--muted);margin:.2rem 0 .6rem">'+esc(d.description)+'</p>';
   html+='<div class="detail-meta">';
   if(d.version)html+='<span>v'+esc(d.version)+'</span>';
   if(d.owner)html+='<span>by '+esc(d.owner)+'</span>';
@@ -833,6 +865,7 @@ window.submitReview=async function(){
 window.backToList=function(){
   state.detail=null;state.comments=null;state.versions=null;state.attachments=null;state.diffVersions=null;
   if(state._previousView){state.view=state._previousView;state._previousView=null;document.querySelectorAll('.sidebar nav a').forEach(a=>a.classList.toggle('active',a.dataset.view===state.view));}
+  setHash(state.view==='browse'?'':state.view);
   render();
 };
 
@@ -1128,14 +1161,19 @@ async function renderBlocked(el){
 
 window.approveArtifact=async function(type,name){
   try{
-    const r=await api('/blocked/'+encodeURIComponent(name),{method:'DELETE',headers:authHeaders()});
+    const r=await api('/'+encodeURIComponent(type)+'/'+encodeURIComponent(name)+'/approve',{method:'POST',headers:authHeaders()});
     if(r.ok){toast('Approved '+name,'success');renderBlocked(\$('content'));}
     else{toast('Approve failed','error');}
   }catch(e){toast('Error: '+e.message,'error');}
 };
 
 // --- Graph ---
+let _graphAbort=null;
 function renderGraph(el){
+  // Abort listeners from any previous graph render (prevents leak across visits)
+  if(_graphAbort)_graphAbort.abort();
+  _graphAbort=new AbortController();
+  const _gsig=_graphAbort.signal;
   const typeColors={agents:'#3498db',skills:'#2ecc71',rules:'#f39c12',memories:'#e94560',prompts:'#9b59b6',commands:'#e67e22',designs:'#1abc9c',hooks:'#e74c3c',mcps:'#16a085'};
   const REL_FIELDS=[
     {field:'skills',targetType:'skills'},
@@ -1448,14 +1486,14 @@ function renderGraph(el){
     dragNode.x=e.clientX-rect.left;
     dragNode.y=e.clientY-rect.top;
     if(!simRunning||simFrames>=MAX_FRAMES){drawGraph();}
-  });
+  },{signal:_gsig});
   document.addEventListener('mouseup',function(){
     if(dragNode){
       dragNode._dragging=false;
       if(didDrag&&simFrames>=MAX_FRAMES){simFrames=MAX_FRAMES-30;simRunning=true;simulate();}
       dragNode=null;
     }
-  });
+  },{signal:_gsig});
   // Click to select, double-click to navigate
   let _lastClickId=null,_lastClickTime=0;
   svg.addEventListener('click',function(e){
@@ -1507,7 +1545,7 @@ function renderGraph(el){
   window.addEventListener('resize',function(){
     if(state.view!=='graph')return;
     centerGraph();
-  });
+  },{signal:_gsig});
 }
 
 // --- Guide ---
@@ -1609,7 +1647,7 @@ async function renderAdmin(el){
   html+='<div class="admin-section"><h3>User Role Management</h3>';
   html+='<div style="display:flex;gap:.5rem;align-items:flex-end;flex-wrap:wrap">';
   html+='<div><label style="display:block;font-size:.82rem;color:var(--muted)">Username</label><input id="admin-user" placeholder="username" style="padding:.4rem .7rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text)"></div>';
-  html+='<div><label style="display:block;font-size:.82rem;color:var(--muted)">Role</label><select id="admin-role" style="padding:.4rem .7rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text)"><option>user</option><option>admin</option><option>moderator</option></select></div>';
+  html+='<div><label style="display:block;font-size:.82rem;color:var(--muted)">Role</label><select id="admin-role" style="padding:.4rem .7rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text)"><option>user</option><option>admin</option></select></div>';
   html+='<button class="btn btn-primary btn-sm" onclick="setRole()">Set Role</button>';
   html+='</div></div>';
 
@@ -1684,7 +1722,7 @@ async function renderAdmin(el){
       else{
         let t='<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>URL</th><th>Types</th><th>Last Sync</th><th>Synced</th></tr></thead><tbody>';
         fed.upstreams.forEach(u=>{
-          t+='<tr><td style="font-size:.82rem;word-break:break-all">'+esc(u.url||'')+'</td><td style="font-size:.82rem;color:var(--accent)">'+esc((u.types||[]).join(', ')||'all')+'</td><td style="color:var(--muted);font-size:.8rem">'+esc(u.last_sync||'never')+'</td><td style="font-weight:600">'+esc(u.synced||0)+'</td></tr>';
+          t+='<tr><td style="font-size:.82rem;word-break:break-all">'+esc(u.url||'')+'</td><td style="font-size:.82rem;color:var(--accent)">'+esc((u.types||[]).join(', ')||'all')+'</td><td style="color:var(--muted);font-size:.8rem">'+esc(u.lastSync||'never')+'</td><td style="font-weight:600">'+esc(u.lastSynced||0)+'</td></tr>';
         });
         t+='</tbody></table></div>';
         \$('federation-status').innerHTML=t;
@@ -1740,14 +1778,22 @@ window.downloadFullBackup=async function(){
   }catch(e){toast('Full backup failed: '+e.message,'error');}
 };
 
-window.restoreFromFile=async function(input){
+let _pendingRestore=null;
+window.restoreFromFile=function(input){
   const file=input.files[0];
+  input.value='';
   if(!file){return;}
+  _pendingRestore=file;
+  showModal('<h3>Restore from Backup</h3><p>Restore from <strong>'+esc(file.name)+'</strong>? This will overwrite existing data.</p><div class="modal-actions"><button class="btn" onclick="hideModal()">Cancel</button><button class="btn btn-danger" onclick="doRestore()">Restore</button></div>');
+};
+
+window.doRestore=async function(){
+  const file=_pendingRestore;
+  _pendingRestore=null;
+  hideModal();
+  if(!file)return;
   const name=file.name.toLowerCase();
   const isJson=name.endsWith('.json');
-
-  if(!confirm('Restore from "'+file.name+'"? This will overwrite existing data.'))return;
-
   try{
     if(isJson){
       // Full JSON restore
@@ -1765,7 +1811,6 @@ window.restoreFromFile=async function(input){
     }
     await loadAllTypes();render();
   }catch(e){toast('Restore error: '+e.message,'error');}
-  input.value='';
 };
 
 window.importBundleFile=async function(input){
@@ -1843,9 +1888,23 @@ window.fedSync=async function(){
 \$('theme-toggle').textContent=theme==='dark'?'\\u263e':'\\u2600';
 
 // --- Search ---
+// Client filter renders immediately; server search (body matches) merges in when it arrives.
+let _searchDebounce=null;
 \$('search').addEventListener('input',function(e){
   state.searchTerm=e.target.value;
-  if(state.searchTerm.length>=2){state.view='browse';state.detail=null;document.querySelectorAll('.sidebar nav a').forEach(a=>a.classList.toggle('active',a.dataset.view==='browse'));}
+  state.serverResults=null;
+  if(state.searchTerm.length>=2){
+    state.view='browse';state.detail=null;
+    document.querySelectorAll('.sidebar nav a').forEach(a=>a.classList.toggle('active',a.dataset.view==='browse'));
+    const term=state.searchTerm;
+    clearTimeout(_searchDebounce);
+    _searchDebounce=setTimeout(async function(){
+      try{
+        const r=await api('/search?q='+encodeURIComponent(term));
+        if(r.ok&&state.searchTerm===term){state.serverResults=await r.json();render();}
+      }catch{}
+    },250);
+  }
   render();
 });
 
@@ -1867,13 +1926,25 @@ document.querySelectorAll('.sidebar nav a').forEach(a=>{
 // --- Modal close on overlay click ---
 \$('modal-overlay').addEventListener('click',function(e){if(e.target===this)hideModal();});
 
+// --- Keyboard shortcuts: Esc closes modal / clears search, / focuses search ---
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape'){
+    if(\$('modal-overlay').classList.contains('active')){hideModal();return;}
+    if(document.activeElement===\$('search')){\$('search').blur();if(state.searchTerm){state.searchTerm='';\$('search').value='';render();}return;}
+    return;
+  }
+  const tag=(document.activeElement&&document.activeElement.tagName)||'';
+  if(e.key==='/'&&!/INPUT|TEXTAREA|SELECT/.test(tag)){e.preventDefault();\$('search').focus();}
+});
+
 // --- Init ---
 async function init(){
   await loadAllTypes();
   await checkAuth();
   updateAdminNav();
   renderUserSection();
-  render();
+  if(location.hash)applyHash();
+  else render();
 }
 init();
 
