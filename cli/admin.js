@@ -9,6 +9,7 @@ import {
   getBaseUrl,
   getToken,
   authHeaders,
+  jsonHeaders,
 } from "./registry.js";
 import { parseJsonFlag } from "./context.js";
 
@@ -228,7 +229,7 @@ export async function admin(args) {
     const base = getBaseUrl();
     const res = await fetch(`${base}/api/${aType}/${aName}/approve`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
+      headers: jsonHeaders(),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Approve failed");
@@ -273,7 +274,7 @@ export async function webhook(args) {
     process.exit(1);
   }
 
-  const hdrs = { "Content-Type": "application/json", ...authHeaders() };
+  const hdrs = jsonHeaders();
 
   if (subcommand === "list") {
     const res = await fetch(`${base}/api/webhooks`, { headers: hdrs });
@@ -349,7 +350,7 @@ export async function federation(args) {
   if (subcommand === "sync") {
     const res = await fetch(`${base}/api/federation/sync`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
+      headers: jsonHeaders(),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Federation sync failed");

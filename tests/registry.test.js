@@ -1,6 +1,16 @@
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
-import { entryToMarkdown } from "../cli/registry.js";
+import { entryToMarkdown, authHeaders, jsonHeaders } from "../cli/registry.js";
+
+describe("jsonHeaders", () => {
+  it("always sets JSON content-type and is a superset of authHeaders", () => {
+    const j = jsonHeaders();
+    assert.equal(j["Content-Type"], "application/json");
+    // jsonHeaders = authHeaders() + Content-Type, so every auth key must carry through
+    const a = authHeaders();
+    for (const [k, v] of Object.entries(a)) assert.equal(j[k], v);
+  });
+});
 
 describe("entryToMarkdown", () => {
   it("converts an entry back to markdown with frontmatter", () => {

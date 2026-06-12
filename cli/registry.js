@@ -35,6 +35,11 @@ export function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// JSON Content-Type + bearer auth (when logged in).
+export function jsonHeaders() {
+  return { "Content-Type": "application/json", ...authHeaders() };
+}
+
 export function headers(auth = false) {
   const h = { "Content-Type": "application/json" };
   if (auth) {

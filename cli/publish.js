@@ -7,7 +7,7 @@ import { maskSensitiveData, formatFindings } from "../server/sensitive.js";
 import {
   pushEntry, pullEntry, removeEntry, commentEntry, getEntryComments,
   downloadAttachment, entryToMarkdown, loadConfig, saveConfig,
-  getBaseUrl, getToken, authHeaders,
+  getBaseUrl, getToken, authHeaders, jsonHeaders,
 } from "./registry.js";
 import { loadRegistry } from "./parse.js";
 import { ROOT, pluralize, singularize, prompt, closeReadline, parseJsonFlag } from "./context.js";
@@ -79,7 +79,7 @@ export async function showPushDiff(pluralType, name, localEntry) {
   const base = getBaseUrl();
 
   try {
-    const hdrs = { "Content-Type": "application/json", ...authHeaders() };
+    const hdrs = jsonHeaders();
     const res = await fetch(`${base}/api/${pluralType}/${name}`, { headers: hdrs });
     if (!res.ok) {
       if (res.status === 404) {
