@@ -2,6 +2,12 @@
 
 All notable changes to ihub are documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- **Internal: split the `cli/index.js` monolith into focused ES modules** — no user-facing behavior change; every command is byte-identical to the prior monolith and all 502 tests pass. `cli/index.js` (3149 lines) is now a 178-line dispatcher; logic moved to `cli/context.js` (shared state: ROOT, type maps, readline helpers), `cli/query.js` (list, search, show, preview, validate, projects), `cli/auth.js` (passwd, register, login, whoami), `cli/admin.js` (audit, metrics, backup, restore, admin, webhook, federation), `cli/create.js` (create, import, createFromTemplate), `cli/publish.js` (push, pull, remove, comment, watch, pullFromUrl), and `cli/diagnostics.js` (completions, man, config, outdated, doctor, verify, diff, version, help)
+
 ## [0.8.0] - 2026-06-11
 
 ### Changed

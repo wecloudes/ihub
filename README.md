@@ -1022,7 +1022,14 @@ prompts/           working directory for prompt entries
 examples/          sample entries (4 agents, 6 skills, 4 rules, 3 memories, 5 prompts)
 templates/         scaffolding templates for each type
 cli/               CLI tool (ESM, zero external dependencies)
-  index.js         command dispatcher + all CLI commands
+  index.js         command dispatcher + type-first routing + browse/open
+  context.js       shared state: ROOT, type maps, readline helpers
+  query.js         list, search, show, preview, validate, projects
+  create.js        create, import, createFromTemplate
+  publish.js       push, pull, remove, comment, watch, pullFromUrl
+  auth.js          register, login, passwd, whoami
+  admin.js         audit, metrics, backup, restore, admin, webhook, federation
+  diagnostics.js   completions, man, config, outdated, doctor, verify, diff, version, help
   pinning.js       version pinning, bundle export/import
   parse.js         frontmatter parser, registry loader
   registry.js      HTTP client for remote registry

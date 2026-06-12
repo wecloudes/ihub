@@ -13,7 +13,14 @@ bun run server    # start the registry server locally
 
 ```
 cli/           CLI tool (ESM, no external dependencies)
-  index.js       command dispatcher + all CLI commands
+  index.js       command dispatcher + type-first routing + browse/open
+  context.js     shared state: ROOT, type maps, readline helpers
+  query.js       list, search, show, preview, validate, projects
+  create.js      create, import, createFromTemplate
+  publish.js     push, pull, remove, comment, watch, pullFromUrl
+  auth.js        register, login, passwd, whoami
+  admin.js       audit, metrics, backup, restore, admin, webhook, federation
+  diagnostics.js completions, man, config, outdated, doctor, verify, diff, version, help
   pinning.js     version pinning, bundle export/import
   parse.js       frontmatter parser, entry/registry loader
   registry.js    HTTP client for remote registry
