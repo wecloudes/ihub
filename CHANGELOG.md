@@ -18,6 +18,7 @@ All notable changes to ihub are documented in this file.
 - **Web UI keyboard shortcuts** — `/` focuses search, `Esc` closes modals / clears search
 - **TUI filter mode** — typing in a list enters filter mode where every printable key goes to the filter (`Esc` clears, `⏎` keeps it and re-enables action keys, `f` enters explicitly); previously 25 reserved action keys were stolen mid-typing
 - **TUI `NO_COLOR` support**, minimum terminal size gate (60x15), Home/End/PageUp/PageDown navigation, offline indicator in the header, distinct colors for all 9 artifact types
+- **TUI non-blocking network ops** — every fetch in the key handler runs behind an animated header spinner; `Esc` cancels in-flight operations, stale responses are discarded (a slow response can't clobber a newer action), and detail/comments plus all-type loads fetch in parallel
 
 ### Fixed
 
