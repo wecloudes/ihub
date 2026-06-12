@@ -8,6 +8,7 @@ import { resolve, dirname, join } from "path";
 import { homedir } from "os";
 import { execSync } from "child_process";
 import { CODING_AGENTS, AGENT_NAMES, getInstallPath } from "./agents-config.js";
+import { entryToMarkdown } from "./registry.js";
 
 const ESC = "\x1b";
 const CLEAR = `${ESC}[2J${ESC}[H`;
@@ -18,27 +19,33 @@ const DIM = `${ESC}[2m`;
 const RESET = `${ESC}[0m`;
 
 const THEME = process.env.IHUB_THEME || "dark";
+// NO_COLOR (https://no-color.org) — strip colors, keep bold/dim/inverse for hierarchy
+const NO_COLOR = !!process.env.NO_COLOR;
+const C = (s) => (NO_COLOR ? "" : s);
 
-const CYAN = `${ESC}[36m`;
-const YELLOW = `${ESC}[33m`;
-const GREEN = `${ESC}[32m`;
-const MAGENTA = `${ESC}[35m`;
-const BLUE = `${ESC}[34m`;
-const RED = `${ESC}[31m`;
+const CYAN = C(`${ESC}[36m`);
+const YELLOW = C(`${ESC}[33m`);
+const GREEN = C(`${ESC}[32m`);
+const MAGENTA = C(`${ESC}[35m`);
+const BLUE = C(`${ESC}[34m`);
+const RED = C(`${ESC}[31m`);
+const BRIGHT_RED = C(`${ESC}[91m`);
+const BRIGHT_CYAN = C(`${ESC}[96m`);
 
 // Spinner frames for loading states
 const SPINNER_FRAMES = ["\u280B", "\u2819", "\u2839", "\u2838", "\u283C", "\u2834", "\u2826", "\u2827", "\u2807", "\u280F"];
 let _spinnerIdx = 0;
-const WHITE = THEME === "light" ? `${ESC}[90m` : `${ESC}[37m`;
-const GRAY = THEME === "light" ? `${ESC}[37m` : `${ESC}[90m`;
-const BG_CYAN = THEME === "light" ? `${ESC}[106m` : `${ESC}[46m`;
-const BLACK = THEME === "light" ? `${ESC}[30m` : `${ESC}[30m`;
+const WHITE = C(THEME === "light" ? `${ESC}[90m` : `${ESC}[37m`);
+const GRAY = C(THEME === "light" ? `${ESC}[37m` : `${ESC}[90m`);
+const BG_CYAN = C(THEME === "light" ? `${ESC}[106m` : `${ESC}[46m`);
+const BLACK = C(`${ESC}[30m`);
 const INVERSE = `${ESC}[7m`;
-const BG_YELLOW = THEME === "light" ? `${ESC}[103m` : `${ESC}[43m`;
-const BG_GREEN = THEME === "light" ? `${ESC}[102m` : `${ESC}[42m`;
-const BG_RED = `${ESC}[41m`;
+const BG_YELLOW = C(THEME === "light" ? `${ESC}[103m` : `${ESC}[43m`);
+const BG_GREEN = C(THEME === "light" ? `${ESC}[102m` : `${ESC}[42m`);
+const BG_RED = C(`${ESC}[41m`);
 
-const TYPE_COLORS = { agents: CYAN, commands: RED, designs: WHITE, hooks: RED, mcps: CYAN, memories: MAGENTA, prompts: BLUE, rules: YELLOW, skills: GREEN };
+// Distinct color per type (commands/hooks and agents/mcps previously collided)
+const TYPE_COLORS = { agents: CYAN, commands: BRIGHT_RED, designs: WHITE, hooks: RED, mcps: BRIGHT_CYAN, memories: MAGENTA, prompts: BLUE, rules: YELLOW, skills: GREEN };
 const TYPE_ICONS = { agents: "\u25C6", commands: "\u2318", designs: "\u25C7", hooks: "\u2693", mcps: "\u29BF", memories: "\u25CF", prompts: "\u25B2", rules: "\u25A0", skills: "\u25B6" };
 const TYPES = ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"];
 
@@ -74,6 +81,7 @@ export async function startTui(baseUrl, token) {
     isAdmin: false,
     // New state
     filter: "",           // inline fuzzy filter
+    filterMode: false,    // when true, all printable keys go to the filter
     previewScroll: 0,    // right pane scroll offset
     sortBy: "name",       // name | date | rating | pulls
     showHelp: false,
@@ -236,6 +244,39 @@ export async function startTui(baseUrl, token) {
 
     // Ignore main handler while search input is active
     if (state._searchMode) return;
+
+    // Filter mode — every printable key goes to the filter (action keys disabled)
+    // so names containing reserved chars (p, s, q, ...) are filterable.
+    if (state.view === "list" && state.filterMode) {
+      if (key === ESC) {
+        state.filterMode = false;
+        state.filter = "";
+        state.selectedItem = 0;
+        state.scrollOffset = 0;
+      } else if (key === "\r" || key === "\n") {
+        state.filterMode = false; // keep filter, re-enable action keys
+      } else if (key === "\x7f") {
+        state.filter = state.filter.slice(0, -1);
+        if (!state.filter) state.filterMode = false;
+        state.selectedItem = 0;
+        state.scrollOffset = 0;
+      } else if (key === `${ESC}[A`) {
+        state.selectedItem = Math.max(0, state.selectedItem - 1);
+        state.previewScroll = 0;
+        adjustScroll(state);
+      } else if (key === `${ESC}[B`) {
+        const items = getVisibleItems(state);
+        state.selectedItem = Math.min(items.length - 1, state.selectedItem + 1);
+        state.previewScroll = 0;
+        adjustScroll(state);
+      } else if (key.length === 1 && key >= " " && key <= "~") {
+        state.filter += key;
+        state.selectedItem = 0;
+        state.scrollOffset = 0;
+      }
+      render(state);
+      return;
+    }
 
     // Help overlay — dismiss with any key
     if (state.showHelp) {
@@ -411,6 +452,31 @@ export async function startTui(baseUrl, token) {
       return;
     }
 
+    // Home / End / PageUp / PageDown
+    if ([`${ESC}[H`, `${ESC}[1~`, `${ESC}[F`, `${ESC}[4~`, `${ESC}[5~`, `${ESC}[6~`].includes(key)) {
+      const isHome = key === `${ESC}[H` || key === `${ESC}[1~`;
+      const isEnd = key === `${ESC}[F` || key === `${ESC}[4~`;
+      const isPgUp = key === `${ESC}[5~`;
+      const page = (process.stdout.rows || 24) - 7;
+      if (state.view === "list" || state.showBookmarks) {
+        const items = getVisibleItems(state);
+        if (isHome) state.selectedItem = 0;
+        else if (isEnd) state.selectedItem = Math.max(0, items.length - 1);
+        else if (isPgUp) state.selectedItem = Math.max(0, state.selectedItem - page);
+        else state.selectedItem = Math.min(Math.max(0, items.length - 1), state.selectedItem + page);
+        state.previewScroll = 0;
+        adjustScroll(state);
+      } else if (state.view !== "types") {
+        const maxOffset = Math.max(0, (state._contentLines || 0) - (state._contentVisibleRows || 1));
+        if (isHome) state.scrollOffset = 0;
+        else if (isEnd) state.scrollOffset = maxOffset;
+        else if (isPgUp) state.scrollOffset = Math.max(0, state.scrollOffset - page);
+        else state.scrollOffset = Math.min(maxOffset, state.scrollOffset + page);
+      }
+      render(state);
+      return;
+    }
+
     // Left/Right arrows — tab between types from list view (#6)
     if (key === `${ESC}[D` && state.view === "list" && !state.isSearch && !state.isBlockedView) {
       state.selectedType = (state.selectedType - 1 + TYPES.length) % TYPES.length;
@@ -440,6 +506,7 @@ export async function startTui(baseUrl, token) {
           const [t, n] = bm.split("/");
           state.detail = await fetchJson(`${baseUrl}/api/${t}/${n}`);
           state.comments = await fetchJson(`${baseUrl}/api/${t}/${n}/comments`);
+          state.detailType = t;
           state.view = "detail";
           state.scrollOffset = 0;
           state.showBookmarks = false;
@@ -456,8 +523,10 @@ export async function startTui(baseUrl, token) {
         if (items.length > 0) {
           const item = items[state.selectedItem];
           const type = (state.isSearch || state.isBlockedView) ? (item.type || TYPES[state.selectedType]) : TYPES[state.selectedType];
+          process.stdout.write(`${DIM} loading…${RESET}`); // immediate feedback before fetch
           state.detail = await fetchJson(`${baseUrl}/api/${type}/${item.name}`, token);
           state.comments = await fetchJson(`${baseUrl}/api/${type}/${item.name}/comments`);
+          state.detailType = type;
           state.view = "detail";
           state.scrollOffset = 0;
           state.breadcrumb = buildBreadcrumb(state, item.name);
@@ -551,6 +620,13 @@ export async function startTui(baseUrl, token) {
         return;
       }
 
+      // f — enter filter mode explicitly (covers names starting with reserved keys)
+      if (key === "f") {
+        state.filterMode = true;
+        render(state);
+        return;
+      }
+
       // Fuzzy filter — printable chars (#2)
       const reserved = "aApPsfFjBmticrqdgvyG?/{}>";
 
@@ -568,6 +644,7 @@ export async function startTui(baseUrl, token) {
       }
       if (key.length === 1 && key >= " " && key <= "~" && !reserved.includes(key)) {
         state.filter += key;
+        state.filterMode = true;
         state.selectedItem = 0;
         state.scrollOffset = 0;
         render(state);
@@ -597,7 +674,7 @@ export async function startTui(baseUrl, token) {
 
       // w — write review (#add comment)
       if (key === "w" && token) {
-        const type = TYPES[state.selectedType];
+        const type = state.detailType || TYPES[state.selectedType];
         const name = state.detail.name;
         cleanup();
         process.stdout.write(`${CLEAR}${BOLD}Rate ${type}/${name}${RESET}\n\n`);
@@ -623,7 +700,7 @@ export async function startTui(baseUrl, token) {
         if (state.confirmDelete) {
           // Second d — execute delete
           state.confirmDelete = false;
-          const type = TYPES[state.selectedType];
+          const type = state.detailType || TYPES[state.selectedType];
           const name = state.detail.name;
           const h = { "Content-Type": "application/json" };
           if (token) h["Authorization"] = `Bearer ${token}`;
@@ -657,7 +734,7 @@ export async function startTui(baseUrl, token) {
 
       // f — toggle bookmark (#11)
       if (key === "f") {
-        const type = TYPES[state.selectedType];
+        const type = state.detailType || TYPES[state.selectedType];
         const k = `${type}/${state.detail.name}`;
         const idx = state.bookmarks.indexOf(k);
         if (idx >= 0) { state.bookmarks.splice(idx, 1); state.statusMsg = `Unbookmarked ${k}`; }
@@ -669,7 +746,7 @@ export async function startTui(baseUrl, token) {
 
       // y — copy pull command to clipboard (#14)
       if (key === "y") {
-        const type = TYPES[state.selectedType];
+        const type = state.detailType || TYPES[state.selectedType];
         const cmd = `ihub pull ${type.slice(0, -1)} ${state.detail.name}`;
         try { execSync(`echo ${JSON.stringify(cmd)} | pbcopy 2>/dev/null || echo ${JSON.stringify(cmd)} | xclip -sel clip 2>/dev/null || echo ${JSON.stringify(cmd)} | xsel --clipboard 2>/dev/null`, { stdio: "ignore" }); state.statusMsg = `Copied: ${cmd}`; }
         catch { state.statusMsg = cmd; }
@@ -688,7 +765,7 @@ export async function startTui(baseUrl, token) {
 
       // v — version history (#7)
       if (key === "v") {
-        const type = TYPES[state.selectedType];
+        const type = state.detailType || TYPES[state.selectedType];
         state.versionList = await fetchJson(`${baseUrl}/api/${type}/${state.detail.name}/versions`);
         state.previousView = state.view;
         state.view = "versions";
@@ -717,6 +794,7 @@ export async function startTui(baseUrl, token) {
           if (found) {
             state.detail = found;
             const type = TYPES[state.selectedType];
+            state.detailType = type;
             state.comments = await fetchJson(`${baseUrl}/api/${type}/${found.name}/comments`);
             state.scrollOffset = 0;
             state.breadcrumb = buildBreadcrumb(state, found.name);
@@ -848,7 +926,7 @@ export async function startTui(baseUrl, token) {
       process.stdout.write(CLEAR + `${DIM}Refreshing...${RESET}`);
       for (const type of TYPES) state.entries[type] = await fetchJson(`${baseUrl}/api/${type}`);
       if (state.view === "detail" && state.detail) {
-        const type = TYPES[state.selectedType];
+        const type = state.detailType || TYPES[state.selectedType];
         state.detail = await fetchJson(`${baseUrl}/api/${type}/${state.detail.name}`);
         state.comments = await fetchJson(`${baseUrl}/api/${type}/${state.detail.name}/comments`);
       }
@@ -1009,6 +1087,7 @@ function isInstalled(name) {
   const paths = [
     // ihub local
     `agents/${name}.md`, `skills/${name}.md`, `rules/${name}.md`, `memories/${name}.md`, `prompts/${name}.md`,
+    `commands/${name}.md`, `designs/${name}.md`, `hooks/${name}.md`, `mcps/${name}.md`,
     // Claude Code
     join(HOME, ".claude", "skills", name, "SKILL.md"),
     join(".claude", "skills", name, "SKILL.md"),
@@ -1041,6 +1120,13 @@ function clearInstalledCache() {
 function render(state) {
   const rows = process.stdout.rows || 24;
   const cols = process.stdout.columns || 80;
+
+  // Minimum size gate
+  if (cols < 60 || rows < 15) {
+    process.stdout.write(CLEAR + `\n  ${BOLD}Terminal too small${RESET}\n  ihub needs at least 60x15 (current: ${cols}x${rows}).\n  ${DIM}Resize to continue.${RESET}\n`);
+    return;
+  }
+
   const contentRows = rows - 4; // header + breadcrumb + footer line + footer text
 
   let output = CLEAR;
@@ -1054,7 +1140,13 @@ function render(state) {
   if (state.blockedCount > 0 && state.isAdmin) hdr += `  ${BG_RED}${WHITE} ${state.blockedCount} blocked ${RESET}`;
   if (state.newCount > 0) hdr += `  ${YELLOW}\u2022 ${state.newCount} new${RESET}`;
   if (state._loading) { _spinnerIdx = (_spinnerIdx + 1) % SPINNER_FRAMES.length; hdr += `  ${CYAN}${SPINNER_FRAMES[_spinnerIdx]}${RESET}`; }
-  if (state.statusMsg) { hdr += `  ${GREEN}\u2713 ${state.statusMsg}${RESET}`; state.statusMsg = null; }
+  if (_netError) hdr += `  ${RED}${BOLD}● offline${RESET}`;
+  if (state.statusMsg) {
+    // Survive intermediate re-renders (mouse events) \u2014 show for ~4s of renders
+    if (state._statusFor !== state.statusMsg) { state._statusFor = state.statusMsg; state._statusTime = Date.now(); }
+    if (Date.now() - state._statusTime < 4000) hdr += `  ${GREEN}\u2713 ${state.statusMsg}${RESET}`;
+    else { state.statusMsg = null; state._statusFor = null; }
+  }
   output += hdr + "\n";
 
   // Breadcrumb
@@ -1066,6 +1158,7 @@ function render(state) {
 
   // Help overlay (#10)
   if (state.showHelp) {
+    state._scrollInfo = null;
     output += renderHelp(state, contentRows, cols);
   } else if (state.showBookmarks) {
     output += renderBookmarks(state, contentRows, cols);
@@ -1137,7 +1230,8 @@ function getFooter(state) {
     if (state.marked.size > 0) f += `  ${fmtKey("p")}${DIM}bulk pull${RESET}`;
     if (state.isBlockedView && state.isAdmin) f += `  ${fmtKey("A")}${DIM}approve${RESET}`;
     f += `  ${fmtGroup([["?", "help"], ["q", "quit"]])}`;
-    if (state.filter) f += `  ${YELLOW}filter: ${state.filter}${RESET}`;
+    if (state.filterMode) f += `  ${YELLOW}filter: ${state.filter}▌${RESET} ${DIM}[esc]clear [⏎]done${RESET}`;
+    else if (state.filter) f += `  ${YELLOW}filter: ${state.filter}${RESET}`;
     return f;
   }
   if (v === "detail") return ` ${fmtGroup([["↑↓", "scroll"], ["c", "comments"], ["w", "review"], ["f", "fav"], ["g", "graph"], ["v", "ver"], [">", "related"], ["d", "del"], ["esc", "back"]])}`;
@@ -1390,7 +1484,7 @@ function wrapAndFormatPreview(item, body, width) {
 function renderDetail(state, maxRows, cols) {
   const entry = state.detail;
   if (!entry) return `  ${DIM}Loading...${RESET}\n`;
-  const type = TYPES[state.selectedType];
+  const type = state.detailType || TYPES[state.selectedType];
   const color = TYPE_COLORS[type] || WHITE;
   const lines = [];
 
@@ -1758,7 +1852,8 @@ function renderHelp(state, maxRows, cols) {
   lines.push(`  ${CYAN}↑↓${RESET}       navigate       ${CYAN}←→${RESET}       switch type (list)`);
   lines.push(`  ${CYAN}⏎${RESET}        select/drill    ${CYAN}esc/q${RESET}    go back`);
   lines.push(`  ${CYAN}/${RESET}        search          ${CYAN}r${RESET}        refresh`);
-  lines.push(`  ${CYAN}type${RESET}     fuzzy filter (list view)`);
+  lines.push(`  ${CYAN}type${RESET}     fuzzy filter (list view; ${CYAN}f${RESET} enters filter mode, esc clears, ⏎ keeps)`);
+  lines.push(`  ${CYAN}pgup/dn${RESET}  page scroll     ${CYAN}home/end${RESET} jump top/bottom`);
   lines.push("");
   lines.push(`  ${BOLD}Selection & Pull${RESET}`);
   lines.push(`  ${CYAN}space${RESET}    toggle select   ${CYAN}a${RESET}        select/deselect all`);
@@ -1782,7 +1877,8 @@ function renderHelp(state, maxRows, cols) {
     lines.push(`  ${CYAN}m${RESET}        metrics         ${CYAN}t${RESET}        audit trail`);
     lines.push(`  ${CYAN}i${RESET}        server config   ${CYAN}B${RESET}        blocked artifacts`);
   }
-  return scrollView(lines, state.scrollOffset, maxRows, state);
+  // Render from the top without mutating the underlying view's scrollOffset
+  return scrollView(lines, 0, maxRows, null);
 }
 
 function renderBookmarks(state, maxRows) {
@@ -2111,7 +2207,7 @@ async function executeBulkPull(state, baseUrl, token) {
     } catch (err) { state.pullResults[state.pullResults.length - 1] = { type, name, status: "error", error: err.message }; render(state); continue; }
     const ver = data.version || data.meta?.version || "?";
     const meta = data.meta || {};
-    const md = ["---", ...Object.entries(meta).map(([k, v]) => Array.isArray(v) ? `${k}: [${v.join(", ")}]` : `${k}: ${v}`), "---", "", data.body || ""].join("\n");
+    const md = entryToMarkdown({ meta, body: data.body || "" });
     if (type === "memories") {
       mkdirSync("memories", { recursive: true }); writeFileSync(resolve("memories", `${name}.md`), md);
       state.pullResults[state.pullResults.length - 1] = { type, name, status: "done", version: ver, target: `memories/${name}.md`, attachments: 0 }; render(state); continue;
@@ -2145,10 +2241,15 @@ async function executeBulkPull(state, baseUrl, token) {
 
 // --- API ---
 
+// Network state — true after a connection failure, cleared on next success.
+// HTTP error statuses (404 etc.) are normal API responses, not connectivity loss.
+let _netError = false;
+export function isOffline() { return _netError; }
+
 async function fetchJson(url, token, method) {
-  try { const h = {}; if (token) h["Authorization"] = `Bearer ${token}`; const opts = { headers: h }; if (method) opts.method = method; const r = await fetch(url, opts); if (!r.ok) return null; return await r.json(); } catch { return null; }
+  try { const h = {}; if (token) h["Authorization"] = `Bearer ${token}`; const opts = { headers: h }; if (method) opts.method = method; const r = await fetch(url, opts); _netError = false; if (!r.ok) return null; return await r.json(); } catch { _netError = true; return null; }
 }
 
 async function fetchText(url, token) {
-  try { const h = {}; if (token) h["Authorization"] = `Bearer ${token}`; const r = await fetch(url, { headers: h }); if (!r.ok) return null; return await r.text(); } catch { return null; }
+  try { const h = {}; if (token) h["Authorization"] = `Bearer ${token}`; const r = await fetch(url, { headers: h }); _netError = false; if (!r.ok) return null; return await r.text(); } catch { _netError = true; return null; }
 }
