@@ -6,21 +6,23 @@ import {
   downloadBackup,
   setRole,
   triggerDigest,
-  loadConfig,
+  getBaseUrl,
+  getToken,
+  authHeaders,
 } from "./registry.js";
+import { parseJsonFlag } from "./context.js";
 
 export async function audit(args) {
-  const jsonMode = args.includes("--json");
+  const { jsonMode, rest } = parseJsonFlag(args);
   const opts = { limit: 50, offset: 0 };
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--json") continue;
-    if (args[i] === "--user" && args[i + 1]) opts.user = args[++i];
-    else if (args[i] === "--action" && args[i + 1]) opts.action = args[++i];
-    else if (args[i] === "--page" && args[i + 1]) {
-      const page = parseInt(args[++i], 10);
+  for (let i = 0; i < rest.length; i++) {
+    if (rest[i] === "--user" && rest[i + 1]) opts.user = rest[++i];
+    else if (rest[i] === "--action" && rest[i + 1]) opts.action = rest[++i];
+    else if (rest[i] === "--page" && rest[i + 1]) {
+      const page = parseInt(rest[++i], 10);
       if (page > 1) opts.offset = (page - 1) * opts.limit;
     }
-    else if (args[i] === "--limit" && args[i + 1]) opts.limit = parseInt(args[++i], 10);
+    else if (rest[i] === "--limit" && rest[i + 1]) opts.limit = parseInt(rest[++i], 10);
   }
 
   const data = await fetchAuditLog(opts);
@@ -105,8 +107,7 @@ export function getActionColor(action) {
 }
 
 export async function metrics(args) {
-  const jsonMode = args.includes("--json");
-  const filteredMetricArgs = args.filter((a) => a !== "--json");
+  const { jsonMode, rest: filteredMetricArgs } = parseJsonFlag(args);
   const filters = parseFilters(filteredMetricArgs);
   const raw = await fetchMetrics();
 
@@ -128,11 +129,8 @@ export async function backup(args) {
   if (isFull) {
     // Full JSON backup — works with any storage adapter (S3, R2, etc.)
     const outputPath = filtered[0] || `ihub-backup-${timestamp}.json`;
-    const config = loadConfig();
-    const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
-    const token = config.token || process.env.IHUB_TOKEN || "";
-    const authHeaders = token ? { "Authorization": `Bearer ${token}` } : {};
-    const res = await fetch(`${base}/api/backup/full`, { headers: authHeaders });
+    const base = getBaseUrl();
+    const res = await fetch(`${base}/api/backup/full`, { headers: authHeaders() });
     if (!res.ok) { const e = await res.json().catch(() => ({})); console.error(`Backup failed: ${e.error || res.status}`); process.exit(1); }
     const data = await res.text();
     writeFileSync(outputPath, data);
@@ -159,10 +157,8 @@ export async function restore(args) {
     console.error(`File not found: ${filePath}`);
     process.exit(1);
   }
-  const config = loadConfig();
-  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
-  const token = config.token || process.env.IHUB_TOKEN || "";
-  const authHeaders = token ? { "Content-Type": "application/json", "Authorization": `Bearer ${token}` } : {};
+  const base = getBaseUrl();
+  const auth = authHeaders();
   const buf = readFileSync(filePath);
 
   // Detect format
@@ -178,7 +174,7 @@ export async function restore(args) {
     console.log(`  ${bundle.artifacts.length} artifacts, ${bundle.comments?.length || 0} comments`);
     const res = await fetch(`${base}/api/backup/full`, {
       method: "POST",
-      headers: { ...authHeaders, "Content-Type": "application/json" },
+      headers: { ...auth, "Content-Type": "application/json" },
       body: buf,
     });
     const data = await res.json();
@@ -189,7 +185,7 @@ export async function restore(args) {
     console.log(`Restoring SQLite backup from ${filePath} (${buf.length} bytes)...`);
     const res = await fetch(`${base}/api/backup`, {
       method: "POST",
-      headers: { ...authHeaders, "Content-Type": "application/octet-stream" },
+      headers: { ...auth, "Content-Type": "application/octet-stream" },
       body: buf,
     });
     const data = await res.json();
@@ -229,11 +225,10 @@ export async function admin(args) {
       process.exit(1);
     }
     const [aType, aName] = target.split("/");
-    const base = loadConfig().registry || process.env.IHUB_REGISTRY || "http://localhost:3000";
-    const token = loadConfig().token || process.env.IHUB_TOKEN;
+    const base = getBaseUrl();
     const res = await fetch(`${base}/api/${aType}/${aName}/approve`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Approve failed");
@@ -242,10 +237,9 @@ export async function admin(args) {
   }
 
   if (subcommand === "blocked") {
-    const base = loadConfig().registry || process.env.IHUB_REGISTRY || "http://localhost:3000";
-    const token = loadConfig().token || process.env.IHUB_TOKEN;
+    const base = getBaseUrl();
     const res = await fetch(`${base}/api/blocked`, {
-      headers: { "Authorization": `Bearer ${token}` },
+      headers: authHeaders(),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to list blocked");
@@ -271,19 +265,18 @@ export async function admin(args) {
 
 export async function webhook(args) {
   const [subcommand, ...subArgs] = args;
-  const config = loadConfig();
-  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
-  const token = config.token || process.env.IHUB_TOKEN;
+  const base = getBaseUrl();
+  const token = getToken();
 
   if (!token) {
     console.error("Not logged in. Run: ihub login <url>");
     process.exit(1);
   }
 
-  const authHeaders = { "Content-Type": "application/json", "Authorization": `Bearer ${token}` };
+  const hdrs = { "Content-Type": "application/json", ...authHeaders() };
 
   if (subcommand === "list") {
-    const res = await fetch(`${base}/api/webhooks`, { headers: authHeaders });
+    const res = await fetch(`${base}/api/webhooks`, { headers: hdrs });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to list webhooks");
     if (data.length === 0) {
@@ -317,7 +310,7 @@ export async function webhook(args) {
     if (secret) body.secret = secret;
     const res = await fetch(`${base}/api/webhooks`, {
       method: "POST",
-      headers: authHeaders,
+      headers: hdrs,
       body: JSON.stringify(body),
     });
     const data = await res.json();
@@ -334,7 +327,7 @@ export async function webhook(args) {
     }
     const res = await fetch(`${base}/api/webhooks/${id}`, {
       method: "DELETE",
-      headers: authHeaders,
+      headers: hdrs,
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to remove webhook");
@@ -351,14 +344,12 @@ export async function webhook(args) {
 
 export async function federation(args) {
   const [subcommand] = args;
-  const config = loadConfig();
-  const base = config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000";
-  const token = config.token || process.env.IHUB_TOKEN;
+  const base = getBaseUrl();
 
   if (subcommand === "sync") {
-    const res = await fetch(`${base.replace(/\/+$/, "")}/api/federation/sync`, {
+    const res = await fetch(`${base}/api/federation/sync`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Federation sync failed");
@@ -373,8 +364,8 @@ export async function federation(args) {
   }
 
   if (subcommand === "status") {
-    const res = await fetch(`${base.replace(/\/+$/, "")}/api/federation/status`, {
-      headers: { "Authorization": `Bearer ${token}` },
+    const res = await fetch(`${base}/api/federation/status`, {
+      headers: authHeaders(),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to get federation status");
