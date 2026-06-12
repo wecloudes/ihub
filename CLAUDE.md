@@ -13,7 +13,7 @@ Each artifact is a `.md` file with YAML frontmatter. The CLI manages them locall
 ```
 cli/       — CLI tool (ESM, zero external dependencies)
   index.js       — command dispatcher + type-first routing + browse/open (178 lines)
-  context.js     — shared state: ROOT, TYPE_FIELDS, type maps, REF_CHECKS, readline helpers
+  context.js     — shared state: ROOT, TYPE_FIELDS, type maps (pluralize/singularize), REF_CHECKS, readline helpers, parseJsonFlag
   query.js       — read commands: list, search, show, preview, validate, projects
   create.js      — create, import (auto-detect source agent), createFromTemplate
   publish.js     — push, pull, remove, comment, comments, watch, pullFromUrl + install helpers
@@ -22,7 +22,7 @@ cli/       — CLI tool (ESM, zero external dependencies)
   diagnostics.js — completions, man, config, outdated, doctor, verify, diff, version, help
   pinning.js     — version pinning, bundle export/import
   parse.js       — frontmatter parser and registry loader
-  registry.js    — HTTP client for remote registry
+  registry.js    — HTTP client for remote registry + shared config/header helpers (getBaseUrl, getToken, authHeaders, jsonHeaders)
   render.js      — terminal markdown renderer (ANSI)
   dashboard.js   — terminal metrics dashboard
   tui.js         — interactive TUI browser (multi-select, comments, metrics, audit, projects, config, remove, review, split-pane preview, dynamic resize)

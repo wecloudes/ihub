@@ -7,6 +7,13 @@ All notable changes to ihub are documented in this file.
 ### Changed
 
 - **Internal: split the `cli/index.js` monolith into focused ES modules** — no user-facing behavior change; every command is byte-identical to the prior monolith and all 502 tests pass. `cli/index.js` (3149 lines) is now a 178-line dispatcher; logic moved to `cli/context.js` (shared state: ROOT, type maps, readline helpers), `cli/query.js` (list, search, show, preview, validate, projects), `cli/auth.js` (passwd, register, login, whoami), `cli/admin.js` (audit, metrics, backup, restore, admin, webhook, federation), `cli/create.js` (create, import, createFromTemplate), `cli/publish.js` (push, pull, remove, comment, watch, pullFromUrl), and `cli/diagnostics.js` (completions, man, config, outdated, doctor, verify, diff, version, help)
+- **Internal: centralized registry config/header construction** — added `getBaseUrl`/`getToken`/`authHeaders`/`jsonHeaders` to `cli/registry.js` and `parseJsonFlag` to `cli/context.js`, then converted the inline base-URL, token, auth-header, and `--json`-flag boilerplate across `cli/diagnostics.js`, `cli/admin.js`, `cli/publish.js`, and `cli/query.js` to use them. No behavior change; 503 tests pass
+- **Internal: removed ~900 lines of dead duplicate commands from `cli/publish.js`** — the monolith split left private copies of 22 commands (audit/metrics/backup/restore/admin/webhook/federation, passwd/register/login/whoami, outdated/doctor/verify/diff/version/help/completions/man) that the dispatcher never imported (it sources them from `admin.js`/`auth.js`/`diagnostics.js`). `cli/publish.js` shrank from ~1760 to 868 lines
+- **Internal: `cli/pinning.js` reuses `pluralize`/`singularize` from `cli/context.js`** instead of its own copy
+
+### Fixed
+
+- **Pinning and bundle export/import mis-mapped `mcp` and `hook` artifact types** — `cli/pinning.js` carried a stale type map predating those types (7 of 9), so `pin`/`unpin`/`pins` and bundle round-trips silently mishandled them. Now uses the canonical 9-type map from `cli/context.js`
 
 ## [0.8.0] - 2026-06-11
 
