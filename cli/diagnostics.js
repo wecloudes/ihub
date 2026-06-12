@@ -1,7 +1,7 @@
 import { resolve, join } from "path";
 import { readFileSync, existsSync } from "fs";
 import { homedir } from "os";
-import { loadConfig, fetchServerConfig } from "./registry.js";
+import { getBaseUrl, getToken, authHeaders, fetchServerConfig } from "./registry.js";
 import { loadRegistry } from "./parse.js";
 import { renderMarkdown } from "./render.js";
 import { ROOT, pluralize, singularize, prompt } from "./context.js";
@@ -70,8 +70,7 @@ export async function showConfig() {
 
 
 export async function outdated() {
-  const config = loadConfig();
-  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
+  const base = getBaseUrl();
   const registry = loadRegistry(ROOT);
   const TYPES = ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"];
 
@@ -109,9 +108,8 @@ export async function outdated() {
 
 
 export async function doctor() {
-  const config = loadConfig();
-  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
-  const token = config.token || process.env.IHUB_TOKEN || "";
+  const base = getBaseUrl();
+  const token = getToken();
   const TYPES = ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"];
 
   console.log("\nihub doctor\n");
@@ -132,7 +130,7 @@ export async function doctor() {
   if (token) {
     try {
       const res = await fetch(`${base}/api/whoami`, {
-        headers: { "Authorization": `Bearer ${token}` },
+        headers: authHeaders(),
       });
       if (res.ok) {
         const data = await res.json();
@@ -198,12 +196,10 @@ export async function verify(args) {
 
   const singularType = singularize(type);
   const pluralType = pluralize(singularType);
-  const config = loadConfig();
-  const base = config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000";
-  const token = config.token || process.env.IHUB_TOKEN;
+  const base = getBaseUrl();
 
-  const res = await fetch(`${base.replace(/\/+$/, "")}/api/${pluralType}/${name}`, {
-    headers: token ? { "Authorization": `Bearer ${token}` } : {},
+  const res = await fetch(`${base}/api/${pluralType}/${name}`, {
+    headers: authHeaders(),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || `Not found: ${pluralType}/${name}`);
@@ -229,9 +225,8 @@ export async function diff(args) {
 
   const singularType = singularize(type);
   const pluralType = pluralize(singularType);
-  const config = loadConfig();
-  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
-  const hdrs = config.token ? { Authorization: `Bearer ${config.token}` } : {};
+  const base = getBaseUrl();
+  const hdrs = authHeaders();
 
   const [r1, r2] = await Promise.all([
     fetch(`${base}/api/${pluralType}/${name}?version=${encodeURIComponent(v1)}`, { headers: hdrs }),
