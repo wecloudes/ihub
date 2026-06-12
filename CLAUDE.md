@@ -158,8 +158,8 @@ Run tests: `bun test`
 - Memories always install to local `memories/`; mcps/hooks keep a tracking copy in local `mcps/`/`hooks/`
 - Designs always install as `DESIGN.md` in the project root
 - Attachments: companion files in `<type>/<name>/` uploaded on push, recreated on pull
-- Web UI: browser-based registry at `/ui` with full feature parity; includes artifact graph view (force-directed relationship map)
-- TUI (`ihub browse`): types, list, detail, comments, projects (`j`), metrics (`m`, side-by-side charts), audit (`t`), config (`i`), guide (`G`, 3-tab artifact reference), remove (`d` twice to confirm), write review (`w`), blocked (`B`), multi-select + bulk pull (`space`/`a`/`p`), split-pane preview (`{`/`}` scroll, auto-shown when terminal >= 120 cols), dynamic resize, search cancel with Esc/q, scroll clamping, footer pinned to bottom, mouse support, light theme (`IHUB_THEME=light`)
+- Web UI: browser-based registry at `/ui` with full feature parity; includes artifact graph view (force-directed relationship map), hash-routing deep links (`#type/name`), server-backed global search, keyboard shortcuts (`/` search, `Esc` close)
+- TUI (`ihub browse`): types, list, detail, comments, projects (`j`), metrics (`m`, side-by-side charts), audit (`t`), config (`i`), guide (`G`, 3-tab artifact reference), remove (`d` twice to confirm), write review (`w`), blocked (`B`), multi-select + bulk pull (`space`/`a`/`p`), split-pane preview (`{`/`}` scroll, auto-shown when terminal >= 120 cols), filter mode (type to filter; `f` explicit, Esc clears, ⏎ keeps), Home/End/PgUp/PgDn, dynamic resize, min-size gate, search cancel with Esc/q, scroll clamping, footer pinned to bottom, mouse support, offline indicator, light theme (`IHUB_THEME=light`), `NO_COLOR` support
 
 ## After every change
 

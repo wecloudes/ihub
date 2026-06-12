@@ -11,9 +11,24 @@ All notable changes to ihub are documented in this file.
 - **Internal: removed ~900 lines of dead duplicate commands from `cli/publish.js`** — the monolith split left private copies of 22 commands (audit/metrics/backup/restore/admin/webhook/federation, passwd/register/login/whoami, outdated/doctor/verify/diff/version/help/completions/man) that the dispatcher never imported (it sources them from `admin.js`/`auth.js`/`diagnostics.js`). `cli/publish.js` shrank from ~1760 to 868 lines
 - **Internal: `cli/pinning.js` reuses `pluralize`/`singularize` from `cli/context.js`** instead of its own copy
 
+### Added
+
+- **Web UI hash routing** — deep links (`#agents/code-reviewer`, `#metrics`), browser back/forward, shareable artifact URLs
+- **Web UI server-backed search** — global search now merges `/api/search` results (matches inside artifact bodies) with the client-side filter
+- **Web UI keyboard shortcuts** — `/` focuses search, `Esc` closes modals / clears search
+- **TUI filter mode** — typing in a list enters filter mode where every printable key goes to the filter (`Esc` clears, `⏎` keeps it and re-enables action keys, `f` enters explicitly); previously 25 reserved action keys were stolen mid-typing
+- **TUI `NO_COLOR` support**, minimum terminal size gate (60x15), Home/End/PageUp/PageDown navigation, offline indicator in the header, distinct colors for all 9 artifact types
+
 ### Fixed
 
 - **Pinning and bundle export/import mis-mapped `mcp` and `hook` artifact types** — `cli/pinning.js` carried a stale type map predating those types (7 of 9), so `pin`/`unpin`/`pins` and bundle round-trips silently mishandled them. Now uses the canonical 9-type map from `cli/context.js`
+- **Web UI: blocked-artifact Approve button was broken** — it called `DELETE /api/blocked/:name`, which doesn't exist; now `POST /api/:type/:name/approve`
+- **Web UI: federation panel always showed "never"/empty** — read `last_sync`/`synced`; server returns `lastSync`/`lastSynced`
+- **Web UI: admin role dropdown offered "moderator"** — server only accepts user/admin
+- **Web UI: graph view leaked document/window event listeners on every visit** — now aborted via AbortController on re-render
+- **Web UI: markdown links allowed `javascript:` URLs in artifact bodies** (stored XSS) — only http(s) links render as anchors now
+- **TUI: detail actions (delete/review/bookmark/copy/versions) used the wrong artifact type** when the detail was opened from search results or bookmarks — delete could target a same-named artifact of another type
+- **TUI: help overlay destroyed the underlying view's scroll position**; installed ✓ indicator never showed for commands/designs/hooks/mcps; status messages vanished on the first re-render; bulk pull serialized frontmatter inline instead of via `entryToMarkdown`
 
 ## [0.8.0] - 2026-06-11
 
