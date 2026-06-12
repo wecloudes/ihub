@@ -3,23 +3,7 @@ import { resolve, dirname } from "path";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { loadConfig, saveConfig, pullEntry, pushEntry, entryToMarkdown } from "./registry.js";
 import { loadRegistry } from "./parse.js";
-
-const PLURAL_MAP = {
-  agent: "agents", skill: "skills", rule: "rules",
-  memory: "memories", prompt: "prompts",
-  command: "commands", design: "designs",
-};
-const SINGULAR_MAP = Object.fromEntries(
-  Object.entries(PLURAL_MAP).map(([s, p]) => [p, s])
-);
-
-function pluralize(type) {
-  return PLURAL_MAP[type] || type;
-}
-
-function singularize(type) {
-  return SINGULAR_MAP[type] || type;
-}
+import { pluralize, singularize } from "./context.js";
 
 export function pin(args, ROOT) {
   const [type, name, versionArg] = args;
