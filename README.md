@@ -509,14 +509,21 @@ ihub browse
 
 # Open the web UI in your default browser
 ihub open
+# Web UI supports deep links (#agents/code-reviewer), server-backed search,
+# and keyboard shortcuts (/ focuses search, Esc closes modals)
+
 # Keys: ↑↓ navigate, ←→ switch type, ⏎ drill in, / search (Esc/q cancel)
+#       type to filter (f enters filter mode, Esc clears, ⏎ keeps filter)
 #       space multi-select, a select all, p pull selected, P quick pull
 #       c comments, w review, d remove (double-press), j projects
-#       {} scroll preview, s sort, f bookmark, F bookmarks, g graph, v versions
+#       {} scroll preview, s sort, f bookmark (detail), F bookmarks, g graph, v versions
 #       G guide (artifact types + memory taxonomy + knowledge mapping)
 #       m metrics (side-by-side charts), t audit, i config, B blocked (admin)
-#       q/esc back — terminal resize re-renders layout automatically
+#       Home/End/PgUp/PgDn page through lists and views
+#       q/esc back — Esc also cancels an in-flight network operation
 # Split-pane preview appears automatically when terminal >= 120 columns
+# Network ops show an animated spinner; header shows ● offline on connection loss
+# Respects NO_COLOR; light theme via IHUB_THEME=light; minimum size 60x15
 
 # List everything
 ihub list
@@ -1023,7 +1030,7 @@ examples/          sample entries (4 agents, 6 skills, 4 rules, 3 memories, 5 pr
 templates/         scaffolding templates for each type
 cli/               CLI tool (ESM, zero external dependencies)
   index.js         command dispatcher + type-first routing + browse/open
-  context.js       shared state: ROOT, type maps, readline helpers
+  context.js       shared state: ROOT, type maps, readline helpers, parseJsonFlag
   query.js         list, search, show, preview, validate, projects
   create.js        create, import, createFromTemplate
   publish.js       push, pull, remove, comment, watch, pullFromUrl
@@ -1032,7 +1039,7 @@ cli/               CLI tool (ESM, zero external dependencies)
   diagnostics.js   completions, man, config, outdated, doctor, verify, diff, version, help
   pinning.js       version pinning, bundle export/import
   parse.js         frontmatter parser, registry loader
-  registry.js      HTTP client for remote registry
+  registry.js      HTTP client for remote registry + config/header helpers
   render.js        terminal markdown renderer (ANSI)
   dashboard.js     terminal metrics dashboard
   tui.js           interactive TUI browser

@@ -14,7 +14,7 @@ bun run server    # start the registry server locally
 ```
 cli/           CLI tool (ESM, no external dependencies)
   index.js       command dispatcher + type-first routing + browse/open
-  context.js     shared state: ROOT, type maps, readline helpers
+  context.js     shared state: ROOT, type maps, readline helpers, parseJsonFlag
   query.js       list, search, show, preview, validate, projects
   create.js      create, import, createFromTemplate
   publish.js     push, pull, remove, comment, watch, pullFromUrl
@@ -23,10 +23,10 @@ cli/           CLI tool (ESM, no external dependencies)
   diagnostics.js completions, man, config, outdated, doctor, verify, diff, version, help
   pinning.js     version pinning, bundle export/import
   parse.js       frontmatter parser, entry/registry loader
-  registry.js    HTTP client for remote registry
+  registry.js    HTTP client for remote registry + config/header helpers (getBaseUrl, getToken, authHeaders, jsonHeaders)
   render.js      terminal markdown renderer (ANSI)
   dashboard.js   terminal metrics dashboard renderer
-  tui.js         interactive TUI browser (multi-select, comments, metrics, audit, projects, guide, split-pane preview, dynamic resize)
+  tui.js         interactive TUI browser (multi-select, comments, metrics, audit, projects, guide, split-pane preview, filter mode, non-blocking fetches with Esc-cancel, dynamic resize)
   agents-config.js  coding agent path configs (Claude, Gemini, Qwen, Cursor, Codex, Open Code)
   config-merge.js   idempotent JSON merges into agent-owned config files (mcp/hook installs)
 server/        registry API server
