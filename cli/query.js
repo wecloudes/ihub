@@ -3,19 +3,17 @@ import { AGENT_NAMES } from "./agents-config.js";
 import { extractConfigBlock } from "./config-merge.js";
 import { loadRegistry } from "./parse.js";
 import { renderMarkdown } from "./render.js";
-import { remoteSearch, loadConfig } from "./registry.js";
-import { ROOT, REF_CHECKS, VALID_HOOK_EVENTS, pluralize } from "./context.js";
+import { remoteSearch, loadConfig, getBaseUrl, authHeaders } from "./registry.js";
+import { ROOT, REF_CHECKS, VALID_HOOK_EVENTS, pluralize, parseJsonFlag } from "./context.js";
 
 export async function list(args) {
-  const jsonMode = args.includes("--json");
-  const filtered = args.filter((a) => a !== "--json");
+  const { jsonMode, rest: filtered } = parseJsonFlag(args);
   const type = filtered[0];
 
   const types = type ? [type] : ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"];
 
   // Merge remote registry + local entries (dedup by name, remote wins)
-  const config = loadConfig();
-  const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
+  const base = getBaseUrl();
   const registry = {};
 
   for (const t of types) {
@@ -94,8 +92,7 @@ export async function list(args) {
 }
 
 export async function search(args) {
-  const jsonMode = args.includes("--json");
-  const filteredArgs = args.filter((a) => a !== "--json");
+  const { jsonMode, rest: filteredArgs } = parseJsonFlag(args);
 
   const isRemote = filteredArgs[0] === "--remote";
   if (isRemote) filteredArgs.shift();
@@ -183,8 +180,7 @@ export async function search(args) {
 }
 
 export function show(args) {
-  const jsonMode = args.includes("--json");
-  const filtered = args.filter((a) => a !== "--json");
+  const { jsonMode, rest: filtered } = parseJsonFlag(args);
   const [type, name] = filtered;
   if (!type || !name) {
     console.error("Usage: ihub show <type> <name>");
@@ -381,7 +377,7 @@ export function validate() {
 }
 
 export async function projects(args) {
-  const jsonMode = args.includes("--json");
+  const { jsonMode } = parseJsonFlag(args);
   const localOnly = args.includes("--local");
   const filtered = args.filter((a) => a !== "--json" && a !== "--local");
   const [projectName] = filtered;
@@ -400,8 +396,7 @@ export async function projects(args) {
       const registry = loadRegistry(ROOT);
       for (const type of TYPES) allEntries[type] = registry[type] || [];
     } else {
-      const token = config.token || process.env.IHUB_TOKEN || "";
-      const headers = token ? { "Authorization": `Bearer ${token}` } : {};
+      const headers = authHeaders();
       for (const type of TYPES) {
         try {
           const res = await fetch(`${base}/api/${type}`, { headers });
