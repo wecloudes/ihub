@@ -149,6 +149,14 @@ export function singularize(type) {
   return SINGULAR_MAP[type] || type;
 }
 
+// Parse the --json flag: returns { jsonMode, rest } where rest has --json removed.
+export function parseJsonFlag(args) {
+  return {
+    jsonMode: args.includes("--json"),
+    rest: args.filter((a) => a !== "--json"),
+  };
+}
+
 // --- Readline singleton ---
 // Mutable state lives here only; commands import the helpers below.
 let _rl;

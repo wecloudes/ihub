@@ -18,18 +18,24 @@ export function saveConfig(config) {
   writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + "\n");
 }
 
-function getBaseUrl() {
+export function getBaseUrl() {
   const config = loadConfig();
   const url = config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000";
   return url.replace(/\/+$/, "");
 }
 
-function getToken() {
+export function getToken() {
   const config = loadConfig();
   return config.token || process.env.IHUB_TOKEN || "";
 }
 
-function headers(auth = false) {
+// Bearer auth headers only (no Content-Type) — matches the inline call-site pattern.
+export function authHeaders() {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export function headers(auth = false) {
   const h = { "Content-Type": "application/json" };
   if (auth) {
     const token = getToken();
