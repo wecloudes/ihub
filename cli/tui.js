@@ -107,11 +107,16 @@ export async function startTui(baseUrl, token) {
   const mouseEnabled = process.stdin.isTTY;
   if (mouseEnabled) process.stdout.write("\x1b[?1000h\x1b[?1006h");
   state._loading = true;
-  process.stdout.write(`${DIM} ${CYAN}${SPINNER_FRAMES[0]}${RESET} Loading registry...${RESET}`);
+  const _startupSpin = setInterval(() => {
+    _spinnerIdx = (_spinnerIdx + 1) % SPINNER_FRAMES.length;
+    process.stdout.write(`\r ${CYAN}${SPINNER_FRAMES[_spinnerIdx]}${RESET} ${DIM}Loading registry...${RESET}`);
+  }, 80);
+  process.stdout.write(`\r ${CYAN}${SPINNER_FRAMES[0]}${RESET} ${DIM}Loading registry...${RESET}`);
 
-  for (const type of TYPES) {
+  // Load all types concurrently
+  await Promise.all(TYPES.map(async (type) => {
     state.entries[type] = await fetchJson(`${baseUrl}/api/${type}`);
-  }
+  }));
   if (token) {
     const whoami = await fetchJson(`${baseUrl}/api/whoami`, token);
     if (whoami?.role === "admin") {
@@ -137,6 +142,7 @@ export async function startTui(baseUrl, token) {
     state.newCount = newCount;
   }
   writeFileSync(configPath, JSON.stringify({ lastVisit: new Date().toISOString() }));
+  clearInterval(_startupSpin);
   state._loading = false;
 
   const stdin = process.stdin;
@@ -242,6 +248,14 @@ export async function startTui(baseUrl, token) {
       return;
     }
 
+    // Esc cancels an in-flight network operation (stale result is discarded)
+    if (state._loading && key === ESC) {
+      _opSeq++;
+      state._loading = false;
+      render(state);
+      return;
+    }
+
     // Ignore main handler while search input is active
     if (state._searchMode) return;
 
@@ -342,8 +356,13 @@ export async function startTui(baseUrl, token) {
       } else if (key === `${ESC}[B`) {
         state.scrollOffset++;
       } else if (key === "r") {
-        for (const type of TYPES) state.entries[type] = await fetchJson(`${baseUrl}/api/${type}`);
-        state.projectTree = buildProjectTree(state, state.projectFilter);
+        await withLoading(state, async (isStale) => {
+          const fresh = {};
+          await Promise.all(TYPES.map(async (type) => { fresh[type] = await fetchJson(`${baseUrl}/api/${type}`); }));
+          if (isStale()) return;
+          for (const type of TYPES) state.entries[type] = fresh[type];
+          state.projectTree = buildProjectTree(state, state.projectFilter);
+        });
       }
       render(state);
       return;
@@ -504,13 +523,20 @@ export async function startTui(baseUrl, token) {
         if (items.length > 0) {
           const bm = items[state.selectedItem];
           const [t, n] = bm.split("/");
-          state.detail = await fetchJson(`${baseUrl}/api/${t}/${n}`);
-          state.comments = await fetchJson(`${baseUrl}/api/${t}/${n}/comments`);
-          state.detailType = t;
-          state.view = "detail";
-          state.scrollOffset = 0;
-          state.showBookmarks = false;
-          state.breadcrumb = ["bookmarks", bm];
+          await withLoading(state, async (isStale) => {
+            const [detail, comments] = await Promise.all([
+              fetchJson(`${baseUrl}/api/${t}/${n}`),
+              fetchJson(`${baseUrl}/api/${t}/${n}/comments`),
+            ]);
+            if (isStale()) return;
+            state.detail = detail;
+            state.comments = comments;
+            state.detailType = t;
+            state.view = "detail";
+            state.scrollOffset = 0;
+            state.showBookmarks = false;
+            state.breadcrumb = ["bookmarks", bm];
+          });
         }
       } else if (state.view === "types") {
         state.view = "list";
@@ -523,13 +549,19 @@ export async function startTui(baseUrl, token) {
         if (items.length > 0) {
           const item = items[state.selectedItem];
           const type = (state.isSearch || state.isBlockedView) ? (item.type || TYPES[state.selectedType]) : TYPES[state.selectedType];
-          process.stdout.write(`${DIM} loading…${RESET}`); // immediate feedback before fetch
-          state.detail = await fetchJson(`${baseUrl}/api/${type}/${item.name}`, token);
-          state.comments = await fetchJson(`${baseUrl}/api/${type}/${item.name}/comments`);
-          state.detailType = type;
-          state.view = "detail";
-          state.scrollOffset = 0;
-          state.breadcrumb = buildBreadcrumb(state, item.name);
+          await withLoading(state, async (isStale) => {
+            const [detail, comments] = await Promise.all([
+              fetchJson(`${baseUrl}/api/${type}/${item.name}`, token),
+              fetchJson(`${baseUrl}/api/${type}/${item.name}/comments`),
+            ]);
+            if (isStale()) return;
+            state.detail = detail;
+            state.comments = comments;
+            state.detailType = type;
+            state.view = "detail";
+            state.scrollOffset = 0;
+            state.breadcrumb = buildBreadcrumb(state, item.name);
+          });
         }
       }
       render(state);
@@ -606,15 +638,20 @@ export async function startTui(baseUrl, token) {
         if (items.length > 0) {
           const item = items[state.selectedItem];
           const type = item.type || TYPES[state.selectedType];
-          try {
+          await withLoading(state, async (isStale) => {
             const r = await fetchJson(`${baseUrl}/api/${type}/${item.name}/approve`, token, "POST");
+            if (isStale()) return;
             if (r) {
               state.statusMsg = `Approved ${type}/${item.name}`;
-              state.blockedList = await fetchJson(`${baseUrl}/api/blocked`, token);
+              const blocked = await fetchJson(`${baseUrl}/api/blocked`, token);
+              if (isStale()) return;
+              state.blockedList = blocked;
               state.blockedCount = (state.blockedList || []).length;
               if (state.selectedItem >= (state.blockedList || []).length) state.selectedItem = Math.max(0, (state.blockedList || []).length - 1);
+            } else {
+              state.statusMsg = "Approve failed";
             }
-          } catch { state.statusMsg = "Approve failed"; }
+          });
         }
         render(state);
         return;
@@ -702,20 +739,27 @@ export async function startTui(baseUrl, token) {
           state.confirmDelete = false;
           const type = state.detailType || TYPES[state.selectedType];
           const name = state.detail.name;
-          const h = { "Content-Type": "application/json" };
-          if (token) h["Authorization"] = `Bearer ${token}`;
-          const res = await fetch(`${baseUrl}/api/${type}/${name}`, { method: "DELETE", headers: h });
-          if (res.ok) {
-            state.entries[type] = await fetchJson(`${baseUrl}/api/${type}`);
-            state.view = "list";
-            state.detail = null;
-            state.selectedItem = 0;
-            state.statusMsg = `Removed ${type}/${name}`;
-          } else {
-            const d = await res.json().catch(() => ({}));
-            state.statusMsg = d.error || "Remove failed — only owners and admins can delete";
-          }
-          state.breadcrumb = buildBreadcrumb(state);
+          await withLoading(state, async (isStale) => {
+            const h = { "Content-Type": "application/json" };
+            if (token) h["Authorization"] = `Bearer ${token}`;
+            let res;
+            try { res = await fetch(`${baseUrl}/api/${type}/${name}`, { method: "DELETE", headers: h }); }
+            catch (err) { if (!isStale()) state.statusMsg = `Remove failed: ${err.message}`; return; }
+            if (res.ok) {
+              const entries = await fetchJson(`${baseUrl}/api/${type}`);
+              if (isStale()) return;
+              state.entries[type] = entries;
+              state.view = "list";
+              state.detail = null;
+              state.selectedItem = 0;
+              state.statusMsg = `Removed ${type}/${name}`;
+            } else {
+              const d = await res.json().catch(() => ({}));
+              if (isStale()) return;
+              state.statusMsg = d.error || "Remove failed — only owners and admins can delete";
+            }
+            state.breadcrumb = buildBreadcrumb(state);
+          });
         } else {
           // First d — ask confirmation
           state.confirmDelete = true;
@@ -766,11 +810,15 @@ export async function startTui(baseUrl, token) {
       // v — version history (#7)
       if (key === "v") {
         const type = state.detailType || TYPES[state.selectedType];
-        state.versionList = await fetchJson(`${baseUrl}/api/${type}/${state.detail.name}/versions`);
-        state.previousView = state.view;
-        state.view = "versions";
-        state.scrollOffset = 0;
-        state.breadcrumb = buildBreadcrumb(state, state.detail.name, "versions");
+        await withLoading(state, async (isStale) => {
+          const versions = await fetchJson(`${baseUrl}/api/${type}/${state.detail.name}/versions`);
+          if (isStale()) return;
+          state.versionList = versions;
+          state.previousView = state.view;
+          state.view = "versions";
+          state.scrollOffset = 0;
+          state.breadcrumb = buildBreadcrumb(state, state.detail.name, "versions");
+        });
         render(state);
         return;
       }
@@ -782,26 +830,32 @@ export async function startTui(baseUrl, token) {
         if (Array.isArray(related) && related.length > 0) {
           // Navigate to the first related artifact — try each type until found
           const targetName = related[0];
-          let found = null;
-          for (const t of TYPES) {
-            const entry = await fetchJson(`${baseUrl}/api/${t}/${targetName}`, token);
-            if (entry && entry.name) {
-              found = entry;
-              state.selectedType = TYPES.indexOf(t);
-              break;
+          await withLoading(state, async (isStale) => {
+            let found = null;
+            let foundType = null;
+            for (const t of TYPES) {
+              const entry = await fetchJson(`${baseUrl}/api/${t}/${targetName}`, token);
+              if (entry && entry.name) {
+                found = entry;
+                foundType = t;
+                break;
+              }
             }
-          }
-          if (found) {
-            state.detail = found;
-            const type = TYPES[state.selectedType];
-            state.detailType = type;
-            state.comments = await fetchJson(`${baseUrl}/api/${type}/${found.name}/comments`);
-            state.scrollOffset = 0;
-            state.breadcrumb = buildBreadcrumb(state, found.name);
-            state.statusMsg = `Navigated to ${found.name}`;
-          } else {
-            state.statusMsg = `Related artifact "${targetName}" not found`;
-          }
+            if (isStale()) return;
+            if (found) {
+              state.selectedType = TYPES.indexOf(foundType);
+              state.detail = found;
+              state.detailType = foundType;
+              const comments = await fetchJson(`${baseUrl}/api/${foundType}/${found.name}/comments`);
+              if (isStale()) return;
+              state.comments = comments;
+              state.scrollOffset = 0;
+              state.breadcrumb = buildBreadcrumb(state, found.name);
+              state.statusMsg = `Navigated to ${found.name}`;
+            } else {
+              state.statusMsg = `Related artifact "${targetName}" not found`;
+            }
+          });
           render(state);
           return;
         } else {
@@ -842,11 +896,15 @@ export async function startTui(baseUrl, token) {
     if (state.view === "types" || state.view === "list") {
       // m — metrics
       if (key === "m" && state.isAdmin) {
-        state.metrics = await fetchText(`${baseUrl}/api/metrics`, token);
-        state.previousView = state.view;
-        state.view = "metrics";
-        state.scrollOffset = 0;
-        state.breadcrumb = ["metrics"];
+        await withLoading(state, async (isStale) => {
+          const metrics = await fetchText(`${baseUrl}/api/metrics`, token);
+          if (isStale()) return;
+          state.metrics = metrics;
+          state.previousView = state.view;
+          state.view = "metrics";
+          state.scrollOffset = 0;
+          state.breadcrumb = ["metrics"];
+        });
         render(state);
         return;
       }
@@ -882,22 +940,30 @@ export async function startTui(baseUrl, token) {
       }
       // i — config
       if (key === "i" && state.isAdmin) {
-        state.serverConfig = await fetchJson(`${baseUrl}/api/config`, token);
-        state.previousView = state.view;
-        state.view = "config";
-        state.scrollOffset = 0;
-        state.breadcrumb = ["config"];
+        await withLoading(state, async (isStale) => {
+          const cfg = await fetchJson(`${baseUrl}/api/config`, token);
+          if (isStale()) return;
+          state.serverConfig = cfg;
+          state.previousView = state.view;
+          state.view = "config";
+          state.scrollOffset = 0;
+          state.breadcrumb = ["config"];
+        });
         render(state);
         return;
       }
       // B — blocked list (#5)
       if (key === "B" && state.isAdmin) {
-        state.blockedList = await fetchJson(`${baseUrl}/api/blocked`, token);
-        state.view = "list";
-        state.isBlockedView = true;
-        state.selectedItem = 0;
-        state.scrollOffset = 0;
-        state.breadcrumb = ["blocked"];
+        await withLoading(state, async (isStale) => {
+          const blocked = await fetchJson(`${baseUrl}/api/blocked`, token);
+          if (isStale()) return;
+          state.blockedList = blocked;
+          state.view = "list";
+          state.isBlockedView = true;
+          state.selectedItem = 0;
+          state.scrollOffset = 0;
+          state.breadcrumb = ["blocked"];
+        });
         render(state);
         return;
       }
@@ -923,14 +989,28 @@ export async function startTui(baseUrl, token) {
 
     // r — refresh
     if (key === "r") {
-      process.stdout.write(CLEAR + `${DIM}Refreshing...${RESET}`);
-      for (const type of TYPES) state.entries[type] = await fetchJson(`${baseUrl}/api/${type}`);
-      if (state.view === "detail" && state.detail) {
-        const type = state.detailType || TYPES[state.selectedType];
-        state.detail = await fetchJson(`${baseUrl}/api/${type}/${state.detail.name}`);
-        state.comments = await fetchJson(`${baseUrl}/api/${type}/${state.detail.name}/comments`);
-      }
-      if (state.view === "metrics") state.metrics = await fetchText(`${baseUrl}/api/metrics`, token);
+      await withLoading(state, async (isStale) => {
+        const fresh = {};
+        await Promise.all(TYPES.map(async (type) => { fresh[type] = await fetchJson(`${baseUrl}/api/${type}`); }));
+        if (isStale()) return;
+        for (const type of TYPES) state.entries[type] = fresh[type];
+        if (state.view === "detail" && state.detail) {
+          const type = state.detailType || TYPES[state.selectedType];
+          const name = state.detail.name;
+          const [detail, comments] = await Promise.all([
+            fetchJson(`${baseUrl}/api/${type}/${name}`),
+            fetchJson(`${baseUrl}/api/${type}/${name}/comments`),
+          ]);
+          if (isStale()) return;
+          state.detail = detail;
+          state.comments = comments;
+        }
+        if (state.view === "metrics") {
+          const metrics = await fetchText(`${baseUrl}/api/metrics`, token);
+          if (isStale()) return;
+          state.metrics = metrics;
+        }
+      });
       if (state.view === "audit") await loadAuditPage(state, baseUrl, token);
       render(state);
       return;
@@ -989,14 +1069,18 @@ export async function startTui(baseUrl, token) {
       state._searchMode = false;
       process.stdout.write(HIDE_CURSOR);
       if (query) {
-        state.searchResults = await fetchJson(`${baseUrl}/api/search?q=${encodeURIComponent(query)}`);
-        state.view = "list";
-        state.selectedItem = 0;
-        state.scrollOffset = 0;
-        state.isSearch = true;
-        state.searchQuery = query;
-        state.filter = "";
-        state.breadcrumb = [`search: ${query}`];
+        await withLoading(state, async (isStale) => {
+          const results = await fetchJson(`${baseUrl}/api/search?q=${encodeURIComponent(query)}`);
+          if (isStale()) return;
+          state.searchResults = results;
+          state.view = "list";
+          state.selectedItem = 0;
+          state.scrollOffset = 0;
+          state.isSearch = true;
+          state.searchQuery = query;
+          state.filter = "";
+          state.breadcrumb = [`search: ${query}`];
+        });
       }
       process.stdout.write(HIDE_CURSOR);
       render(state);
@@ -1006,6 +1090,25 @@ export async function startTui(baseUrl, token) {
 }
 
 // --- Helpers ---
+
+// Async operation wrapper: animates the header spinner while the op runs and
+// guards against stale results (a newer op or Esc-cancel supersedes this one).
+// fn receives isStale() — check it before mutating state with fetched data.
+let _opSeq = 0;
+async function withLoading(state, fn) {
+  const seq = ++_opSeq;
+  state._loading = true;
+  const timer = setInterval(() => { if (state._loading) render(state); }, 80);
+  try {
+    return await fn(() => seq !== _opSeq);
+  } finally {
+    clearInterval(timer);
+    if (seq === _opSeq) {
+      state._loading = false;
+      render(state);
+    }
+  }
+}
 
 function buildProjectTree(state, filterProject) {
   const allEntries = [];
@@ -2182,10 +2285,12 @@ function cleanup() {
 
 async function loadAuditPage(state, baseUrl, token) {
   const offset = (state.auditPage - 1) * 50;
-  process.stdout.write(CLEAR + `${DIM}Loading audit...${RESET}`);
-  const d = await fetchJson(`${baseUrl}/api/audit?limit=50&offset=${offset}`, token);
-  state.audit = d?.entries || [];
-  state.auditTotal = d?.total || 0;
+  await withLoading(state, async (isStale) => {
+    const d = await fetchJson(`${baseUrl}/api/audit?limit=50&offset=${offset}`, token);
+    if (isStale()) return;
+    state.audit = d?.entries || [];
+    state.auditTotal = d?.total || 0;
+  });
 }
 
 async function executeBulkPull(state, baseUrl, token) {
