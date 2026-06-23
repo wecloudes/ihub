@@ -2,6 +2,9 @@ node_modules/
 .DS_Store
 ihub.db*
 
+# Deploy-host-only compose overrides (e.g. restart policies on the VPS)
+docker-compose.override.yml
+
 # Working directories (user artifacts, not tracked)
 agents/*.md
 skills/*.md
