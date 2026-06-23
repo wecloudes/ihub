@@ -31,6 +31,13 @@ All notable changes to ihub are documented in this file.
 - **TUI: detail actions (delete/review/bookmark/copy/versions) used the wrong artifact type** when the detail was opened from search results or bookmarks — delete could target a same-named artifact of another type
 - **TUI: help overlay destroyed the underlying view's scroll position**; installed ✓ indicator never showed for commands/designs/hooks/mcps; status messages vanished on the first re-render; bulk pull serialized frontmatter inline instead of via `entryToMarkdown`
 
+## [0.8.1] - 2026-06-23
+
+### Security
+
+- **Docker image CVE reduction (62 → 1)** — switched the server image base from `oven/bun:1` (Debian trixie) to `oven/bun:1-alpine` (musl), eliminating perl (CVE-2026-12087 CRITICAL + 2 HIGH) and glibc (1 HIGH) entirely, and added `RUN apk upgrade --no-cache` to pull openssl `3.5.7-r0` (fixes 4 HIGH). Image size dropped 92 MB → 52 MB. Remaining: one no-fix-available busybox MEDIUM.
+- **Bumped transitive `hono` to `^4.12.25`** via a `package.json` `overrides` entry — fixes CVE-2026-54290 (HIGH, permissive cross-domain policy); resolved to `hono@4.12.27`. Pulled in transitively through `@modelcontextprotocol/sdk` ← `files-sdk`.
+
 ## [0.8.0] - 2026-06-11
 
 ### Changed

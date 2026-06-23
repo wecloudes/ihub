@@ -1,11 +1,15 @@
-FROM oven/bun:1 AS build
+FROM oven/bun:1-alpine AS build
 
 WORKDIR /app
 
 COPY package.json bun.lock* ./
 RUN bun install --production
 
-FROM oven/bun:1
+FROM oven/bun:1-alpine
+
+# Patch base OS packages (openssl et al.) to pick up security fixes not yet in
+# the published base image, then drop the apk cache.
+RUN apk upgrade --no-cache
 
 WORKDIR /app
 
