@@ -80,6 +80,25 @@ describe("database", () => {
     assert.equal(changeApiKey("nobody", "whatever"), false);
   });
 
+  it("hashes new keys (hash is stored, not plaintext)", () => {
+    registerUser("hashtest", "raw-key-xyz");
+    const row = getDb().prepare("SELECT api_key FROM users WHERE username = ?").get("hashtest");
+    assert.ok(row.api_key.startsWith("sha256:"), `Expected sha256: prefix, got: ${row.api_key}`);
+    assert.notEqual(row.api_key, "raw-key-xyz");
+  });
+
+  it("legacy plaintext key migrates on authenticate", () => {
+    // Simulate an older deployment that stored plaintext
+    getDb().prepare("INSERT INTO users (username, api_key, role) VALUES (?, ?, ?)").run("legacy-user", "legacy-plain-key", "user");
+    // Authenticate with plaintext — should succeed and migrate in-place
+    const user = authenticateKey("legacy-plain-key");
+    assert.ok(user, "legacy plaintext key should authenticate");
+    assert.equal(user.username, "legacy-user");
+    // The stored key should now be hashed
+    const row = getDb().prepare("SELECT api_key FROM users WHERE username = ?").get("legacy-user");
+    assert.ok(row.api_key.startsWith("sha256:"), `Expected migration to hash, got: ${row.api_key}`);
+  });
+
   it("backs up the database", async () => {
     const backupPath = join(tmpDir, "backup-test.db");
     await backupDb(backupPath);

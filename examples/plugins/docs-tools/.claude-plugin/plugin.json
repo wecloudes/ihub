@@ -1,0 +1,13 @@
+{
+  "name": "docs-tools",
+  "displayName": "Docs Tools",
+  "version": "1.0.0",
+  "description": "Agents for documentation, database migrations, and security scanning",
+  "author": {
+    "name": "ihub"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/ihub/examples",
+  "keywords": ["documentation", "migration", "security", "agents"],
+  "project": "developer-tools"
+}

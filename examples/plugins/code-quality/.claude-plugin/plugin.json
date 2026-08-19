@@ -1,0 +1,13 @@
+{
+  "name": "code-quality",
+  "displayName": "Code Quality",
+  "version": "1.0.0",
+  "description": "Skills, a command, and a review agent for keeping a codebase clean: conventional commits, linting, dependency audits, and test generation",
+  "author": {
+    "name": "ihub"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/ihub/examples",
+  "keywords": ["code-quality", "linting", "testing", "git", "ci"],
+  "project": "developer-tools"
+}

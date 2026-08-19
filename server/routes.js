@@ -45,7 +45,7 @@ import { randomBytes } from "crypto";
 import { createReadStream, unlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { syncFromUpstream, listUpstreams } from "./federation.js";
+import { syncUpstream, listUpstreams } from "./federation.js";
 import { signArtifact, verifySignature, getSignatureHeader, getSigningKey, isSigningEnabled } from "./signing.js";
 import { shipLog, isVLogsEnabled } from "./vlogs.js";
 
@@ -58,10 +58,17 @@ function logAction(entry) {
   if (isVLogsEnabled()) shipLog(entry);
 }
 
-const VALID_TYPES = ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"];
+const VALID_TYPES = ["plugins"];
 const VALID_ROLES = ["user", "admin"];
 
+// Cache TTL for expensive gauge refresh (15 seconds)
+let _gaugeLastRefresh = 0;
+const GAUGE_TTL_MS = 15000;
+
 function refreshGauges() {
+  const now = Date.now();
+  if (now - _gaugeLastRefresh < GAUGE_TTL_MS) return;
+  _gaugeLastRefresh = now;
   const db = getDb();
 
   // Entries by type
@@ -93,28 +100,31 @@ function refreshGauges() {
     gauge("ihub_entries_by_project_count", { project, type }, count);
   }
 
-  // Entries by name (version count per artifact)
-  const byName = db.prepare(
-    "SELECT type, name, COUNT(*) as c FROM entries GROUP BY type, name"
-  ).all();
-  for (const row of byName) {
-    gauge("ihub_entries_by_name_count", { type: row.type, name: row.name }, row.c);
-  }
+  // High-cardinality series: gated behind IHUB_METRICS_HIGH_CARDINALITY=true
+  if (process.env.IHUB_METRICS_HIGH_CARDINALITY === "true") {
+    // Entries by name (version count per artifact)
+    const byName = db.prepare(
+      "SELECT type, name, COUNT(*) as c FROM entries GROUP BY type, name"
+    ).all();
+    for (const row of byName) {
+      gauge("ihub_entries_by_name_count", { type: row.type, name: row.name }, row.c);
+    }
 
-  // Comments by artifact
-  const commentsByArtifact = db.prepare(
-    "SELECT type, name, COUNT(*) as c FROM comments GROUP BY type, name"
-  ).all();
-  for (const row of commentsByArtifact) {
-    gauge("ihub_comments_by_artifact_count", { type: row.type, name: row.name }, row.c);
-  }
+    // Comments by artifact
+    const commentsByArtifact = db.prepare(
+      "SELECT type, name, COUNT(*) as c FROM comments GROUP BY type, name"
+    ).all();
+    for (const row of commentsByArtifact) {
+      gauge("ihub_comments_by_artifact_count", { type: row.type, name: row.name }, row.c);
+    }
 
-  // Comments by user
-  const commentsByUser = db.prepare(
-    "SELECT username, COUNT(*) as c FROM comments GROUP BY username"
-  ).all();
-  for (const row of commentsByUser) {
-    gauge("ihub_comments_by_user_count", { user: row.username }, row.c);
+    // Comments by user
+    const commentsByUser = db.prepare(
+      "SELECT username, COUNT(*) as c FROM comments GROUP BY username"
+    ).all();
+    for (const row of commentsByUser) {
+      gauge("ihub_comments_by_user_count", { user: row.username }, row.c);
+    }
   }
 
   gauge("ihub_users_count", {}, getUserCount());
@@ -311,10 +321,16 @@ export async function handleRequest(req, res) {
     const db = getDb();
     bundle.users = db.prepare("SELECT username, role, created_at FROM users").all();
 
+    const payload = JSON.stringify(bundle);
     inc("ihub_backup_total", { user: user.username });
-    logAction({ ip: getClientIp(req), action: "backup", username: user.username, role: user.role, detail: "full JSON export" });
-    res.writeHead(200, { "Content-Type": "application/json", "Content-Disposition": `attachment; filename="ihub-backup-full.json"` });
-    return res.end(JSON.stringify(bundle));
+    logAction({ ip: getClientIp(req), action: "backup", username: user.username, role: user.role, detail: `full JSON export size=${payload.length}` });
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Content-Disposition": `attachment; filename="ihub-backup-full.json"`,
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    });
+    return res.end(payload);
   }
 
   // POST /api/backup/full — admin only, restore from full JSON export
@@ -467,7 +483,7 @@ export async function handleRequest(req, res) {
 
     const results = [];
     for (const upstream of upstreams) {
-      const result = await syncFromUpstream(upstream.url, upstream.types);
+      const result = await syncUpstream(upstream);
       results.push({ url: upstream.url, ...result });
     }
     logAction({ ip: getClientIp(req), action: "federation-sync", username: user.username, role: user.role, detail: `${results.reduce((s, r) => s + r.synced, 0)} synced` });
@@ -764,12 +780,31 @@ export async function handleRequest(req, res) {
         return sendError(res, 403, `Only the owner "${result.existingOwner}" can update ${type}/${name}`);
       }
 
-      // Handle attachments
+      // Handle attachments — component files (SKILL.md, plugin.json, .mcp.json, ...).
+      // Sensitive scan runs over every attachment's content, same as the body; any
+      // hit masks the file, bumps the finding count, and blocks the whole plugin.
       const attachmentCount = Array.isArray(data.attachments) ? data.attachments.length : 0;
       if (data.attachments) {
         for (const att of data.attachments) {
           if (!att.filepath || !att.content) continue;
-          await upsertAttachment({ type, name, filepath: att.filepath, content: att.content });
+          let content = att.content;
+          // Attachment content arrives base64-encoded — decode to scan the text.
+          let text = null;
+          try { text = Buffer.from(String(att.content), "base64").toString("utf8"); } catch {}
+          if (text != null) {
+            const scan = maskSensitiveData(text);
+            if (scan.findings.length > 0) {
+              content = Buffer.from(scan.maskedContent, "utf8").toString("base64");
+              sensitiveCount += scan.findings.length;
+              const attTypes = [...new Set(scan.findings.map((f) => f.type))];
+              for (const t of attTypes) if (!sensitiveTypes.includes(t)) sensitiveTypes.push(t);
+              findings.push(...scan.findings);
+              for (const f of scan.findings) {
+                inc("ihub_sensitive_detected_total", { type, sensitive_type: f.type, user: user.username });
+              }
+            }
+          }
+          await upsertAttachment({ type, name, filepath: att.filepath, content });
         }
       }
 

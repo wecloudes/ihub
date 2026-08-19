@@ -11,55 +11,48 @@ bun run server    # start the registry server locally
 
 ## Project layout
 
+ihub manages exactly one artifact type: a **plugin** (a Claude Code plugin directory bundling skills, commands, agents, MCP servers, and hooks). Local plugins live in `plugins/<name>/`.
+
 ```
 cli/           CLI tool (ESM, no external dependencies)
-  index.js       command dispatcher + type-first routing + browse/open
-  context.js     shared state: ROOT, type maps, readline helpers, parseJsonFlag
+  index.js       command dispatcher + browse/open; accepts the `plugin`/`plugins` noun
+  context.js     shared constants: ROOT, TYPE/TYPE_PLURAL, COMPONENT_KINDS, PLUGIN_FIELDS, VALID_HOOK_EVENTS, PLUGIN_NAME_RE, readline helpers, parseJsonFlag
   query.js       list, search, show, preview, validate, projects
-  create.js      create, import, createFromTemplate
-  publish.js     push, pull, remove, comment, watch, pullFromUrl
+  create.js      create (scaffold plugins/<name>/), import (plugin dir or lone component)
+  publish.js     push, pull, remove, comment, watch, pullFromUrl, marketplace helpers
   auth.js        register, login, passwd, whoami
   admin.js       audit, metrics, backup, restore, admin, webhook, federation
   diagnostics.js completions, man, config, outdated, doctor, verify, diff, version, help
-  pinning.js     version pinning, bundle export/import
-  parse.js       frontmatter parser, entry/registry loader
+  pinning.js     version pinning (key plugins/<name>), bundle + marketplace export/import
+  parse.js       frontmatter parser; loadPlugin/loadPlugins, collectPluginComponents, collectFiles, unwrapConfig
   registry.js    HTTP client for remote registry + config/header helpers (getBaseUrl, getToken, authHeaders, jsonHeaders)
   render.js      terminal markdown renderer (ANSI)
   dashboard.js   terminal metrics dashboard renderer
-  tui.js         interactive TUI browser (multi-select, comments, metrics, audit, projects, guide, split-pane preview, filter mode, non-blocking fetches with Esc-cancel, dynamic resize)
-  agents-config.js  coding agent path configs (Claude, Gemini, Qwen, Cursor, Codex, Open Code)
-  config-merge.js   idempotent JSON merges into agent-owned config files (mcp/hook installs)
+  tui.js         interactive TUI browser (plugin list, component-tree detail, comments, metrics, audit, projects, guide, split-pane preview, filter mode, non-blocking fetches with Esc-cancel, dynamic resize)
+  agents-config.js  plugin install targets — pluginInstallDir(scope) → ~/.claude/plugins or ./.claude/plugins
+  config-merge.js   idempotent JSON merge helpers + extractConfigBlock
 server/        registry API server
   index.js       native http server entrypoint
-  routes.js      REST route handlers (auth, CRUD, comments, attachments, backup/restore, webhooks, federation, metrics, audit, firewall, blocked/approve)
+  routes.js      REST route handlers (VALID_TYPES=["plugins"]; auth, CRUD, comments, attachments, backup/restore, webhooks, federation, metrics, audit, firewall, blocked/approve)
   auth0.js       Auth0 JWT verification (RS256, JWKS, optional)
   slack.js       Slack webhook (push notifications + digest)
   config.js      unified config loader (ihub.config.json + env vars)
-  db.js          SQLite layer — users, entries, attachments, comments, audit_log, webhooks
+  db.js          SQLite layer — users, entries, attachments, comments, audit_log, webhooks (type always "plugin")
   storage.js     pluggable storage abstraction (SQLite, S3, R2, GCS, Azure, 30+)
   signing.js     HMAC-SHA256 artifact signing and verification
   versioning.js  semver policy enforcement, breaking change detection
-  federation.js  upstream registry sync
+  federation.js  upstream registry sync (VALID_TYPES=["plugins"]; mcp-registry → plugin)
   webhooks.js    webhook notification delivery (HMAC-signed)
-  plugins.js     extensible push/pull lifecycle hooks
+  plugins.js     extensible push/pull lifecycle hooks (server-side plugin API — unrelated to the plugin artifact type)
   ui.js          web UI handler (browser-based registry)
   metrics.js     in-memory metrics collector (VictoriaMetrics-compatible)
   vlogs.js       VictoriaLogs client (structured log shipping)
   sensitive.js   sensitive data detection and masking (80+ patterns)
   security-alert.js  security alert notifications (terminal/slack/email)
-tests/         test suite (node:test)
-  parse.test.js, registry.test.js, render.test.js, dashboard.test.js
-  config.test.js, metrics.test.js, slack.test.js
-  db.test.js, routes.test.js, cli.test.js, tui.test.js, sensitive.test.js
-  signing.test.js, versioning.test.js, federation.test.js, webhooks.test.js, plugins.test.js, vlogs.test.js
-agents/        working directory for agent entries (.md, gitignored)
-skills/        working directory for skill entries (.md, gitignored)
-rules/         working directory for rule entries (.md, gitignored)
-memories/      working directory for memory entries (.md, gitignored)
-prompts/       working directory for prompt entries (.md, gitignored)
-commands/ designs/ mcps/ hooks/   working directories for the remaining types (.md, gitignored)
-examples/      sample entries for reference (tracked in git)
-templates/     scaffolding templates for each type
+tests/         test suite (node:test / bun test)
+plugins/       working directory for local plugin dirs (gitignored)
+examples/plugins/  sample plugins (code-quality, dev-mcps, docs-tools) + DROPPED.md (tracked in git)
+templates/plugin/  plugin scaffold used by `ihub create`
 completions/   bash and zsh shell completions
 man/           manual page source
 k8s/           Kubernetes manifests (kustomize)
@@ -84,11 +77,10 @@ CLI integration tests (`tests/cli.test.js`) spawn a real server process on a ran
 
 ### Adding a new CLI command
 
-1. Add the function in `cli/index.js`
-2. Register it in the `commands` object
-3. If it's a type-scoped command, add routing in the type-first dispatch block
-4. Update the `help()` output
-5. Add tests in `tests/cli.test.js`
+1. Add the function in the relevant `cli/*.js` module (e.g. read commands in `query.js`, publish flow in `publish.js`)
+2. Import it in `cli/index.js` and register it in the `commands` object
+3. Update the `help()` output in `cli/diagnostics.js`
+4. Add tests in `tests/cli.test.js`
 
 ### Adding a new API endpoint
 
@@ -97,22 +89,15 @@ CLI integration tests (`tests/cli.test.js`) spawn a real server process on a ran
 3. Add the HTTP client function in `cli/registry.js` if it needs CLI access
 4. Add tests in `tests/routes.test.js` (API level) and `tests/db.test.js` (DB level)
 
-### Adding a new registry type
+### Working with the plugin model
 
-1. Create the directory (e.g., `workflows/`)
-2. Add a template in `templates/workflow.md`
-3. Add the type to `loadRegistry()` in `cli/parse.js`
-4. Add it to `TYPE_FIELDS` and `PLURAL_MAP` in `cli/index.js`
-5. Add it to `VALID_TYPES` in `server/routes.js`
-6. Add paths to `agents-config.js` for each coding agent
+There is one artifact type — `plugin`. When adding features:
 
-### Adding a new coding agent
-
-1. Add the agent config to `CODING_AGENTS` in `cli/agents-config.js`
-2. Define paths for skills, rules, agents, prompts, memories (global + local)
-3. Set `skillAsDir: true` + `skillFilename` if the agent uses directory-based skills
-4. Add field mappings in `mapSourceFields()` for import
-5. Add output transformation in `transformForAgent()` for pull
+1. A local plugin is a `plugins/<name>/` directory with `.claude-plugin/plugin.json`. `loadPlugin`/`loadPlugins` in `cli/parse.js` load them; `collectPluginComponents` derives `meta.components` (`skills`/`commands`/`agents`/`mcpServers`/`hooks`).
+2. Push packs the plugin into a registry entry: manifest → meta, README → body, every component file → an attachment. Pull reverses it. Reuse the attachment infra rather than adding a new transfer path.
+3. MCP config (`.mcp.json`) and hook config (`hooks/hooks.json`) are Claude-native shapes — use `unwrapConfig()` (tolerates wrapped and flat forms). Keep secrets as `${VAR}` placeholders; never commit or transfer literal secrets.
+4. Server-side, the type dimension is fixed: `VALID_TYPES = ["plugins"]` in `server/routes.js`, `server/federation.js`, and `server/ui.js`. Don't reintroduce per-type branching.
+5. Extend `ihub validate` (`cli/query.js`) when you add a component-level constraint; add a case to `tests/validate-*.test.js`.
 
 ### Modifying the database schema
 
@@ -126,16 +111,15 @@ CLI integration tests (`tests/cli.test.js`) spawn a real server process on a ran
 - No external dependencies in the CLI (uses native `fetch`, `readline`, `fs`)
 - Server uses Bun's built-in `bun:sqlite`; the only external dependency is `files-sdk` (storage backends)
 - Terminal rendering uses raw ANSI escape codes, no dependencies
-- Frontmatter parser handles simple YAML only (no nested objects, no multi-line values)
-- Cross-references between entries are validated by `ihub validate`
-- mcp/hook config lives in a fenced ```json block in the artifact body (Claude-native shape, parsed by `extractConfigBlock` in `cli/config-merge.js`); the flat-frontmatter format is a deprecated legacy fallback
-- MCP/hook installs go through `cli/config-merge.js` — never write agent config files directly; merges must stay idempotent and must not touch user-authored entries
+- Frontmatter parser handles simple YAML only (no nested objects, no multi-line values); plugin manifests are JSON (`.claude-plugin/plugin.json`)
+- Plugin structure is validated by `ihub validate` (manifest, skill/command/agent files, `.mcp.json`, `hooks/hooks.json`)
+- MCP config (`.mcp.json`) and hook config (`hooks/hooks.json`) are Claude-native and travel inside the plugin; a plugin installs as a whole directory (`ihub pull --install`) — there is no per-agent config merge
+- Secrets in MCP `env`/`headers` are always `${VAR}` placeholders; the sensitive scanner masks and blocks literal secrets on push (README body + every text component file)
 
 ## Before submitting
 
 1. Run `bun test` and ensure all tests pass
 2. Add tests for any new commands, endpoints, or DB functions
-3. Run `ihub validate` to check registry integrity
-4. If you added a command, verify it works with both syntaxes (`ihub push agent x` and `ihub agent push x`)
-5. If you changed the server, verify the Docker image builds: `docker build -t ihub-server .`
-6. Update all documentation: CLAUDE.md, README.md, CONTRIBUTING.md, CHANGELOG.md
+3. Run `ihub validate` to check that local plugins are well-formed
+4. If you changed the server, verify the Docker image builds: `docker build -t ihub-server .`
+5. Update all documentation: CLAUDE.md, README.md, CONTRIBUTING.md, CHANGELOG.md

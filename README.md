@@ -1,18 +1,27 @@
 # ihub
 
-A harness engineering platform for AI coding agents. Publish once, install everywhere — ihub works with Claude Code, Gemini CLI, Qwen Code, Cursor IDE, Codex CLI, and Open Code, installing artifacts to each coding agent's native path with the correct format.
+A registry for **Claude Code plugins**. Publish a plugin once; discover, pull, and install it anywhere. A plugin bundles the things that make Claude Code useful — skills, commands, agents, MCP servers, and hooks — into one versioned, installable unit.
 
-Each artifact is a `.md` file with YAML frontmatter. No vendor lock-in, no proprietary formats — just files you can edit, version with git, and share across your team and AI toolchain.
+No proprietary formats: a plugin is a plain directory of files you can edit, version with git, and share across your team. ihub is where you package, publish, and pull those plugins, plus a registry server with search, ratings, signing, sensitive-data scanning, metrics, and a TUI + web browser.
 
-## The harness metaphor
+## What is a plugin
 
-The industry borrows from horse tack to explain why raw models aren't agents on their own:
+A plugin is a [Claude Code plugin](https://code.claude.com/docs/en/plugins-reference) — a directory bundling components:
 
-- **The Model (The Horse)** — High power, high speed, high intelligence, but directionless. Left alone it runs in an open field — it may produce brilliant text but won't complete a complex task.
-- **The Harness (The Infrastructure)** — The software layer that channels that power. It provides the tools (skills), the memory (context), and the guardrails (rules) that keep the model on track.
-- **The Human (The Rider)** — Sets the destination and adjusts the harness.
+```
+plugins/my-plugin/
+  .claude-plugin/plugin.json     # manifest (name, description, version, ...)
+  README.md                      # human doc
+  skills/<skill>/SKILL.md        # capabilities the model can invoke
+  commands/<cmd>.md              # user-facing slash commands
+  agents/<agent>.md              # subagent definitions
+  .mcp.json                      # MCP servers the plugin wires in
+  hooks/hooks.json               # lifecycle hooks (shell commands on events)
+```
 
-An **agent** in ihub is the harness. It wires skills, rules, memories, and prompts into a coherent configuration that turns a raw model into a directed coding assistant. ihub is where you engineer, publish, and share those harnesses.
+Only `.claude-plugin/plugin.json` is required — it's what makes a directory a plugin. Everything else is optional; add the components you need. MCP and hook config are the exact Claude-native shapes, so an installed plugin works with no translation. Secrets in MCP `env`/`headers` are always `${VAR}` placeholders resolved from your environment — never literal values (pushes with literal secrets are masked and blocked).
+
+> **Heads up — breaking change in 1.0.0.** ihub used to manage nine separate artifact types (agent/command/design/hook/mcp/memory/prompt/rule/skill). It now manages exactly one: the plugin. Skills, commands, agents, MCP servers, and hooks are *components inside a plugin*; rules, memories, prompts, and designs were dropped (no plugin-spec equivalent). See [CHANGELOG.md](CHANGELOG.md) and `examples/DROPPED.md`.
 
 ## Install
 
@@ -21,877 +30,168 @@ Requires [Bun](https://bun.sh) >= 1.0 — the CLI and server run on Bun (`bun:sq
 ```bash
 git clone <repo-url> && cd ihub
 bun install
-bun link                    # makes `ihub` available globally
+bun link                        # makes `ihub` available globally
 eval "$(ihub completions zsh)"  # or bash — enables tab completion
 ```
 
 ## Quick start
 
 ```bash
-ihub create skill my-skill -i       # create a new skill interactively
-ihub push skill my-skill            # publish to the registry
-ihub search --remote "lint"         # find artifacts others have published
-ihub pull skill lint-check -l       # download to your project
-ihub agent preview code-reviewer    # read an artifact with formatting
-ihub projects                       # see everything organized by project
+ihub create my-plugin -i             # scaffold plugins/my-plugin/ interactively
+# edit plugins/my-plugin/ — add skills/, commands/, agents/, .mcp.json, hooks/
+ihub validate                        # check every local plugin
+ihub push my-plugin                  # publish to the registry (scans for secrets)
+
+ihub search --remote "lint"          # find plugins others published
+ihub pull code-quality --install     # pull + drop into ~/.claude/plugins/
+ihub show code-quality               # manifest + component tree
+ihub projects                        # everything grouped by project
 ```
 
----
-
-## Understanding artifact types
-
-ihub manages nine artifact types. An agent is the harness — the top-level unit that composes skills, rules, memories, prompts, commands, MCP servers, and hooks into a complete AI coding agent configuration. Choosing the right type matters — it determines the frontmatter fields, how the artifact is discovered, and how it connects to other artifacts.
-
-### Agent — _"What's the full harness?"_
-
-An agent is a harness — the top-level composition unit that shapes how an AI coding assistant behaves. It declares which skills to use, which rules to follow, which memories to recall, and which prompts to run. Use an agent when you want to describe **the complete configuration for an AI persona**.
-
-```yaml
-name: code-reviewer
-description: Reviews code changes for quality and adherence to project rules
-inputs: [diff, file-list]
-outputs: [review-comments, approval-status]
-skills: [lint-check, dependency-audit]
-rules: [require-tests, no-secrets-in-code]
-memories: [error-handling-patterns, api-versioning-strategy]
-prompts: [code-review-feedback, summarize-pr]
-```
-
-**Use an agent when:**
-- You need a complete AI agent configuration that wires everything together
-- The configuration uses multiple skills and must follow specific rules
-- You want to describe _the full harness_, not individual components
-
-**Real examples:** `code-reviewer` (reviews PRs), `security-scanner` (finds vulnerabilities), `doc-generator` (produces API docs from code), `migration-assistant` (generates database migration scripts)
-
----
-
-### Skill — _"How is it done?"_
-
-A skill is a reusable capability — a single, discrete action that agents (or humans) invoke. Skills define triggers, arguments, and which agents can use them. Use a skill when you want to describe **one specific action** that can be shared across multiple agents.
-
-```yaml
-name: lint-check
-description: Runs configured linters and returns diagnostics
-triggers: [pre-commit, on-demand]
-args: [files, fix]
-compatible_agents: [code-reviewer, security-scanner]
-```
-
-**Use a skill when:**
-- You have a single action, not a full workflow
-- Multiple agents could benefit from the same capability
-- The action has clear inputs (args) and trigger conditions
-- You want to attach companion files (scripts, configs) alongside the artifact
-
-**Real examples:** `lint-check` (runs linters), `dependency-audit` (checks for CVEs), `git-commit-msg` (generates commit messages), `test-generator` (writes unit tests), `docx` (creates Word documents — with 59 attached Python scripts)
-
-**Agent vs Skill:** An agent is the _harness_ — the full wiring. A skill is a single _capability_ it uses. The `code-reviewer` agent _uses_ the `lint-check` skill. You can wire the same skill into different harnesses.
-
----
-
-### Rule — _"What must be followed?"_
-
-A rule is a constraint or standard that encodes a decision already made. Rules define what correct and incorrect behavior looks like, and link to the agents that must follow them. Use a rule when you want to **enforce a boundary** that shouldn't be rediscussed on every PR.
-
-```yaml
-name: no-secrets-in-code
-description: No API keys, tokens, or passwords in source code
-scope: global
-severity: error
-globs: "**/*.{js,ts,py,rb,go,env,yml,yaml,json}"
-applies_to: [code-reviewer, security-scanner]
-```
-
-**Use a rule when:**
-- A team decision has been made and shouldn't be debated per-case
-- You want to show _correct_ and _incorrect_ examples
-- The constraint applies to specific agents or all agents globally
-- You need severity levels (error = must fix, warning = should fix, info = consider)
-
-**Real examples:** `require-tests` (PRs must include tests), `no-secrets-in-code` (no hardcoded credentials), `no-console-in-prod` (use structured logging), `max-function-length` (50 lines max)
-
-**Rule vs Memory:** A rule is _prescriptive_ — it says what to do. A memory is _descriptive_ — it captures what was learned. Rules are enforced. Memories are recalled.
-
----
-
-### Memory — _"What was learned?"_
-
-A memory is captured context — knowledge, decisions, or insights that persist across sessions. Use a memory when you need to store **something that was learned** that isn't a rule, a procedure, or a prompt, but matters for making good decisions.
-
-```yaml
-name: api-versioning-strategy
-description: Team decision on URL-based API versioning
-scope: global
-context_type: decision
-related: [code-reviewer]
-```
-
-**Context types:**
-- `decision` — Why we chose X over Y. ADRs, trade-off analyses, rationale for technology choices. _Not a rule_ (rules enforce; decisions explain why).
-- `architecture` — How the system is structured. Service topology, data models, entity relationships, schemas. _Not a skill_ (skills do things; architecture describes things).
-- `incident` — What went wrong. Postmortems, timelines, root cause, impact, action items. _Not a runbook_ (runbooks are skills; incidents are evidence).
-- `domain` — Business concepts, glossary, regulatory context, user personas, industry constraints. _Not a constraint_ (rules constrain; domain knowledge informs).
-- `context` — Team structure, stakeholders, project state, ownership, priorities, timelines. _Not an agent definition_ (agents act; context describes the environment).
-- `learning` — Validated findings from experience. What worked, what didn't, benchmarks, measured results. _Not a policy_ (rules prescribe; learnings provide evidence).
-
-**Use a memory when:**
-- A team made an architectural decision and you want to capture _why_ (`decision`)
-- You need to document how the system is structured for onboarding (`architecture`)
-- An incident happened and you want to preserve the postmortem (`incident`)
-- Business rules or domain concepts need to be consistent across the team (`domain`)
-- Team structure, priorities, or project state needs to be shared (`context`)
-- You learned something valuable from experience that should inform future work (`learning`)
-
-**Key boundary:** Memories store knowledge — things an agent needs to **know**. They don't store actions (skills), constraints (rules), instructions (prompts), or actor definitions (agents).
-
-**Real examples:** `adr-001-database-choice` (PostgreSQL over MongoDB with rationale), `system-topology` (services, databases, queues), `incident-2026-03-redis` (Redis failover postmortem), `domain-payments` (business rules, provider constraints, EU regulations), `team-ownership` (who owns what, escalation paths), `learning-caching-strategy` (what caching approaches worked vs failed)
-
----
-
-### Prompt — _"What should the AI say?"_
-
-A prompt is a reusable instruction template. It captures the exact text you send to an AI model, with variables for dynamic content. Use a prompt when you have a **proven instruction** that produces reliable AI output and you want others to reuse it.
-
-```yaml
-name: summarize-pr
-description: Generates a concise PR summary from a diff
-model:
-tags: [code-review, summary]
-compatible_agents: [code-reviewer]
-memories: [api-versioning-strategy]
-```
-
-**Use a prompt when:**
-- You've refined an instruction that consistently produces good results
-- The prompt has clear variables (placeholders) and expected output
-- Multiple people or agents would benefit from the same instruction
-- You want to version and iterate on prompt quality
-
-**Real examples:** `summarize-pr` (creates PR summaries from diffs), `code-review-feedback` (structured review with severity), `explain-code` (layered code explanation for onboarding), `write-tests` (generates unit tests from function signatures), `refactor-suggestion` (before/after refactoring proposals)
-
-**Prompt vs Skill:** A prompt is _what to say_ to an AI. A skill is _what to do_ (which may or may not involve AI). A skill might use a prompt internally, but a prompt is just text — it has no triggers, no scripts, no execution logic.
-
-**The litmus test:** if you can paste the artifact body into a model's chat with variables filled in and get a useful, predictable, structured response — it's a prompt. Prompts are for **deterministic, repeatable output**: the same template producing the same shape of result every time, just with different inputs. If the task requires judgment, orchestration, or isn't meant to be sent to a model directly — it's one of the other four types.
-
-**Not a prompt:**
-- "Review code for quality" → too open-ended → **Agent** (orchestrates multiple steps)
-- "Run linters on changed files" → an action → **Skill** (execution, not model text)
-- "Always use semantic commits" → a constraint → **Rule** (enforced, not templated)
-- "We chose PostgreSQL because..." → knowledge → **Memory** (recalled, not sent to a model)
-
----
-
-### Command — _"What can the user invoke?"_
-
-A command is a user-facing slash command — a shortcut that maps to an agent+skill combination. It's the UX trigger layer of the harness. Use a command when you want to give users a **one-word way to invoke a complex workflow**.
-
-```yaml
-name: commit
-description: Generate a conventional commit message from staged changes
-trigger: /commit
-agent: code-reviewer
-skills: [git-commit-msg]
-prompts: [code-review-feedback]
-args: [message, scope, breaking]
-compatible_agents: [claude, cursor, gemini]
-```
-
-**Use a command when:**
-- You want a simple `/trigger` to invoke an agent+skill combo
-- The workflow has clear arguments and a predictable outcome
-- Multiple coding agents should support the same shortcut
-
-**Real examples:** `/commit` (generates commit messages), `/review-pr` (triggers code review), `/deploy` (runs deployment workflow), `/test` (generates and runs tests)
-
-**Command vs Skill:** A command is what the _user_ types. A skill is what the _agent_ does. The `/commit` command invokes the `git-commit-msg` skill through the `code-reviewer` agent.
-
----
-
-### Design — _"What should it look like?"_
-
-A design is a UI/UX artifact — wireframes, component specs, design tokens, or style guides. Designs are standalone visual references that any artifact can use. Use a design when you want to capture **how something should look** as a shareable, versionable artifact.
-
-```yaml
-name: login-page
-description: Login page wireframe with OAuth and email/password flows
-platform: web
-component_type: page
-design_system: minimal-ui
-format: html
-```
-
-**Use a design when:**
-- You have a wireframe, component spec, or design token set
-- Multiple skills or agents need the same visual reference
-- You want to version and iterate on UI decisions
-
-**Real examples:** `login-page` (auth flow wireframe), `dashboard-layout` (admin dashboard structure), `design-tokens` (color/spacing/typography system), `mobile-nav` (navigation patterns)
-
----
-
-### MCP — _"What can the agent reach?"_
-
-An mcp artifact is an MCP server **installation config**. The body carries the exact `.mcp.json` server entry in a fenced ` ```json ` block (Claude-native shape — verbatim-compatible, copy-paste works), plus docs on what the server does and how to set up auth. Pulling merges the entry into each coding agent's native MCP config file (`.mcp.json`, `.cursor/mcp.json`, `.gemini/settings.json`, ...) — idempotently, without touching anything else in the file. For other agents ihub transforms the entry to their native shape on install.
-
-````markdown
----
-name: azure
-description: Azure MCP server — manage and query Azure resources
-tags: [azure, cloud]
----
-
-# azure
-
-## Config
-
-```json
-{
-  "azure": {
-    "command": "npx",
-    "args": ["-y", "@azure/mcp@latest", "server", "start"]
-  }
-}
-```
-
-Docs about the server below...
-````
-
-Remote servers use the same shape: `{ "<name>": { "type": "http", "url": "https://...", "headers": { "X-Key": "${KEY}" } } }`. The legacy v0.7.0 flat-frontmatter format (`transport`/`command`/`args`/`env`) still installs but is deprecated.
-
-**Secrets never live in the artifact.** `env` and `headers` values use `${VAR}` placeholders resolved from the developer's environment; pushes with literal secrets are masked and blocked by the sensitive-data scanner.
-
-**Use an mcp when:**
-- Your team shares a tool server every agent should connect to
-- Setup instructions (API keys, scopes) should travel with the config
-
-**Real examples:** `github` (GitHub API), `context7` (library docs), `playwright` (browser automation)
-
----
-
-### Hook — _"What runs automatically?"_
-
-A hook is a lifecycle hook definition. The body carries the exact Claude Code `settings.json` hooks fragment in a fenced ` ```json ` block — verbatim-compatible, supports multiple events/entries per artifact. Pulling merges it into the agent's settings file (Claude Code `.claude/settings.json` in v1). Because hooks execute shell commands, installs are **gated**: every command is always displayed, confirmation is required (`--yes` for scripts), and signature verification applies when the registry signs artifacts.
-
-````markdown
----
-name: format-on-save
-description: Run Prettier on every file Claude Code writes or edits
-compatible_agents: [claude]
----
-
-# format-on-save
-
-## Config
-
-```json
-{
-  "PostToolUse": [
-    {
-      "matcher": "Write|Edit",
-      "hooks": [
-        { "type": "command", "command": "npx prettier --write \"$CLAUDE_FILE_PATHS\"", "timeout": 30 }
-      ]
-    }
-  ]
-}
-```
-````
-
-The legacy v0.7.0 flat-frontmatter format (`event`/`matcher`/`command`/`timeout`) still installs but is deprecated.
-
-**Use a hook when:**
-- Something must happen on every tool call or session event (format, lint, notify)
-- A team convention should be automated rather than remembered
-
-**Real examples:** `format-on-save` (Prettier after edits), `test-after-edit` (run affected tests), `notify-on-stop` (desktop notification when the agent finishes)
-
----
-
-### How they connect
-
-```
-Rules constrain what agents can do
-Skills give agents capabilities to act
-Memories provide agents context to act wisely
-Prompts tell agents what to say
-
-+------------------------------------------+
-|                  Agent                   |
-|                                          |
-|   uses Skills ---- to perform actions    |
-|   follows Rules -- to stay within bounds |
-|   recalls Memories to make better calls  |
-|   runs Prompts --- to talk to models     |
-+------------------------------------------+
-```
-
-### Decision tree
-
-```
-Is it a complete workflow with inputs and outputs?
-  → Agent
-
-Is it a single reusable action/procedure?
-  → Skill
-
-Is it a constraint that must be enforced?
-  → Rule
-
-Is it knowledge or context that should be remembered?
-  → Memory
-
-Is it an instruction template for an AI model?
-  → Prompt
-
-Is it a tool server the agent should connect to?
-  → MCP
-
-Is it a shell command that runs automatically on agent events?
-  → Hook
-```
-
-### Why "prompts" and not "instructions"?
-
-Every artifact type in ihub is technically an instruction to an AI — rules instruct what to enforce, skills instruct how to act, agents instruct who does what. Calling the fifth type "instructions" would blur the line between all of them.
-
-**"Prompt"** is specific: it means _the exact text you send to a model_ — with variables, expected output format, and a target model. It answers a question the other types don't: _"What do we say to the model?"_ Rules say what's enforced. Skills say how to act. Agents say who acts. Memories say what we know. Prompts say what we _tell_ the AI.
-
-The taxonomy works because each name occupies a distinct semantic slot. "Instruction" doesn't — it overlaps with all of them.
-
-### Artifact type boundaries
-
-| Type | Stores | Question it answers | Does NOT store |
-|------|--------|-------------------|----------------|
-| **Agent** | Actor definitions, capabilities, orchestration | _"Who does the work?"_ | Constraints (→ rule), procedures (→ skill) |
-| **Skill** | Procedures, automation, how-to | _"How to do X?"_ | Why we do X (→ memory), what X must follow (→ rule) |
-| **Rule** | Constraints, policies, standards | _"What must be enforced?"_ | Why it was decided (→ memory), how to implement (→ skill) |
-| **Memory** | Knowledge, context, evidence | _"What do we know?"_ | Actions (→ skill), constraints (→ rule), instructions (→ prompt) |
-| **Prompt** | Instruction templates for AI models | _"What should the AI say?"_ | Execution logic (→ skill), actor definition (→ agent) |
-| **MCP** | MCP server install configs | _"What can the agent reach?"_ | Secrets (use `${VAR}` placeholders), procedures (→ skill) |
-| **Hook** | Lifecycle event + shell command | _"What runs automatically?"_ | Reusable procedures (→ skill), constraints (→ rule) |
-
-### Memory context types — when to use each
-
-| context_type | Stores | Boundary |
-|---|---|---|
-| `decision` | **Why** we chose X over Y | Not a rule (rules enforce; decisions explain) |
-| `architecture` | **What** the system looks like | Not a skill (skills do things; architecture describes) |
-| `incident` | **What happened** and root cause | Not a runbook (runbooks are skills; incidents are evidence) |
-| `domain` | **What things mean** in our context | Not a constraint (rules constrain; domain informs) |
-| `context` | **Who/when/where** around the project | Not an agent (agents act; context describes the environment) |
-| `learning` | **What we measured** and observed | Not a policy (rules prescribe; learnings provide evidence) |
-
-### Knowledge mapping for IT projects
-
-This table maps every situation where valuable knowledge is generated to the appropriate memory context type and the roles involved.
-
-<details>
-<summary><strong>Requirements & Analysis</strong></summary>
-
-| Situation | Valuable Knowledge | context_type | Roles (producer → consumer) |
-|---|---|---|---|
-| Stakeholder interviews | Business needs, user personas, pain points | `domain` | Product Owner, BA → Developers, Agents |
-| Functional requirements | What the system must do, acceptance criteria | `domain` | BA, Product Owner → Developers, QA |
-| Non-functional requirements | SLAs, latency targets, availability, compliance | `domain` | Architect, SRE → Developers, Ops |
-| Regulatory constraints | GDPR, PSD2, SOC2, HIPAA, local laws | `domain` | Legal, Compliance → All |
-| Glossary / Ubiquitous language | "Tenant means X, not Y. Deploy ≠ Release" | `domain` | BA, Tech Lead → All |
-| User journey mapping | How users flow through the system, drop-off points | `domain` | UX, Product → Frontend, Agents |
-| Integration requirements | Third-party APIs, SLAs from vendors, rate limits | `domain` | Architect, BA → Developers |
-
-</details>
-
-<details>
-<summary><strong>Architecture & Design</strong></summary>
-
-| Situation | Valuable Knowledge | context_type | Roles (producer → consumer) |
-|---|---|---|---|
-| System topology | Services, databases, queues, how they connect | `architecture` | Architect → All |
-| Data models / ERDs | Entities, relationships, constraints, indexes | `architecture` | Architect, DBA → Developers |
-| API contracts | Endpoints, schemas, versioning strategy, pagination | `architecture` | Architect, Backend → Frontend, QA |
-| Network topology | VPCs, subnets, peering, firewall rules, DNS | `architecture` | Cloud Architect, NetOps → SRE, Security |
-| Landing zone design | Account structure, OU hierarchy, guardrails, SCPs | `architecture` | Cloud Architect → Platform, FinOps |
-| CI/CD pipeline design | Build stages, environments, promotion flow, rollback | `architecture` | DevOps, Platform → Developers |
-| Security architecture | Auth flows, encryption at rest/transit, key management | `architecture` | Security Architect → All |
-| Disaster recovery design | RPO/RTO targets, backup strategy, failover regions | `architecture` | Architect, SRE → Ops, Management |
-
-</details>
-
-<details>
-<summary><strong>Decisions</strong></summary>
-
-| Situation | Valuable Knowledge | context_type | Roles (producer → consumer) |
-|---|---|---|---|
-| Technology selection | "PostgreSQL over MongoDB because..." | `decision` | Architect, Tech Lead → All |
-| Framework/library choice | "Next.js over Remix because..." | `decision` | Tech Lead, Senior Dev → Developers |
-| Build vs buy | "Use Auth0 instead of custom auth because..." | `decision` | CTO, Architect → All |
-| Repo strategy | Monorepo vs polyrepo, rationale, trade-offs | `decision` | Tech Lead → Developers |
-| Cloud provider choice | "AWS over Azure because..." with cost/feature analysis | `decision` | CTO, Cloud Architect → All |
-| Migration strategy | Big bang vs strangler fig vs parallel run, why | `decision` | Architect, PM → Developers, Ops |
-| Data residency decisions | Where data lives, why (legal, latency, cost) | `decision` | Architect, Legal → Cloud, DBA |
-| Vendor selection | "Chose Datadog over Grafana Cloud because..." | `decision` | Platform, Management → SRE, FinOps |
-| Deprecation decisions | What's going away, replacement, timeline, why | `decision` | Tech Lead, Architect → All |
-| Trade-off records | "We accepted eventual consistency here because..." | `decision` | Architect → Developers, QA |
-
-</details>
-
-<details>
-<summary><strong>Incidents & Postmortems</strong></summary>
-
-| Situation | Valuable Knowledge | context_type | Roles (producer → consumer) |
-|---|---|---|---|
-| Production outage | Timeline, root cause, blast radius, resolution | `incident` | SRE, Oncall → All |
-| Security breach | Attack vector, compromised data, containment, disclosure | `incident` | Security, SRE → Management, Legal |
-| Data loss event | What was lost, recovery steps, data integrity status | `incident` | DBA, SRE → Management, Developers |
-| Failed migration | What broke, rollback steps taken, data state after | `incident` | DBA, DevOps → Developers, PM |
-| Failed deployment | What went wrong, why canary/checks didn't catch it | `incident` | DevOps, Developer → SRE, QA |
-| Capacity incident | Traffic spike, auto-scaling failure, resource exhaustion | `incident` | SRE, Cloud → FinOps, Architect |
-| Third-party outage | Vendor downtime impact, fallback behavior, SLA claim | `incident` | SRE → Management, Legal |
-| Near miss | "Almost broke prod but caught it in staging because..." | `incident` | Any → All |
-
-</details>
-
-<details>
-<summary><strong>Team & Project Context</strong></summary>
-
-| Situation | Valuable Knowledge | context_type | Roles (producer → consumer) |
-|---|---|---|---|
-| Team ownership map | Who owns which service, escalation paths | `context` | Engineering Manager → All |
-| Quarterly priorities | What the team is focused on and why, what's deprioritized | `context` | PM, Management → Developers, Agents |
-| Stakeholder map | Who cares about what, approval chains, RACI | `context` | PM, BA → All |
-| Project timeline | Milestones, deadlines, dependencies, blockers | `context` | PM → All |
-| Budget constraints | Cloud budget limits, headcount, licensing costs | `context` | FinOps, Management → Architect, PM |
-| Vendor relationships | Account managers, contract terms, renewal dates, SLAs | `context` | Procurement, Management → SRE, FinOps |
-| Compliance deadlines | Audit dates, certification renewals, regulatory deadlines | `context` | Compliance, Legal → All |
-| Onboarding notes | "Things I wish I'd known on day 1" from recent joiners | `context` | New hires → Future hires, Agents |
-| Cross-team dependencies | "Team X blocks us on Y, expected by Z date" | `context` | PM, Tech Lead → Developers |
-
-</details>
-
-<details>
-<summary><strong>Learnings & Evidence</strong></summary>
-
-| Situation | Valuable Knowledge | context_type | Roles (producer → consumer) |
-|---|---|---|---|
-| Performance benchmarks | "Caching reduced p99 from 120ms to 8ms" with setup details | `learning` | Senior Dev, SRE → Developers |
-| Cost optimization results | "Reserved instances saved 40% vs on-demand" with numbers | `learning` | FinOps, Cloud → Management |
-| Testing strategy results | Which test types catch real bugs vs create noise | `learning` | QA, Senior Dev → Developers |
-| Migration retrospective | What worked, what didn't, time estimates vs actuals | `learning` | Tech Lead, PM → Future migration teams |
-| Tool evaluation results | "Tried X for 2 months, here's what we found" | `learning` | Any → All |
-| Scaling findings | "Service handles 10K rps before degrading, bottleneck is X" | `learning` | SRE, Senior Dev → Architect |
-| Security audit findings | Penetration test results, remediation effectiveness | `learning` | Security → Developers, SRE |
-| FinOps analysis | Cost per customer, cost per transaction, waste identified | `learning` | FinOps → Management, Architect |
-| Failed experiment | "We tried X and it didn't work because Y" | `learning` | Any → All |
-| Pattern validation | "This design pattern solved problem X in 3 services" | `learning` | Senior Dev, Architect → Developers |
-| Landing zone audit | What guardrails worked, which were too restrictive | `learning` | Cloud Architect, Security → Platform |
-| DR drill results | Recovery time actual vs target, gaps identified | `learning` | SRE → Management, Architect |
-
-</details>
-
----
-
-## Commands
-
-Every command supports two syntaxes — command-first or type-first:
+Turn a registry into a Claude Code plugin marketplace you can `claude plugin add`:
 
 ```bash
-ihub show agent code-reviewer       # command first
-ihub agent show code-reviewer       # type first (equivalent)
+ihub export --format claude-plugin --out ./my-marketplace
+# → ./my-marketplace/.claude-plugin/marketplace.json + one plugins/<name>/ per plugin
 ```
 
-Types accept singular or plural: `agent`/`agents`, `skill`/`skills`, `rule`/`rules`, `memory`/`memories`, `prompt`/`prompts`.
+## Command reference
 
-### Browsing artifacts
+The `plugin` noun is accepted for symmetry — `ihub plugin list` is the same as `ihub list`.
+
+### Browse & search
 
 ```bash
-# Interactive TUI — full registry browser
-ihub browse
+ihub browse                     # interactive TUI: plugin list, component tree, comments, metrics, graph
+ihub open                       # open the web UI (deep links #<name>, server-backed search, / and Esc shortcuts)
 
-# Open the web UI in your default browser
-ihub open
-# Web UI supports deep links (#agents/code-reviewer), server-backed search,
-# and keyboard shortcuts (/ focuses search, Esc closes modals)
-
-# Keys: ↑↓ navigate, ←→ switch type, ⏎ drill in, / search (Esc/q cancel)
-#       type to filter (f enters filter mode, Esc clears, ⏎ keeps filter)
-#       space multi-select, a select all, p pull selected, P quick pull
-#       c comments, w review, d remove (double-press), j projects
-#       {} scroll preview, s sort, f bookmark (detail), F bookmarks, g graph, v versions
-#       G guide (artifact types + memory taxonomy + knowledge mapping)
-#       m metrics (side-by-side charts), t audit, i config, B blocked (admin)
-#       Home/End/PgUp/PgDn page through lists and views
-#       q/esc back — Esc also cancels an in-flight network operation
-# Split-pane preview appears automatically when terminal >= 120 columns
-# Network ops show an animated spinner; header shows ● offline on connection loss
-# Respects NO_COLOR; light theme via IHUB_THEME=light; minimum size 60x15
-
-# List everything
-ihub list
-
-# List by type
-ihub list agents
-ihub skills list              # type-first
-
-# Show metadata (JSON) and body
-ihub show agent code-reviewer
-
-# Render with terminal markdown formatting (colors, code blocks, borders)
-ihub preview skill lint-check
-ihub agent preview code-reviewer   # type-first
-
-# Search across remote registry + local entries
-ihub search "security"
-
-# Search only the remote registry
-ihub search --remote "lint"
-
-# Check for missing fields and broken cross-references
-ihub validate
-
-# Tree view grouped by project
-ihub projects
-ihub projects ci-toolkit      # single project
+ihub list                       # list plugins (local + remote merged), --json
+ihub show <name>                # manifest + component tree, --json
+ihub preview <name>             # render README + component tree
+ihub search <query>             # search remote + local, --json
+ihub search --remote <query>    # remote registry only
+ihub validate                   # check every local plugin for structural + manifest errors
+ihub projects [name]            # tree grouped by plugin.json "project"
 ```
 
-### Creating artifacts
+TUI keys: `↑↓` navigate, `⏎` open, `/` search, type to filter, `space`/`a`/`p` multi-select + bulk pull, `c` comments, `w` review, `d` (twice) remove, `j` projects, `m` metrics, `t` audit, `i` config, `g` graph, `B` blocked, `G` guide, `q`/`Esc` back. Split-pane preview appears at >= 120 columns. Honors `NO_COLOR`; light theme via `IHUB_THEME=light`.
+
+### Create & import
 
 ```bash
-# Create from template (empty frontmatter, body scaffolding)
-ihub create agent my-agent
-ihub create skill my-skill
-ihub create rule my-rule
-ihub create memory my-memory
-ihub create prompt my-prompt
+ihub create my-plugin           # scaffold from templates/plugin/
+ihub create my-plugin -i        # interactive — prompts for manifest fields
 
-# Interactive — prompts for every field
-ihub create agent my-agent -i
+# Import an existing Claude Code plugin directory (has .claude-plugin/plugin.json)
+ihub import ~/some-plugin/
 
-# Create from an existing registry artifact as template
-ihub create skill my-skill --from base-skill
+# Wrap a lone component into a new plugin (a SKILL.md dir, a component tree, or a bare .md)
+ihub import ~/.claude/skills/docx/       # a skill dir → plugins/docx/skills/docx/
+ihub import ~/.claude/commands/deploy.md # a command file → plugins/deploy/commands/deploy.md
 
-# Import from any coding agent — auto-detects source format
-ihub import skill ~/.claude/skills/docx/            # from Claude Code
-ihub import rule .cursor/rules/no-console.mdc       # from Cursor IDE
-ihub import skill ~/.qwen/skills/my-skill/          # from Qwen Code
-ihub import skill ~/.config/opencode/skills/lint/   # from Open Code
-ihub import skill path/to/SKILL.md -i               # interactive (prompts for ihub metadata)
-ihub import skill path/to/skill/ --no-push          # save locally, push later
-
-# Import a JSON bundle
-ihub import bundle.json                   # import + push all artifacts
-ihub import bundle.json --no-push         # save locally only
+ihub import ~/some-plugin/ --no-push     # save locally, push later
+ihub import bundle.json                  # import from a JSON bundle (created by ihub export)
 ```
 
-### Publishing and pulling
+`import` auto-detects whether the path is a full plugin or a single component and builds the plugin accordingly, synthesizing a manifest + README when needed.
+
+### Publish & pull
 
 ```bash
-# Push a local artifact to the registry
-ihub push agent code-reviewer
-ihub skill push lint-check         # type-first
+ihub push my-plugin             # pack plugins/my-plugin/ → entry + attachments, mask secrets, publish
+ihub push my-plugin --force     # skip the interactive push diff
 
-# Pull — asks which coding agent(s) and scope on first use
-ihub pull agent code-reviewer
+ihub pull code-quality                    # recreate plugins/code-quality/ from the registry
+ihub pull code-quality:1.2.0              # a specific version
+ihub pull code-quality --install          # also drop into ~/.claude/plugins/ (personal)
+ihub pull code-quality --install --local  # into ./.claude/plugins/ (project scope)
+ihub pull code-quality --marketplace ./mp # assemble a Claude marketplace at ./mp
+ihub pull code-quality --yes              # skip hook-install confirmation
 
-# Pull for specific coding agent(s)
-ihub pull skill lint-check --agent claude
-ihub pull skill lint-check --agent claude --agent cursor   # install to both
-ihub pull rule no-secrets --agent cursor -l                # Cursor project (.mdc)
+ihub pull https://other-registry.com/api/plugins/code-quality   # pull from any registry URL
 
-# Pull a specific version
-ihub pull agent code-reviewer:1.0.0
-ihub pull skill lint-check:latest
-
-# Pull directly from any registry URL
-ihub pull https://other-registry.com/api/skills/lint-check
-
-# Pull without transitive dependencies
-ihub pull agent code-reviewer --no-deps
-
-# Skip prompts
-ihub pull agent code-reviewer -l          # project scope
-ihub pull skill lint-check -g             # personal scope
-
-# Memories always install to local memories/ directory (no agent, no prompt)
-ihub pull memory api-versioning-strategy
-
-# Remove from registry (owner only)
-ihub remove agent old-agent
-
-# Watch local dirs and auto-push on save
-ihub watch
+ihub watch                      # watch plugins/ and auto-push each plugin on save
+ihub remove old-plugin          # remove from the registry (owner only)
 ```
 
-### Reviews
+Plugins that ship `hooks/hooks.json` run shell commands: on pull the commands are shown and you must confirm (`--yes` in scripts). Signed registries verify the plugin's signature first.
+
+### Reviews, pinning, versions
 
 ```bash
-# Add a comment with 1-5 star rating
-ihub comment agent code-reviewer
-# Prompts:
-#   Rating (1-5): 5
-#   Comment: Excellent for catching security issues
+ihub comment <name>             # add a 1-5 star rating + comment
+ihub comments <name>            # view ratings + comments, --json
 
-# View all reviews
-ihub comments agent code-reviewer
-# Output:
-#   agent/code-reviewer — 4.5/5 (2 reviews)
-#   ★★★★★  @alice  2026-05-14
-#   Excellent for catching security issues
-```
-
-### Account management
-
-```bash
-# Create account on a registry
-ihub register http://localhost:3000
-
-# Log in with existing API key
-ihub login http://localhost:3000
-
-# Log in via Auth0 (opens browser)
-ihub login http://localhost:3000 --auth0
-
-# Change password (API key)
-ihub passwd
-
-# Show current user, role, registry
-ihub whoami
-```
-
-### Version pinning
-
-```bash
-# Pin an artifact to a specific version (pulls that version instead of latest)
-ihub pin skill lint-check 1.2.0
-ihub pin agent code-reviewer            # pin to current local version
-
-# Remove a pin
-ihub unpin skill lint-check
-
-# List all pinned artifacts
+ihub pin <name> [version]       # lock to a version (pull uses it instead of latest)
+ihub unpin <name>
 ihub pins
+
+ihub outdated                   # local vs registry versions
+ihub verify <name>              # check the plugin's HMAC signature
+ihub diff <name> <v1> <v2>      # compare two versions (README body)
+```
+
+### Export & bundles
+
+```bash
+ihub export                                   # self-contained JSON bundle (stdout)
+ihub export --project developer-tools -o b.json
+ihub export --name code-quality               # a single plugin
+ihub export --from https://other-registry.com # export from another registry
+ihub export --format claude-plugin --out ./mp # Claude Code plugin marketplace (1:1 from plugin entries)
+```
+
+### Account
+
+```bash
+ihub register http://localhost:3000
+ihub login http://localhost:3000 [--auth0]
+ihub passwd
+ihub whoami                     # --json
 ```
 
 ### Administration (admin only)
 
 ```bash
-# View server configuration
-ihub config
-
-# Audit trail — who did what, when, from where
-ihub audit
-ihub audit --user alice --action push
-ihub audit --action remove --page 2
-ihub audit --limit 100
-
-# Terminal metrics dashboard
-ihub metrics
-ihub metrics --type agents
-ihub metrics --user alice --project ci-toolkit
-
-# Download SQLite database backup
-ihub backup
-ihub backup /backups/ihub-2026-05-14.db
-
-# Full JSON backup (works with any storage adapter — S3, R2, GCS, etc.)
-ihub backup --full
-ihub backup --full /backups/ihub-2026-05-14.json
-
-# Restore from backup (auto-detects format)
-ihub restore /backups/ihub-2026-05-14.json    # full JSON restore
-ihub restore /backups/ihub-2026-05-14.db      # SQLite restore
-
-# Manage webhooks
-ihub webhook list
-ihub webhook add https://example.com/hook --events push,pull
-ihub webhook add https://example.com/hook --secret my-hmac-secret
-ihub webhook remove <id>
-
-# Federation — sync from upstream registries
-ihub federation sync                    # trigger manual sync
-ihub federation status                  # show upstream state
-
-# Manage user roles
-ihub admin set-role bob admin
-ihub admin set-role carol user
-
-# Approve a blocked artifact (unblock after sensitive data review)
-ihub admin approve skills/slack-notifier
-
-# List all blocked artifacts
+ihub config                     # server config + enabled features
+ihub audit [--user U] [--action A] [--page N] [--limit N]   # --json
+ihub metrics [--user U] [--name N] [--project P]            # --json
+ihub backup [path]              # SQLite backup
+ihub backup --full [path]       # full JSON backup (any storage adapter)
+ihub restore <path>             # auto-detects .db or .json
+ihub webhook list|add|remove
+ihub federation sync|status
+ihub admin set-role <user> <role>
+ihub admin approve plugins/<name>   # unblock a plugin flagged by the sensitive scanner
 ihub admin blocked
-
-# Trigger weekly Slack digest
 ihub admin digest
 ```
 
-### Utilities
+## Sample plugins
 
-```bash
-# Diagnostic checks (server, auth, local artifacts, storage, config)
-ihub doctor
+`examples/plugins/` has three ready-to-read plugins:
 
-# Check for outdated artifacts (local vs registry)
-ihub outdated
+| Plugin | Project | Components |
+|--------|---------|-----------|
+| `code-quality` | developer-tools | skills `git-commit-msg`, `lint-check`, `dependency-audit`, `test-generator`; command `commit`; agent `code-reviewer` |
+| `dev-mcps` | developer-tools | `.mcp.json` wiring Azure + Context7 + GitHub servers; a `format-on-save` hook |
+| `docs-tools` | developer-tools | agents `doc-generator`, `migration-assistant`, `security-scanner` |
 
-# Verify artifact signature
-ihub verify skill lint-check
-
-# Compare two versions of an artifact
-ihub diff agent code-reviewer 1.0.0 2.0.0
-
-# Export artifacts as JSON bundle
-ihub export                             # all artifacts
-ihub export --project ci-toolkit        # filter by project
-ihub export --type skills               # filter by type
-
-# JSON output on any command
-ihub list --json
-ihub show agent code-reviewer --json
-ihub search --remote "lint" --json
-
-# Shell completions
-eval "$(ihub completions bash)"     # add to ~/.bashrc
-eval "$(ihub completions zsh)"      # add to ~/.zshrc
-
-# Full manual page (rendered in terminal)
-ihub man
-
-# Version and branding
-ihub version
-```
-
----
-
-## File format and frontmatter
-
-Every artifact is a markdown file with a **frontmatter** block — structured YAML metadata between `---` delimiters at the top:
-
-```markdown
----
-name: lint-check
-description: Runs configured linters and returns diagnostics
-version: 1.0.0
-author: alice
-project: ci-toolkit
-tags: [linting, code-quality]
-triggers: [pre-commit, on-demand]
-args: [files, fix]
-compatible_agents: [code-reviewer]
----
-
-# Lint Check
-
-Regular markdown body — headings, paragraphs, code blocks, lists.
-```
-
-Frontmatter is a widely-used convention (Jekyll, Hugo, Obsidian, Claude Code) for embedding machine-readable metadata in human-readable text files. ihub parses it for indexing, search, cross-reference validation, and versioning.
-
-**Common fields** (all types):
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | Yes | Unique identifier |
-| `description` | Yes | Short summary |
-| `version` | Yes | Semantic version (e.g. `1.0.0`) |
-| `author` | No | Creator |
-| `project` | No | Group artifacts by project |
-| `tags` | No | Searchable labels `[a, b, c]` |
-
-**Type-specific fields:**
-
-| Type | Fields |
-|------|--------|
-| Agent | `inputs`, `outputs`, `skills`, `rules`, `memories`, `prompts` |
-| Skill | `triggers`, `args`, `compatible_agents` |
-| Rule | `scope`, `severity` (error/warning/info), `globs`, `applies_to` |
-| Memory | `scope`, `context_type` (decision/architecture/incident/domain/context/learning), `related` |
-| Prompt | `model`, `compatible_agents`, `memories` |
-
-ihub supports simple YAML only: strings, numbers, booleans, and inline arrays. No nested objects or multi-line values.
-
-## Attachments
-
-Artifacts can include companion files (scripts, schemas, configs). Place them in a directory named after the artifact:
-
-```
-skills/
-  docx.md                  # the artifact
-  docx/                    # companion directory (auto-detected on push)
-    scripts/run.sh
-    scripts/lib/util.py
-    LICENSE.txt
-```
-
-Push uploads all files. Pull recreates the directory structure. Use `ihub import` to import existing artifacts with their scripts in one step.
-
-## Multi-agent support
-
-ihub works with multiple coding agents. When pulling, it installs artifacts to each agent's native path with the correct format.
-
-### Supported agents
-
-| Agent | Skills (personal) | Skills (project) | Rules (project) | Format |
-|-------|-------------------|-----------------|-----------------|--------|
-| Claude Code | `~/.claude/skills/` | `.claude/skills/` | `.claude/rules/<name>.md` | SKILL.md dir |
-| Gemini CLI | `~/.gemini/skills/` | `.gemini/skills/` | `.gemini/skills/` (as skill) | SKILL.md dir |
-| Qwen Code | `~/.qwen/skills/` | `.qwen/skills/` | `.qwen/skills/` (as skill) | SKILL.md dir |
-| Open Code | `~/.config/opencode/skills/` | `.opencode/skills/` | `.opencode/rules/<name>.md` | SKILL.md dir |
-| Cursor IDE | `~/.cursor/skills/` | `.cursor/skills/` | `.cursor/rules/<name>.mdc` | Flat, .mdc rules |
-| Codex CLI | `~/.agents/skills/` | `.agents/skills/` | — (Starlark `.rules`) | SKILL.md dir |
-
-Memories always install to the local `memories/` directory regardless of agent.
-
-MCP servers and hooks don't install as files — they **merge into each agent's shared config**:
-
-| Agent | MCP config (project) | MCP config (personal) | Hooks |
-|-------|----------------------|----------------------|-------|
-| Claude Code | `.mcp.json` | `~/.claude.json` | `.claude/settings.json` / `~/.claude/settings.json` |
-| Cursor IDE | `.cursor/mcp.json` | `~/.cursor/mcp.json` | — |
-| Gemini CLI | `.gemini/settings.json` | `~/.gemini/settings.json` | — |
-| Qwen Code | `.qwen/settings.json` | `~/.qwen/settings.json` | — |
-| Open Code | `opencode.json` | `~/.config/opencode/opencode.json` | — |
-| Codex CLI | — (manual `~/.codex/config.toml`) | — | — |
-
-Merges are idempotent (re-pull updates in place) and never touch entries you added by hand. Hook installs always display the shell command and ask for confirmation — pass `--yes` in scripts; signed registries additionally verify the artifact signature.
-
-### Pulling for multiple agents
-
-```bash
-# First pull asks which agent(s) — preference saved to ~/.ihubrc
-ihub pull skill lint-check
-
-# Explicit agent selection
-ihub pull skill lint-check --agent claude
-ihub pull skill lint-check --agent claude --agent cursor   # both at once
-
-# Env var for CI
-IHUB_AGENT=claude,cursor ihub pull skill lint-check -l
-```
-
-When pulling for Cursor, rules get `.mdc` frontmatter (`description`, `globs`, `alwaysApply`). When pulling for Claude/Qwen/OpenCode, skills are installed as `<name>/SKILL.md` directories with simplified frontmatter.
-
-### Importing from any agent
-
-```bash
-ihub import skill ~/.claude/skills/docx/           # auto-detects Claude
-ihub import rule .cursor/rules/no-console.mdc      # auto-detects Cursor
-ihub import skill ~/.qwen/skills/my-skill/         # auto-detects Qwen
-```
-
-The import command detects the source agent from the path, maps agent-specific frontmatter to ihub format (e.g., Cursor `alwaysApply: true` → ihub `scope: global`), and prompts only for missing required fields.
+`examples/DROPPED.md` documents what the nine-type → one-type collapse discarded and why (rules, memories, prompts, designs have no plugin-spec slot).
 
 ## Registry server
 
 ```bash
-bun run server                                  # start on :3000
-docker compose up -d                            # full stack with VictoriaMetrics + VictoriaLogs + Grafana
+bun run server                  # start on :3000
+docker compose up -d            # full stack with VictoriaMetrics + VictoriaLogs + Grafana
+kubectl apply -k k8s/           # Kubernetes (kustomize)
 ```
 
-The server stores artifacts in SQLite and exposes a REST API. Deploy with Docker, docker-compose, or Kubernetes (see `k8s/README.md`). See `ihub man` for the full API reference, or the [API endpoints table](#api-endpoints) below.
+The server stores plugins in SQLite and exposes a REST API under `/api/plugins/...`. See `ihub man` for the full API reference.
 
 ### Server configuration
 
-`ihub.config.json` enables optional features on startup:
+`ihub.config.json` enables optional features on startup (all optional; env vars override):
 
 ```json
 {
@@ -912,168 +212,37 @@ The server stores artifacts in SQLite and exposes a REST API. Deploy with Docker
 }
 ```
 
-Environment variables override config file values. Config file is optional.
+### Sensitive data protection
+
+Every push is scanned (CLI + server-side) over the README body and every text component file. Detected values are masked with `[MASKED:<type>]`, and the plugin is **blocked** — stored but `status: "blocked"`, pulls return `403`, and a security alert fires (`security.notify_via`: terminal/slack/email). An admin runs `ihub admin approve plugins/<name>` to unblock. Covers 80+ patterns: cloud API keys (AWS, Azure, GCP, OpenAI, Anthropic, Stripe, Slack, ...), private keys, passwords, connection strings, and PII. Tracked via the `ihub_sensitive_detected_total` metric.
+
+### Signing & versioning
+
+Set `signing.enabled` + `signing.key` (or `IHUB_SIGNING_KEY`) to HMAC-SHA256 sign plugins on push and verify on pull; the signature lives in `meta._signature`. `versioning.enforce_semver` / `require_major_for_breaking` enforce semver and flag breaking changes (removed README headings, >50% body shrinkage).
 
 ### Storage backends
 
-By default, ihub stores everything in SQLite. You can store artifact content and attachments on any of 30+ cloud storage providers via [files-sdk](https://files-sdk.dev/). SQLite always keeps index rows (name, version, tags, owner) for queries — only body content and attachment blobs move to external storage.
+SQLite by default. Move plugin bodies + component attachments to any of 30+ providers via [files-sdk](https://files-sdk.dev/) — S3, R2, GCS, Azure, MinIO, and more — by setting `storage.adapter` (credentials come from the standard env vars for that provider). SQLite always keeps index rows (name, version, tags, owner) for queries; full-text body search requires SQLite.
+
+### Federation
+
+Sync plugins from upstream registries with `federation.enabled` + `upstreams[]`. Two upstream kinds:
 
 ```json
-// SQLite (default — no change needed)
-"storage": { "adapter": "sqlite" }
-
-// AWS S3
-"storage": { "adapter": "s3", "bucket": "ihub-artifacts", "region": "eu-west-1" }
-
-// Cloudflare R2
-"storage": { "adapter": "r2", "bucket": "ihub", "accountId": "abc123" }
-
-// Google Cloud Storage
-"storage": { "adapter": "gcs", "bucket": "ihub-artifacts" }
-
-// Azure Blob Storage
-"storage": { "adapter": "azure", "container": "ihub" }
-
-// Local filesystem (dev/test)
-"storage": { "adapter": "fs", "root": "./storage-data" }
-
-// MinIO (self-hosted S3)
-"storage": { "adapter": "minio", "bucket": "ihub", "endpoint": "http://minio:9000" }
+"federation": {
+  "enabled": true,
+  "upstreams": [
+    { "url": "https://other-ihub.example.com" },
+    { "url": "https://registry.modelcontextprotocol.io", "type": "mcp-registry", "search": "postgres", "limit": 25 }
+  ]
+}
 ```
 
-**Authentication** — each adapter auto-loads credentials from standard environment variables. You don't configure credentials in `ihub.config.json`, you set them in your environment the same way you would for any cloud CLI tool:
-
-| Adapter | Credentials | Environment Variables |
-|---------|------------|----------------------|
-| `s3` | AWS credential chain | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` (or IAM role, `~/.aws/credentials`) |
-| `r2` | Cloudflare R2 | `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ACCOUNT_ID` |
-| `gcs` | Google ADC | `GOOGLE_APPLICATION_CREDENTIALS` (or `gcloud auth`, metadata server on GCE/GKE) |
-| `azure` | Connection string or key | `AZURE_STORAGE_CONNECTION_STRING` (or account name + key) |
-| `minio` | S3-compatible | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` + `endpoint` in config |
-| `fs` | None | Just set `root` directory path in config |
-
-All 30+ adapters: S3, R2, GCS, Azure, MinIO, DigitalOcean Spaces, Backblaze B2, Wasabi, Hetzner, Vultr, Scaleway, OVHcloud, Oracle Cloud, IBM COS, Storj, Tigris, Filebase, Akamai, iDrive e2, Exoscale, Vercel Blob, Netlify Blobs, Supabase, Google Drive, OneDrive, Dropbox, Box, UploadThing, Appwrite, local filesystem.
-
-If credentials are missing, the server fails to start with a clear error naming the required environment variable.
-
-**Trade-off**: full-text search on artifact body content only works with SQLite. Search by name, description, and tags works with all adapters.
-
-Or via env: `IHUB_STORAGE_ADAPTER=s3`
-
-### Sensitive data protection
-
-Every artifact push is scanned for sensitive data (CLI + server-side). Detected values are automatically masked with `[MASKED:<type>]` tags. If sensitive data is found, the artifact is **blocked** — it's stored but marked `status: "blocked"`, pulls return `403` ("pending admin approval"), and a security alert is sent. An admin must run `ihub admin approve <type>/<name>` to unblock it.
-
-Covers 80+ patterns: API keys (AWS, Azure, GCP, OpenAI, Anthropic, Stripe, Slack, etc.), private keys, passwords, connection strings, PII (emails, phone numbers, credit cards, IBAN, DNI/NIE), and Kubernetes/ArgoCD tokens. Findings are logged as `sensitive-detected` audit actions and tracked via the `ihub_sensitive_detected_total` metric.
-
-### Security alerts
-
-When sensitive data is detected, a security alert is sent via the channel configured in `security.notify_via`:
-
-| Channel | Config | Description |
-|---------|--------|-------------|
-| `terminal` | Default, no setup | Prints alert to server console |
-| `slack` | `security.slack_webhook_url` | Sends Block Kit message to a dedicated Slack channel (separate from push notifications) |
-| `email` | `security.email` + SMTP env vars | Sends email via SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`) |
-
-The alert includes: artifact name, who pushed it, number of findings, finding types, and an `ihub admin approve` command to unblock.
-
-### IP firewall
-
-Set `firewall.enabled: true` with a whitelist of allowed IPs. Supports exact IPs, CIDR ranges (`10.0.0.0/8`), and wildcards (`192.168.1.*`). Loaded once at startup (immutable). Blocked requests return `403` and are logged to the audit trail. Configure via `IHUB_FIREWALL_WHITELIST` env var (comma-separated).
-
-### API endpoints
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `GET` | `/api/ping` | No | Health check |
-| `POST` | `/api/register` | No | Create user account |
-| `GET` | `/api/whoami` | Yes | Current user and role |
-| `POST` | `/api/account/password` | Yes | Change API key |
-| `GET` | `/api/:type` | No | List entries |
-| `GET` | `/api/:type/:name` | No | Get entry (optional `?version=`) |
-| `GET` | `/api/:type/:name/versions` | No | Version history |
-| `POST` | `/api/:type/:name` | Yes | Push (with attachments) |
-| `DELETE` | `/api/:type/:name` | Yes | Remove (owner only) |
-| `GET` | `/api/search?q=` | No | Full-text search |
-| `GET` | `/api/:type/:name/comments` | No | List comments + rating |
-| `POST` | `/api/:type/:name/comments` | Yes | Add comment (rating 1-5) |
-| `DELETE` | `/api/:type/:name/comments/:id` | Yes | Delete own comment |
-| `GET` | `/api/:type/:name/attachments` | No | List attachments |
-| `GET` | `/api/:type/:name/attachments/:path` | No | Download attachment |
-| `GET` | `/api/config` | Admin | Server configuration |
-| `GET` | `/api/audit` | Admin | Audit log (paginated) |
-| `GET` | `/api/backup` | Admin | Download SQLite DB backup |
-| `POST` | `/api/backup` | Admin | Restore from SQLite backup |
-| `GET` | `/api/backup/full` | Admin | Full JSON export (any storage adapter) |
-| `POST` | `/api/backup/full` | Admin | Restore from full JSON export |
-| `POST` | `/api/users/:username/role` | Admin | Set user role |
-| `POST` | `/api/digest` | Admin | Trigger Slack digest |
-| `GET` | `/api/blocked` | Admin | List blocked artifacts |
-| `POST` | `/api/:type/:name/approve` | Admin | Unblock artifact |
-| `GET` | `/api/webhooks` | Admin | List webhooks |
-| `POST` | `/api/webhooks` | Admin | Create webhook |
-| `DELETE` | `/api/webhooks/:id` | Admin | Delete webhook |
-| `POST` | `/api/federation/sync` | Admin | Trigger federation sync |
-| `GET` | `/api/federation/status` | Admin | Federation upstream status |
-| `GET` | `/api/metrics` | No | VictoriaMetrics-compatible metrics |
-
-## Project structure
-
-```
-agents/            working directory for agent entries
-skills/            working directory for skill entries
-rules/             working directory for rule entries
-memories/          working directory for memory entries
-prompts/           working directory for prompt entries
-examples/          sample entries (4 agents, 6 skills, 4 rules, 3 memories, 5 prompts)
-templates/         scaffolding templates for each type
-cli/               CLI tool (ESM, zero external dependencies)
-  index.js         command dispatcher + type-first routing + browse/open
-  context.js       shared state: ROOT, type maps, readline helpers, parseJsonFlag
-  query.js         list, search, show, preview, validate, projects
-  create.js        create, import, createFromTemplate
-  publish.js       push, pull, remove, comment, watch, pullFromUrl
-  auth.js          register, login, passwd, whoami
-  admin.js         audit, metrics, backup, restore, admin, webhook, federation
-  diagnostics.js   completions, man, config, outdated, doctor, verify, diff, version, help
-  pinning.js       version pinning, bundle export/import
-  parse.js         frontmatter parser, registry loader
-  registry.js      HTTP client for remote registry + config/header helpers
-  render.js        terminal markdown renderer (ANSI)
-  dashboard.js     terminal metrics dashboard
-  tui.js           interactive TUI browser
-  agents-config.js coding agent path configs (6 agents)
-server/            registry API server (Node.js + SQLite)
-  routes.js        REST handlers (auth, CRUD, backup, webhooks, federation)
-  db.js            SQLite (users, entries, attachments, comments, audit, webhooks)
-  signing.js       HMAC-SHA256 artifact signing/verification
-  versioning.js    semver policy enforcement, breaking change detection
-  federation.js    upstream registry sync
-  webhooks.js      webhook notification delivery
-  plugins.js       extensible push/pull lifecycle hooks
-  ui.js            web UI handler
-  storage.js       pluggable storage (SQLite, S3, R2, GCS, Azure, 30+)
-  sensitive.js     sensitive data detection and masking (80+ patterns)
-  security-alert.js security alert notifications
-  metrics.js       metrics collector (VictoriaMetrics-compatible)
-  vlogs.js         VictoriaLogs client (structured log shipping)
-  config.js        config loader (ihub.config.json + env vars)
-  auth0.js         Auth0 JWT verification (optional)
-  slack.js         Slack webhook (push notifications + digest)
-tests/             test suite (node:test)
-completions/       bash and zsh shell completions
-man/               manual page source
-grafana/           Grafana dashboard + VictoriaMetrics scrape config
-Dockerfile         multi-stage server image
-docker-compose.yml ihub + VictoriaMetrics + VictoriaLogs + Grafana
-k8s/               Kubernetes manifests (kustomize)
-ihub.config.json   server config file
-```
+An `mcp-registry` upstream syncs the official [MCP Registry](https://registry.modelcontextprotocol.io): each server becomes a **plugin** carrying a single `.mcp.json` (remotes → `http`/`sse`, npm packages → `npx`; secrets always `${VAR}` placeholders). `limit` defaults to 50 — the full registry is never synced wholesale.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code conventions, and how to add new commands or registry types.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code conventions, and how to add commands or endpoints.
 
 ## License
 

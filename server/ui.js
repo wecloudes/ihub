@@ -22,8 +22,7 @@ const HTML = `<!DOCTYPE html>
   --success:#2ecc71;--warning:#f39c12;--danger:#e74c3c;--info:#3498db;
   --star:#f1c40f;--star-empty:#333;
   --header-bg:rgba(12,12,22,.95);--nav-width:230px;--toast-bg:rgba(30,30,50,.95);
-  --type-agents:#3498db;--type-skills:#2ecc71;--type-rules:#f39c12;--type-memories:#e94560;--type-prompts:#9b59b6;--type-commands:#e67e22;--type-designs:#1abc9c;--type-hooks:#e74c3c;--type-mcps:#16a085;
-  --glow-agents:rgba(52,152,219,.15);--glow-skills:rgba(46,204,113,.15);--glow-rules:rgba(243,156,18,.15);--glow-memories:rgba(233,69,96,.15);--glow-prompts:rgba(155,89,182,.15);--glow-commands:rgba(230,126,34,.15);--glow-designs:rgba(26,188,156,.15);
+  --kind-skill:#2ecc71;--kind-command:#e67e22;--kind-agent:#3498db;--kind-mcp:#16a085;--kind-hook:#e74c3c;
   --font-display:'JetBrains Mono',monospace;--font-body:'DM Sans',sans-serif;
   --graph-center:rgba(20,20,40,.9);--graph-edge:var(--bg);--graph-text:#d0d0e0;--graph-line:rgba(255,255,255,.12);--graph-node-stroke:rgba(10,10,20,.8);
   color-scheme:dark;accent-color:var(--accent);
@@ -36,7 +35,6 @@ const HTML = `<!DOCTYPE html>
   --success:#27ae60;--warning:#e67e22;--danger:#c0392b;--info:#2980b9;
   --star:#f39c12;--star-empty:#d0d0d0;
   --header-bg:rgba(255,255,254,.97);--toast-bg:#2d2d44;
-  --glow-agents:rgba(52,152,219,.08);--glow-skills:rgba(46,204,113,.08);--glow-rules:rgba(243,156,18,.08);--glow-memories:rgba(233,69,96,.08);--glow-prompts:rgba(155,89,182,.08);
   --graph-center:#eae8e4;--graph-edge:#ddd9d3;--graph-text:#1a1a2e;--graph-line:rgba(0,0,0,.12);--graph-node-stroke:#fff;
   color-scheme:light;accent-color:var(--accent);
   scrollbar-color:rgba(0,0,0,.2) transparent;
@@ -84,21 +82,18 @@ h1,h2,h3,h4{font-family:var(--font-display);letter-spacing:-.01em}
 
 .content{padding:1.5rem 2rem;flex:1;overflow-y:auto;overflow-x:hidden;min-width:0;min-height:0}
 
-/* Tabs */
-.type-tabs{display:flex;gap:.3rem;margin-bottom:1.2rem;flex-wrap:wrap;overflow-x:auto;-webkit-overflow-scrolling:touch;min-width:0}
-.type-tab{padding:.4rem 1rem;border-radius:20px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:.82rem;font-weight:500;transition:all .25s}
-.type-tab:hover{color:var(--text);background:rgba(255,255,255,.05)}
-.type-tab.active{color:#fff;border-color:transparent}
-.type-tab[data-type="agents"].active{background:var(--type-agents)}
-.type-tab[data-type="skills"].active{background:var(--type-skills)}
-.type-tab[data-type="rules"].active{background:var(--type-rules)}
-.type-tab[data-type="memories"].active{background:var(--type-memories)}
-.type-tab[data-type="prompts"].active{background:var(--type-prompts)}
-.type-tab[data-type="commands"].active{background:var(--type-commands)}
-.type-tab[data-type="designs"].active{background:var(--type-designs)}
-.type-tab[data-type="hooks"].active{background:var(--type-hooks)}
-.type-tab[data-type="mcps"].active{background:var(--type-mcps)}
-.type-tab.active{background:var(--accent)}
+/* Component tree (plugin detail) */
+.comp-tree{margin-top:1.5rem;border-top:1px solid var(--border);padding-top:1rem}
+.comp-section{margin-bottom:1rem}
+.comp-section h3{font-size:.82rem;font-weight:600;margin-bottom:.5rem;display:flex;align-items:center;gap:.5rem;text-transform:uppercase;letter-spacing:.5px}
+.comp-section h3 .comp-dot{width:9px;height:9px;border-radius:2px;flex-shrink:0}
+.comp-items{display:flex;flex-wrap:wrap;gap:.4rem}
+.comp-chip{display:inline-flex;align-items:center;gap:.4rem;padding:.3rem .7rem;border-radius:8px;font-size:.8rem;font-weight:500;border:1px solid var(--border);background:rgba(255,255,255,.03);font-family:var(--font-display)}
+.comp-chip .comp-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+/* Card component counts */
+.comp-counts{display:flex;gap:.35rem;flex-wrap:wrap;align-items:center;margin:.4rem 0 .2rem}
+.comp-count{display:inline-flex;align-items:center;gap:.3rem;font-size:.7rem;color:var(--muted);font-family:var(--font-display)}
+.comp-count .comp-dot{width:7px;height:7px;border-radius:2px;flex-shrink:0}
 
 /* Sort */
 .sort-bar{display:flex;align-items:center;gap:.75rem;margin-bottom:1rem;font-size:.82rem;color:var(--muted)}
@@ -347,7 +342,7 @@ h1,h2,h3,h4{font-family:var(--font-display);letter-spacing:-.01em}
   <div class="main-content">
     <div class="top-bar">
       <button class="hamburger" id="hamburger">&#9776;</button>
-      <div class="search-box"><input id="search" type="text" placeholder="Search artifacts..."></div>
+      <div class="search-box"><input id="search" type="text" placeholder="Search plugins..."></div>
       <div class="actions">
         <button class="theme-toggle" id="theme-toggle" title="Toggle theme">&#9790;</button>
       </div>
@@ -367,12 +362,31 @@ h1,h2,h3,h4{font-family:var(--font-display);letter-spacing:-.01em}
 
 <script>
 (function(){
-const TYPES=['agents','commands','designs','hooks','mcps','memories','prompts','rules','skills'];
-const TYPE_DESC={agents:'Agent harnesses',commands:'User-facing slash commands',designs:'UI/UX design artifacts',hooks:'Lifecycle hooks (shell commands)',mcps:'MCP server configs',memories:'Context and knowledge',prompts:'Prompt templates',rules:'Coding standards and constraints',skills:'Reusable capabilities'};
+// A plugin bundles up to five kinds of component. meta.components carries the names.
+const KIND_META={
+  skills:{color:'var(--kind-skill)',label:'Skills',singular:'skill'},
+  commands:{color:'var(--kind-command)',label:'Commands',singular:'command'},
+  agents:{color:'var(--kind-agent)',label:'Agents',singular:'agent'},
+  mcpServers:{color:'var(--kind-mcp)',label:'MCP servers',singular:'mcp'},
+  hooks:{color:'var(--kind-hook)',label:'Hooks',singular:'hook'},
+};
+const KINDS=Object.keys(KIND_META);
+// Known top-level views (everything else in the hash is treated as a plugin name)
+const VIEWS=['browse','projects','graph','guide','push','metrics','audit','blocked','admin'];
+// Components live under meta.components; return {kind:[names]} with empties dropped
+function pluginComponents(item){
+  const c=(item&&item.meta&&item.meta.components)||{};
+  const out={};
+  KINDS.forEach(k=>{const arr=Array.isArray(c[k])?c[k]:[];if(arr.length)out[k]=arr;});
+  return out;
+}
+function componentTotal(item){
+  const c=pluginComponents(item);let n=0;KINDS.forEach(k=>{n+=(c[k]||[]).length;});return n;
+}
 
-// State
+// State — single type; currentType stays 'plugins' so API paths build to /plugins/<name>
 let state={
-  view:'browse',currentType:'agents',items:[],allItems:{},detail:null,
+  view:'browse',currentType:'plugins',items:[],allItems:{},detail:null,
   comments:null,versions:null,sortBy:'name',searchTerm:'',
   user:null,token:null,isAdmin:false,projectFilter:null,
   selected:new Set(),bulkMode:false,attachments:null,diffVersions:null
@@ -497,7 +511,7 @@ async function loadItems(type){
 }
 
 async function loadAllTypes(){
-  await Promise.all(TYPES.map(t=>loadItems(t)));
+  await loadItems('plugins');
 }
 
 // Check auth
@@ -546,14 +560,15 @@ function setHash(h){
   setTimeout(function(){_settingHash=false;},0);
 }
 function applyHash(){
-  const h=decodeURIComponent(location.hash.replace(/^#\\/?/,''));
+  let h=decodeURIComponent(location.hash.replace(/^#\\/?/,''));
   if(!h){state.detail=null;navigate('browse');return;}
-  const slash=h.indexOf('/');
-  if(slash>0){
-    const type=h.slice(0,slash),name=h.slice(slash+1);
-    if(TYPES.includes(type)){state.currentType=type;state.view='browse';document.querySelectorAll('.sidebar nav a').forEach(a=>a.classList.toggle('active',a.dataset.view==='browse'));showDetail(name);return;}
-  }
-  navigate(h);
+  // Legacy #plugins/<name> deep links still resolve
+  if(h.indexOf('plugins/')===0)h=h.slice('plugins/'.length);
+  if(VIEWS.includes(h)){navigate(h);return;}
+  // Anything else is a plugin name -> open its detail
+  state.view='browse';
+  document.querySelectorAll('.sidebar nav a').forEach(a=>a.classList.toggle('active',a.dataset.view==='browse'));
+  showDetail(h);
 }
 window.addEventListener('hashchange',function(){if(!_settingHash)applyHash();});
 
@@ -606,17 +621,24 @@ function render(){
 
 // --- Browse ---
 let _cardIdx=0;
-function renderCard(i,type){
-  const typeColorMap={agents:'var(--type-agents)',skills:'var(--type-skills)',rules:'var(--type-rules)',memories:'var(--type-memories)',prompts:'var(--type-prompts)',commands:'var(--type-commands)',designs:'var(--type-designs)',hooks:'var(--type-hooks)',mcps:'var(--type-mcps)'};
-  const tags=(i.tags||[]).slice(0,3).map(t=>'<span class="tag">'+esc(t)+'</span>').join('');
+function renderCompCounts(item){
+  const comps=pluginComponents(item);
+  const parts=KINDS.filter(k=>comps[k]&&comps[k].length).map(k=>{
+    const m=KIND_META[k];
+    return '<span class="comp-count"><span class="comp-dot" style="background:'+m.color+'"></span>'+comps[k].length+' '+esc(m.label.toLowerCase())+'</span>';
+  });
+  return parts.length?'<div class="comp-counts">'+parts.join('')+'</div>':'';
+}
+function renderCard(i){
+  const tags=(i.tags||i.keywords||[]).slice(0,3).map(t=>'<span class="tag">'+esc(t)+'</span>').join('');
   const stars=i.avg_rating?renderStars(Math.round(i.avg_rating)):'';
   const pullsLabel=i.pulls?'\\u2193 '+i.pulls:'';
-  const selKey=type+'/'+i.name;
-  const color=typeColorMap[type]||'var(--accent)';
+  const selKey=i.name;
   const delay=Math.min(_cardIdx*0.04,0.8);_cardIdx++;
-  let h='<div class="card" style="border-left-color:'+color+';animation-delay:'+delay+'s" onclick="showDetailTyped(\\''+esc(type)+'\\',\\''+esc(i.name).replace(/'/g,"\\\\'")+'\\')">';
+  let h='<div class="card" style="animation-delay:'+delay+'s" onclick="showDetail(\\''+esc(i.name).replace(/'/g,"\\\\'")+'\\')">';
   if(state.bulkMode)h+='<div class="card-select'+(state.selected.has(selKey)?' checked':'')+'" onclick="event.stopPropagation();toggleSelect(\\''+esc(selKey).replace(/'/g,"\\\\'")+'\\')">'+(state.selected.has(selKey)?'\\u2713':'')+'</div>';
   h+='<h3>'+esc(i.name)+'</h3><p>'+esc(i.description||'')+'</p>';
+  h+=renderCompCounts(i);
   h+='<div class="card-meta">'+tags+'</div>';
   h+='<div class="card-footer">'+stars+(pullsLabel?' <span style="color:var(--muted);margin-left:.5rem">'+pullsLabel+'</span>':'')+'<span style="font-family:var(--font-display);font-size:.7rem">'+(i.version?'v'+esc(i.version):'')+(i.owner?' \\u00b7 '+esc(i.owner):'')+'</span></div>';
   h+='</div>';
@@ -627,74 +649,61 @@ function renderBrowse(el){
   if(state.detail)return renderDetail(el);
   _cardIdx=0;
 
-  // Global search mode — show results across all types
+  // Global search mode — one flat group of plugins
   if(state.searchTerm&&state.searchTerm.length>=2){
-    let html='<div class="breadcrumbs"><a onclick="clearSearch()">Browse</a><span class="sep">\\u203a</span><span>Search: '+esc(state.searchTerm)+'</span></div>';
-    let totalResults=0;
-    html+='<div class="search-results">';
-    TYPES.forEach(t=>{
-      const matches=filterItems(state.allItems[t]||[]);
-      // Merge server search results (matches inside bodies) not caught by the client filter
-      const seen=new Set(matches.map(m=>m.name));
-      (Array.isArray(state.serverResults)?state.serverResults:[]).forEach(r=>{
-        if(r.type===t&&r.name&&!seen.has(r.name)){seen.add(r.name);matches.push(r);}
-      });
-      if(!matches.length)return;
-      totalResults+=matches.length;
-      html+='<div class="search-group"><h3>'+t+' ('+matches.length+')</h3><div class="card-grid">';
-      sortItems(matches).forEach(i=>{html+=renderCard(i,t);});
-      html+='</div></div>';
+    let html='<div class="breadcrumbs"><a onclick="clearSearch()">Plugins</a><span class="sep">\\u203a</span><span>Search: '+esc(state.searchTerm)+'</span></div>';
+    let matches=filterItems(state.allItems['plugins']||[]);
+    // Merge server search results (body matches) not caught by the client filter
+    const seen=new Set(matches.map(m=>m.name));
+    (Array.isArray(state.serverResults)?state.serverResults:[]).forEach(r=>{
+      if(r.name&&!seen.has(r.name)){seen.add(r.name);matches.push(r);}
     });
-    if(!totalResults)html+='<div class="empty-state"><div class="icon">\\u2315</div><p>No results for "'+esc(state.searchTerm)+'"</p></div>';
+    html+='<div class="search-results">';
+    if(!matches.length)html+='<div class="empty-state"><div class="icon">\\u2315</div><p>No results for "'+esc(state.searchTerm)+'"</p></div>';
+    else{
+      html+='<div class="search-group"><h3>plugins ('+matches.length+')</h3><div class="card-grid">';
+      sortItems(matches).forEach(i=>{html+=renderCard(i);});
+      html+='</div></div>';
+    }
     html+='</div>';
     el.innerHTML=html;
     return;
   }
 
-  const items=sortItems(filterItems(state.allItems[state.currentType]||[]));
-  // Breadcrumbs
-  let html='<div class="breadcrumbs"><span>Browse</span><span class="sep">\\u203a</span><span>'+state.currentType+'</span></div>';
-  html+='<div class="type-tabs">';
-  TYPES.forEach(t=>{html+='<button class="type-tab'+(t===state.currentType?' active':'')+'" data-type="'+t+'" onclick="switchType(\\''+t+'\\')">'+t+' ('+(state.allItems[t]||[]).length+')</button>';});
-  html+='</div>';
+  const items=sortItems(filterItems(state.allItems['plugins']||[]));
+  let html='<div class="breadcrumbs"><span>Plugins</span></div>';
   html+='<div class="sort-bar"><span>Sort by:</span><select onchange="changeSort(this.value)">';
   ['name','date','rating','pulls','trending'].forEach(s=>{html+='<option value="'+s+'"'+(state.sortBy===s?' selected':'')+'>'+s+'</option>';});
   html+='</select>';
   html+='<button class="btn btn-sm" style="margin-left:.5rem" onclick="toggleBulkMode()">'+(state.bulkMode?'\\u2716 Cancel':'\\u2610 Select')+'</button>';
   if(state.bulkMode&&state.selected.size)html+='<button class="btn btn-sm btn-primary" style="margin-left:.3rem" onclick="exportSelected()">\\u2193 Export ('+state.selected.size+')</button>';
-  html+='<span class="count">'+items.length+' artifacts</span></div>';
+  html+='<span class="count">'+items.length+' plugins</span></div>';
   if(!items.length){
-    html+='<div class="empty-state"><div class="icon">\\u2205</div><p>No artifacts found</p></div>';
+    html+='<div class="empty-state"><div class="icon">\\u2205</div><p>No plugins found</p></div>';
   }else{
     html+='<div class="card-grid">';
-    items.forEach(i=>{html+=renderCard(i,state.currentType);});
+    items.forEach(i=>{html+=renderCard(i);});
     html+='</div>';
   }
   el.innerHTML=html;
 }
 
 window.clearSearch=function(){state.searchTerm='';\$('search').value='';render();};
-window.showDetailTyped=async function(type,name){
-  state.currentType=type;
-  showDetail(name);
-};
 
-window.switchType=function(t){state.currentType=t;render();};
 window.changeSort=function(s){state.sortBy=s;render();};
 window.toggleBulkMode=function(){state.bulkMode=!state.bulkMode;if(!state.bulkMode)state.selected=new Set();render();};
 window.toggleSelect=function(key){if(state.selected.has(key))state.selected.delete(key);else state.selected.add(key);render();};
 window.exportSelected=function(){
-  const bundle={version:'1.0.0',exported:new Date().toISOString(),artifacts:[]};
-  state.selected.forEach(key=>{
-    const[type,name]=key.split('/');
-    const item=(state.allItems[type]||[]).find(i=>i.name===name);
-    if(item)bundle.artifacts.push({type:type.slice(0,-1),name:item.name,version:item.version,description:item.description,tags:item.tags,meta:item.meta,body:item.body});
+  const bundle={version:'1.0.0',exported:new Date().toISOString(),plugins:[]};
+  state.selected.forEach(name=>{
+    const item=(state.allItems['plugins']||[]).find(i=>i.name===name);
+    if(item)bundle.plugins.push({type:'plugin',name:item.name,version:item.version,description:item.description,tags:item.tags,meta:item.meta,body:item.body});
   });
   const blob=new Blob([JSON.stringify(bundle,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');a.href=url;a.download='ihub-export-'+bundle.artifacts.length+'.json';a.click();
+  const a=document.createElement('a');a.href=url;a.download='ihub-export-'+bundle.plugins.length+'.json';a.click();
   URL.revokeObjectURL(url);
-  toast('Exported '+bundle.artifacts.length+' artifacts','success');
+  toast('Exported '+bundle.plugins.length+' plugins','success');
 };
 
 window.showDetail=async function(name){
@@ -706,7 +715,7 @@ window.showDetail=async function(name){
     try{const vr=await api('/'+state.currentType+'/'+encodeURIComponent(name)+'/versions');state.versions=await vr.json();}catch{state.versions=null;}
     try{const ar=await api('/'+state.currentType+'/'+encodeURIComponent(name)+'/attachments');state.attachments=await ar.json();}catch{state.attachments=null;}
     state.diffVersions=null;
-    setHash(state.currentType+'/'+encodeURIComponent(name));
+    setHash(encodeURIComponent(name));
   }catch(e){
     toast('Error loading: '+e.message,'error');
     \$('content').innerHTML='<div class="empty-state"><div class="icon">\\u26a0</div><p>Could not load '+esc(name)+': '+esc(e.message)+'</p><button class="btn btn-sm" onclick="state.detail=null;render()">\\u2190 Back</button></div>';
@@ -725,15 +734,14 @@ function renderDetail(el){
   if(!d){renderBrowse(el);return;}
   _reviewRating=0;
   const meta=d.meta||{};
-  const tags=(d.tags||[]).map(t=>'<span class="tag">'+esc(t)+'</span>').join(' ');
+  const tags=(d.tags||d.keywords||[]).map(t=>'<span class="tag">'+esc(t)+'</span>').join(' ');
   const cmts=(state.comments&&(state.comments.comments||state.comments))||[];
   const rating=state.comments?.rating||{};
   const versions=Array.isArray(state.versions)?state.versions:[];
   const attachments=Array.isArray(state.attachments)?state.attachments:[];
-  const typeColors={agents:'var(--info)',skills:'var(--success)',rules:'var(--warning)',memories:'var(--accent)',prompts:'#9b59b6',commands:'#e67e22',designs:'#1abc9c',hooks:'#e74c3c',mcps:'#16a085'};
 
   // Breadcrumbs
-  let html='<div class="breadcrumbs"><a onclick="backToList()">Browse</a><span class="sep">\\u203a</span><a onclick="backToList()">'+state.currentType+'</a><span class="sep">\\u203a</span><span>'+esc(d.name)+'</span></div>';
+  let html='<div class="breadcrumbs"><a onclick="backToList()">Plugins</a><span class="sep">\\u203a</span><span>'+esc(d.name)+'</span></div>';
 
   html+='<div class="detail-view">';
   html+='<div class="detail-header"><div><button class="btn btn-sm" onclick="backToList()">\\u2190 Back</button>';
@@ -752,48 +760,24 @@ function renderDetail(el){
   html+='</div>';
   html+='<div class="detail-body">'+renderMd(d.body||'')+'</div>';
 
-  // Dependencies (#1)
-  const REL_FIELDS=[{field:'skills',type:'skills'},{field:'rules',type:'rules'},{field:'memories',type:'memories'},{field:'prompts',type:'prompts'},{field:'compatible_agents',type:'agents'},{field:'applies_to',type:'agents'},{field:'related',type:null}];
-  const outgoing=[];
-  REL_FIELDS.forEach(rf=>{
-    const refs=Array.isArray(d[rf.field])?d[rf.field]:Array.isArray(meta[rf.field])?meta[rf.field]:[];
-    refs.forEach(ref=>{
-      const t=rf.type||(TYPES.find(tt=>(state.allItems[tt]||[]).some(i=>i.name===ref)));
-      if(t)outgoing.push({name:ref,type:t,field:rf.field});
+  // Component tree — from meta.components
+  const comps=pluginComponents(d);
+  const total=componentTotal(d);
+  html+='<div class="comp-tree"><h3 style="margin-bottom:.8rem">Components'+(total?' ('+total+')':'')+'</h3>';
+  if(!total){
+    html+='<p style="color:var(--muted)">This plugin bundles no components.</p>';
+  }else{
+    KINDS.forEach(k=>{
+      const names=comps[k];if(!names||!names.length)return;
+      const m=KIND_META[k];
+      html+='<div class="comp-section"><h3 style="color:'+m.color+'"><span class="comp-dot" style="background:'+m.color+'"></span>'+esc(m.label)+' ('+names.length+')</h3><div class="comp-items">';
+      names.forEach(nm=>{
+        html+='<span class="comp-chip"><span class="comp-dot" style="background:'+m.color+'"></span>'+esc(nm)+'</span>';
+      });
+      html+='</div></div>';
     });
-  });
-  // Incoming: other artifacts that reference this one
-  const incoming=[];
-  TYPES.forEach(t=>{
-    (state.allItems[t]||[]).forEach(item=>{
-      const im=item.meta||{};
-      REL_FIELDS.forEach(rf=>{
-        const refs=Array.isArray(item[rf.field])?item[rf.field]:Array.isArray(im[rf.field])?im[rf.field]:[];
-        if(refs.includes(d.name))incoming.push({name:item.name,type:t,field:rf.field});
-      });
-    });
-  });
-
-  if(outgoing.length||incoming.length){
-    html+='<div class="deps-panel">';
-    if(outgoing.length){
-      html+='<h3>Uses</h3><div class="deps-grid">';
-      outgoing.forEach(dep=>{
-        const col=typeColors[dep.type]||'var(--muted)';
-        html+='<div class="dep-chip" onclick="navToArtifact(\\''+esc(dep.type)+'\\',\\''+esc(dep.name).replace(/'/g,"\\\\'")+'\\')""><div class="dep-dot" style="background:'+col+'"></div>'+esc(dep.name)+'<span style="font-size:.68rem;color:var(--muted)">'+dep.type.slice(0,-1)+'</span></div>';
-      });
-      html+='</div>';
-    }
-    if(incoming.length){
-      html+='<h3 style="margin-top:.8rem">Used by</h3><div class="deps-grid">';
-      incoming.forEach(dep=>{
-        const col=typeColors[dep.type]||'var(--muted)';
-        html+='<div class="dep-chip" onclick="navToArtifact(\\''+esc(dep.type)+'\\',\\''+esc(dep.name).replace(/'/g,"\\\\'")+'\\')""><div class="dep-dot" style="background:'+col+'"></div>'+esc(dep.name)+'<span style="font-size:.68rem;color:var(--muted)">'+dep.type.slice(0,-1)+'</span></div>';
-      });
-      html+='</div>';
-    }
-    html+='</div>';
   }
+  html+='</div>';
 
   // Attachments (#5)
   if(attachments.length){
@@ -895,7 +879,7 @@ window.showDiff=async function(v1,v2){
 
 window.exportSingle=function(){
   const d=state.detail;if(!d)return;
-  const bundle={version:'1.0.0',exported:new Date().toISOString(),artifacts:[{type:state.currentType.slice(0,-1),name:d.name,version:d.version,description:d.description,tags:d.tags,meta:d.meta,body:d.body}]};
+  const bundle={version:'1.0.0',exported:new Date().toISOString(),plugins:[{type:'plugin',name:d.name,version:d.version,description:d.description,tags:d.tags,meta:d.meta,body:d.body}]};
   const blob=new Blob([JSON.stringify(bundle,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download=d.name+'.json';a.click();
@@ -917,14 +901,12 @@ window.doDelete=async function(name){
   hideModal();
 };
 
-// --- Projects ---
+// --- Projects (group plugins by meta.project) ---
 async function renderProjects(el){
-  const typeColors={agents:'var(--info)',skills:'var(--success)',rules:'var(--warning)',memories:'var(--accent)',prompts:'#9b59b6',commands:'#e67e22',designs:'#1abc9c',hooks:'#e74c3c',mcps:'#16a085'};
-  const allEntries=[];
-  for(const t of TYPES)(state.allItems[t]||[]).forEach(e=>allEntries.push({...e,_type:t}));
+  const plugins=state.allItems['plugins']||[];
   const projects={};
   const unassigned=[];
-  allEntries.forEach(e=>{
+  plugins.forEach(e=>{
     const proj=e.project||e.meta?.project||'';
     if(proj){if(!projects[proj])projects[proj]=[];projects[proj].push(e);}
     else unassigned.push(e);
@@ -934,36 +916,13 @@ async function renderProjects(el){
   if(!pnames.length&&!unassigned.length){html+='<div class="empty-state"><p>No projects found</p></div>';el.innerHTML=html;return;}
 
   function renderProjectGroup(title,items){
-    const byType={};
-    items.forEach(i=>{if(!byType[i._type])byType[i._type]=[];byType[i._type].push(i)});
-    html+='<div class="project-group"><h4>'+esc(title)+' <span>('+items.length+' artifacts)</span></h4>';
-    TYPES.forEach(t=>{
-      const group=byType[t];
-      if(!group||!group.length)return;
-      const color=typeColors[t]||'var(--muted)';
-      html+='<div class="project-type-group"><div class="project-type-label" style="color:'+color+'">'+t+' ('+group.length+')</div>';
-      if(t==='memories'){
-        // Sub-group by context_type
-        const byCt={};
-        group.forEach(i=>{const ct=(i.meta||{}).context_type||i.context_type||'other';if(!byCt[ct])byCt[ct]=[];byCt[ct].push(i);});
-        for(const[ct,mems]of Object.entries(byCt)){
-          html+='<div style="font-size:.7rem;color:var(--muted);font-style:italic;padding:.2rem 1rem 0;letter-spacing:.3px">'+esc(ct)+'</div>';
-          html+='<div class="project-items">';
-          mems.forEach(i=>{
-            html+='<div class="project-item" style="border-left:3px solid '+color+'" onclick="navToArtifact(\\''+esc(i._type)+'\\',\\''+esc(i.name).replace(/'/g,"\\\\'")+'\\')"">'+esc(i.name)+'</div>';
-          });
-          html+='</div>';
-        }
-      }else{
-        html+='<div class="project-items">';
-        group.forEach(i=>{
-          html+='<div class="project-item" style="border-left:3px solid '+color+'" onclick="navToArtifact(\\''+esc(i._type)+'\\',\\''+esc(i.name).replace(/'/g,"\\\\'")+'\\')"">'+esc(i.name)+'</div>';
-        });
-        html+='</div>';
-      }
-      html+='</div>';
+    html+='<div class="project-group"><h4>'+esc(title)+' <span>('+items.length+' plugin'+(items.length===1?'':'s')+')</span></h4>';
+    html+='<div class="project-type-group"><div class="project-items">';
+    items.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'')).forEach(i=>{
+      const cc=componentTotal(i);
+      html+='<div class="project-item" style="border-left:3px solid var(--accent)" onclick="navToArtifact(\\''+esc(i.name).replace(/'/g,"\\\\'")+'\\')"">'+esc(i.name)+(cc?' <span style="color:var(--muted);font-size:.72rem">'+cc+'</span>':'')+'</div>';
     });
-    html+='</div>';
+    html+='</div></div></div>';
   }
 
   pnames.forEach(p=>renderProjectGroup(p,projects[p]));
@@ -971,29 +930,27 @@ async function renderProjects(el){
   el.innerHTML=html;
 }
 
-window.navToArtifact=function(type,name){
-  state.currentType=type;state._previousView=state.view;state.view='browse';
+window.navToArtifact=function(name){
+  state._previousView=state.view;state.view='browse';
   showDetail(name);
 };
 
 // --- Push ---
 function renderPush(el){
-  if(!state.token){el.innerHTML='<div class="empty-state"><div class="icon">\\ud83d\\udd12</div><p>Please login to push artifacts</p></div>';return;}
-  let html='<h2>Push Artifact</h2>';
+  if(!state.token){el.innerHTML='<div class="empty-state"><div class="icon">\\ud83d\\udd12</div><p>Please login to push plugins</p></div>';return;}
+  let html='<h2>Push Plugin</h2>';
+  html+='<p style="color:var(--muted);font-size:.85rem;margin:.3rem 0 1rem;max-width:600px">Push a plugin manifest and README from the browser. Component files (skills, commands, agents, .mcp.json, hooks) are packed from disk by the <code>ihub push</code> CLI.</p>';
   html+='<div style="max-width:600px;margin-top:1rem">';
-  html+='<div class="form-group" style="margin-bottom:1rem"><label style="display:block;font-size:.85rem;color:var(--muted);margin-bottom:.3rem">Type</label><select id="push-type" style="width:100%;padding:.5rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text)">';
-  TYPES.forEach(t=>{html+='<option value="'+t+'">'+t+'</option>';});
-  html+='</select></div>';
-  html+='<div class="form-group" style="margin-bottom:1rem"><label style="display:block;font-size:.85rem;color:var(--muted);margin-bottom:.3rem">Name</label><input id="push-name" placeholder="my-artifact" style="width:100%;padding:.5rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text)"></div>';
+  html+='<div class="form-group" style="margin-bottom:1rem"><label style="display:block;font-size:.85rem;color:var(--muted);margin-bottom:.3rem">Name</label><input id="push-name" placeholder="my-plugin" style="width:100%;padding:.5rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text)"></div>';
   html+='<div class="form-group" style="margin-bottom:1rem"><label style="display:block;font-size:.85rem;color:var(--muted);margin-bottom:.3rem">Version</label><input id="push-version" placeholder="1.0.0" style="width:100%;padding:.5rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text)"></div>';
   html+='<div class="form-group" style="margin-bottom:1rem"><label style="display:block;font-size:.85rem;color:var(--muted);margin-bottom:.3rem">Description</label><input id="push-desc" placeholder="Brief description" style="width:100%;padding:.5rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text)"></div>';
   html+='<div class="form-group" style="margin-bottom:1rem"><label style="display:block;font-size:.85rem;color:var(--muted);margin-bottom:.3rem">Tags (comma-separated)</label><input id="push-tags" placeholder="tag1, tag2" style="width:100%;padding:.5rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text)"></div>';
   html+='<div class="form-group" style="margin-bottom:1rem"><label style="display:block;font-size:.85rem;color:var(--muted);margin-bottom:.3rem">Body</label>';
   html+='<div class="push-tabs"><button class="push-tab active" onclick="pushTabSwitch(this,\\'write\\')">Write</button><button class="push-tab" onclick="pushTabSwitch(this,\\'preview\\')">Preview</button></div>';
-  html+='<textarea id="push-body" rows="8" placeholder="Artifact body content (markdown)" style="width:100%;padding:.7rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);resize:vertical"></textarea>';
+  html+='<textarea id="push-body" rows="8" placeholder="Plugin README content (markdown)" style="width:100%;padding:.7rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);resize:vertical"></textarea>';
   html+='<div id="push-preview" class="detail-body" style="display:none;min-height:150px;padding:.7rem;border-radius:6px;border:1px solid var(--border);background:var(--bg)"></div>';
   html+='</div>';
-  html+='<button class="btn btn-primary" onclick="doPush()">Push Artifact</button>';
+  html+='<button class="btn btn-primary" onclick="doPush()">Push Plugin</button>';
   html+='</div>';
   el.innerHTML=html;
 }
@@ -1007,7 +964,6 @@ window.pushTabSwitch=function(btn,tab){
 };
 
 window.doPush=async function(){
-  const type=\$('push-type').value;
   const name=\$('push-name').value.trim();
   const version=\$('push-version').value.trim();
   const description=\$('push-desc').value.trim();
@@ -1016,8 +972,8 @@ window.doPush=async function(){
   if(!name){toast('Name is required','error');return;}
   if(!version){toast('Version is required','error');return;}
   try{
-    const r=await api('/'+type+'/'+encodeURIComponent(name),{method:'POST',headers:authHeaders(),body:JSON.stringify({name,version,description,tags,body})});
-    if(r.ok){toast('Pushed '+type+'/'+name+' successfully!','success');await loadItems(type);\$('push-name').value='';\$('push-version').value='';\$('push-desc').value='';\$('push-tags').value='';\$('push-body').value='';}
+    const r=await api('/plugins/'+encodeURIComponent(name),{method:'POST',headers:authHeaders(),body:JSON.stringify({name,version,description,tags,body})});
+    if(r.ok){toast('Pushed '+name+' successfully!','success');await loadItems('plugins');\$('push-name').value='';\$('push-version').value='';\$('push-desc').value='';\$('push-tags').value='';\$('push-body').value='';}
     else{const e=await r.json().catch(()=>({}));toast(e.error||'Push failed','error');}
   }catch(e){toast('Error: '+e.message,'error');}
 };
@@ -1174,56 +1130,42 @@ function renderGraph(el){
   if(_graphAbort)_graphAbort.abort();
   _graphAbort=new AbortController();
   const _gsig=_graphAbort.signal;
-  const typeColors={agents:'#3498db',skills:'#2ecc71',rules:'#f39c12',memories:'#e94560',prompts:'#9b59b6',commands:'#e67e22',designs:'#1abc9c',hooks:'#e74c3c',mcps:'#16a085'};
-  const REL_FIELDS=[
-    {field:'skills',targetType:'skills'},
-    {field:'rules',targetType:'rules'},
-    {field:'memories',targetType:'memories'},
-    {field:'prompts',targetType:'prompts'},
-    {field:'compatible_agents',targetType:'agents'},
-    {field:'applies_to',targetType:'agents'},
-    {field:'related',targetType:null},
-  ];
+  // Colors keyed by node "type": plugin + the five component kinds (singular)
+  const typeColors={plugin:'#e94560',skill:'#2ecc71',command:'#e67e22',agent:'#3498db',mcp:'#16a085',hook:'#e74c3c'};
+  const kindLabel={plugin:'plugin',skill:'skill',command:'command',agent:'agent',mcp:'mcp server',hook:'hook'};
 
-  // Build nodes and edges
+  // Build nodes (plugins + their components) and containment edges plugin -> component
   const nodes=[];const nodeMap={};const edges=[];
-  for(const t of TYPES){
-    (state.allItems[t]||[]).forEach(item=>{
-      const id=t+'/'+item.name;
-      const node={id,name:item.name,type:t,x:0,y:0,vx:0,vy:0};
-      nodes.push(node);nodeMap[id]=node;
+  let _cid=0;
+  (state.allItems['plugins']||[]).forEach(item=>{
+    const pid='p/'+item.name;
+    const pnode={id:pid,name:item.name,type:'plugin',plugin:item.name,x:0,y:0,vx:0,vy:0};
+    nodes.push(pnode);nodeMap[pid]=pnode;
+    const comps=pluginComponents(item);
+    KINDS.forEach(k=>{
+      const kind=KIND_META[k].singular;
+      (comps[k]||[]).forEach(cname=>{
+        const cid='c'+(_cid++);
+        const cnode={id:cid,name:cname,type:kind,plugin:item.name,x:0,y:0,vx:0,vy:0};
+        nodes.push(cnode);nodeMap[cid]=cnode;
+        edges.push({source:pid,target:cid,kind});
+      });
     });
-  }
+  });
 
-  for(const t of TYPES){
-    (state.allItems[t]||[]).forEach(item=>{
-      const srcId=t+'/'+item.name;
-      for(const rel of REL_FIELDS){
-        const refs=Array.isArray(item[rel.field])?item[rel.field]:Array.isArray((item.meta||{})[rel.field])?(item.meta||{})[rel.field]:[];
-        for(const ref of refs){
-          let tgtId=null;
-          if(rel.targetType){tgtId=rel.targetType+'/'+ref;}
-          else{for(const tt of TYPES){if(nodeMap[tt+'/'+ref]){tgtId=tt+'/'+ref;break;}}}
-          if(tgtId&&nodeMap[tgtId]&&srcId!==tgtId){
-            edges.push({source:srcId,target:tgtId,label:rel.field});
-          }
-        }
-      }
-    });
-  }
+  if(!nodes.length){el.innerHTML='<h2>Plugin Graph</h2><div class="empty-state"><div class="icon">\\u2205</div><p>No plugins to graph</p></div>';return;}
 
-  if(!nodes.length){el.innerHTML='<h2>Artifact Graph</h2><div class="empty-state"><div class="icon">\\u2205</div><p>No artifacts to graph</p></div>';return;}
-
-  let html='<h2>Artifact Graph</h2>';
+  const pluginCount=(state.allItems['plugins']||[]).length;
+  let html='<h2>Plugin Graph</h2>';
   html+='<div class="graph-controls">';
-  html+='<span style="font-size:.85rem;color:var(--muted)">'+nodes.length+' artifacts, '+edges.length+' connections</span>';
+  html+='<span style="font-size:.85rem;color:var(--muted)">'+pluginCount+' plugin'+(pluginCount===1?'':'s')+', '+(nodes.length-pluginCount)+' components</span>';
   html+='<button class="btn btn-sm" onclick="graphCenter()" title="Re-center graph">\\u2316 Center</button>';
   html+='</div>';
   html+='<div class="graph-container" id="graph-box">';
   html+='<svg id="graph-svg"></svg>';
   html+='<div id="graph-info" style="position:absolute;top:0;left:0;bottom:0;width:260px;background:var(--surface);backdrop-filter:blur(16px);border-right:1px solid var(--border);padding:.8rem;font-size:.8rem;display:none;overflow-y:auto;z-index:2"></div>';
   html+='<div class="graph-legend">';
-  for(const t of TYPES)html+='<div class="graph-legend-item"><div class="graph-legend-dot" style="background:'+typeColors[t]+'"></div>'+t+'</div>';
+  ['plugin','skill','command','agent','mcp','hook'].forEach(t=>{html+='<div class="graph-legend-item"><div class="graph-legend-dot" style="background:'+typeColors[t]+'"></div>'+kindLabel[t]+'</div>';});
   html+='</div></div>';
   el.innerHTML=html;
 
@@ -1361,35 +1303,20 @@ function renderGraph(el){
     selectedId=id;neighbors=adjacency[id]||new Set();
     const n=nodeMap[id];
     const nbrs=[...neighbors].map(nid=>nodeMap[nid]).filter(Boolean);
+    // Group neighbours by their node type (plugin / skill / command / ...)
     const byType={};
-    nbrs.forEach(nb=>{if(!byType[nb.type])byType[nb.type]=[];byType[nb.type].push(nb.name);});
-    // Look up memory context_types from loaded data
-    const memContextTypes={};
-    (state.allItems['memories']||[]).forEach(m=>{
-      const ct=(m.meta||{}).context_type||m.context_type||'';
-      if(ct)memContextTypes[m.name]=ct;
-    });
+    nbrs.forEach(nb=>{if(!byType[nb.type])byType[nb.type]=[];byType[nb.type].push(nb);});
     let h='<div style="font-weight:700;font-size:1rem;color:'+typeColors[n.type]+';margin-bottom:.2rem">'+esc(n.name)+'</div>';
-    h+='<div style="color:var(--muted);margin-bottom:.6rem;font-size:.78rem">'+n.type.slice(0,-1)+' \\u00b7 '+neighbors.size+' connections</div>';
-    for(const[t,names]of Object.entries(byType)){
-      h+='<div style="color:'+typeColors[t]+';font-size:.72rem;font-weight:600;text-transform:uppercase;margin-top:.5rem;letter-spacing:.5px">'+t+'</div>';
-      if(t==='memories'){
-        // Sub-group by context_type
-        const byCt={};
-        names.forEach(nm=>{const ct=memContextTypes[nm]||'other';if(!byCt[ct])byCt[ct]=[];byCt[ct].push(nm);});
-        for(const[ct,mems]of Object.entries(byCt)){
-          h+='<div style="color:var(--muted);font-size:.68rem;font-style:italic;margin-top:.3rem;margin-left:.4rem">'+esc(ct)+'</div>';
-          mems.forEach(nm=>{
-            h+='<div style="color:var(--text);font-size:.82rem;padding:.15rem 0;padding-left:.4rem;cursor:pointer" onclick="selectNode(\\'memories/'+esc(nm).replace(/'/g,"\\\\'")+'\\')"">\\u2022 '+esc(nm)+'</div>';
-          });
-        }
-      }else{
-        names.forEach(nm=>{
-          h+='<div style="color:var(--text);font-size:.82rem;padding:.15rem 0;cursor:pointer" onclick="selectNode(\\''+t+'/'+esc(nm).replace(/'/g,"\\\\'")+'\\')"">\\u2022 '+esc(nm)+'</div>';
-        });
-      }
-    }
-    h+='<div style="color:var(--muted);font-size:.7rem;margin-top:.8rem;border-top:1px solid var(--border);padding-top:.5rem">click node to deselect<br>double-click to open detail</div>';
+    const sub=n.type==='plugin'?(neighbors.size+' component'+(neighbors.size===1?'':'s')):(kindLabel[n.type]+' \\u00b7 in '+esc(n.plugin));
+    h+='<div style="color:var(--muted);margin-bottom:.6rem;font-size:.78rem">'+sub+'</div>';
+    ['plugin','skill','command','agent','mcp','hook'].forEach(t=>{
+      const list=byType[t];if(!list||!list.length)return;
+      h+='<div style="color:'+typeColors[t]+';font-size:.72rem;font-weight:600;text-transform:uppercase;margin-top:.5rem;letter-spacing:.5px">'+kindLabel[t]+(list.length>1?'s':'')+'</div>';
+      list.forEach(nb=>{
+        h+='<div style="color:var(--text);font-size:.82rem;padding:.15rem 0;cursor:pointer" onclick="selectNode(\\''+esc(nb.id).replace(/'/g,"\\\\'")+'\\')"">\\u2022 '+esc(nb.name)+'</div>';
+      });
+    });
+    h+='<div style="color:var(--muted);font-size:.7rem;margin-top:.8rem;border-top:1px solid var(--border);padding-top:.5rem">click node to deselect<br>double-click to open plugin</div>';
     info.innerHTML=h;info.style.display='block';
     // Shift center of gravity to account for panel
     cx=(W+PANEL_W)/2;
@@ -1504,7 +1431,7 @@ function renderGraph(el){
     const id=hit.id;
     const now=Date.now();
     if(id===_lastClickId&&now-_lastClickTime<400){
-      const parts=id.split('/');if(parts.length>=2)navToArtifact(parts[0],parts[1]);
+      if(hit.plugin)navToArtifact(hit.plugin);
       return;
     }
     _lastClickId=id;_lastClickTime=now;
@@ -1550,91 +1477,52 @@ function renderGraph(el){
 
 // --- Guide ---
 function renderGuide(el){
-  let html='<h2>Artifact Types Guide</h2>';
-  html+='<div class="charts-grid">';
+  let html='<h2>Plugin Guide</h2>';
+  html+='<p style="font-size:.9rem;color:var(--muted);line-height:1.6;max-width:760px">ihub publishes and installs <strong style="color:var(--text)">plugins</strong> \\u2014 Claude Code plugins. A plugin is a single distributable unit: a manifest plus any mix of five component kinds. You push a whole plugin and pull a whole plugin; there are no loose artifact types.</p>';
 
-  // Artifact types
-  const types=[
-    {name:'Agent',icon:'\\u25c6',color:'var(--info)',q:'What\\u2019s the full harness?',desc:'The top-level composition unit. Wires skills, rules, memories, and prompts into a complete AI agent configuration.',ex:'code-reviewer, migration-assistant, security-scanner'},
-    {name:'Command',icon:'\\u2318',color:'var(--type-commands)',q:'What can the user invoke?',desc:'A slash command that maps to an agent+skill combination. The UX trigger layer of the harness.',ex:'/commit, /review-pr, /deploy'},
-    {name:'Design',icon:'\\u25c7',color:'var(--type-designs)',q:'What should it look like?',desc:'UI/UX design artifacts \\u2014 wireframes, component specs, design tokens, style guides.',ex:'login-page, dashboard-layout, design-tokens'},
-    {name:'Memory',icon:'\\u25cf',color:'var(--accent)',q:'What do we know?',desc:'Knowledge and context that persists across sessions. NOT actions or constraints.',ex:'adr-001-database-choice, system-topology, incident-2026-04'},
-    {name:'Prompt',icon:'\\u25b2',color:'#9b59b6',q:'What should the AI say?',desc:'A reusable instruction template for AI models. Has variables and expected output.',ex:'code-review-feedback, debug-assistant, write-tests'},
-    {name:'Rule',icon:'\\u25a0',color:'var(--warning)',q:'What must be enforced?',desc:'A constraint or policy. Has scope (global/project) and severity (error/warning/info).',ex:'no-any-type, require-tests, semantic-commits'},
-    {name:'Skill',icon:'\\u25b6',color:'var(--success)',q:'How to do X?',desc:'A reusable action or procedure. Has triggers, args, and can be shared across agents.',ex:'test-generator, db-migration, changelog-gen'},
+  // Anatomy of a plugin
+  html+='<h3 style="margin-top:1.5rem">Anatomy of a plugin</h3>';
+  html+='<div style="overflow-x:auto"><pre style="background:var(--bg);padding:1rem;border-radius:var(--radius);border:1px solid var(--border);font-size:.8rem;line-height:1.7">plugins/&lt;name&gt;/\\n  .claude-plugin/plugin.json   manifest (name, version, description, keywords, project)\\n  README.md                    human doc (becomes the entry body)\\n  skills/&lt;skill&gt;/SKILL.md       0..N skills\\n  commands/&lt;cmd&gt;.md             0..N commands\\n  agents/&lt;agent&gt;.md             0..N agents\\n  .mcp.json                    0..N MCP servers\\n  hooks/hooks.json             0..N lifecycle hooks</pre></div>';
+
+  // The five component kinds
+  html+='<h3 style="margin-top:1.5rem">The five component kinds</h3>';
+  html+='<div class="charts-grid">';
+  const kinds=[
+    {name:'Skill',color:'var(--kind-skill)',path:'skills/&lt;name&gt;/SKILL.md',q:'How to do X?',desc:'A reusable capability the model can invoke \\u2014 triggers, procedure, optional args. The workhorse component.',ex:'test-generator, git-commit-msg, changelog-gen'},
+    {name:'Command',color:'var(--kind-command)',path:'commands/&lt;name&gt;.md',q:'What can the user invoke?',desc:'A user-facing slash command \\u2014 the UX trigger layer that runs a defined action.',ex:'/commit, /review-pr, /deploy'},
+    {name:'Agent',color:'var(--kind-agent)',path:'agents/&lt;name&gt;.md',q:'Who does the work?',desc:'A subagent definition with its own instructions and tool scope, spawned to handle a focused task.',ex:'code-reviewer, doc-generator, security-scanner'},
+    {name:'MCP server',color:'var(--kind-mcp)',path:'.mcp.json',q:'What tools connect?',desc:'A Model Context Protocol server entry (command/args/env or type/url/headers). Secrets must be \${VAR} placeholders.',ex:'github, azure, context7'},
+    {name:'Hook',color:'var(--kind-hook)',path:'hooks/hooks.json',q:'What runs on events?',desc:'A settings.json hooks fragment \\u2014 shell commands wired to lifecycle events. Gated on pull with a confirmation.',ex:'PreToolUse, PostToolUse, SessionStart'},
   ];
-  types.forEach(t=>{
+  kinds.forEach(k=>{
     html+='<div class="bar-chart" style="border:1px solid var(--border);padding:1.2rem;border-radius:var(--radius)">';
-    html+='<h4 style="color:'+t.color+'">'+t.icon+' '+t.name+' <span style="color:var(--muted);font-weight:normal;font-size:.85rem">\\u2014 \\u201c'+t.q+'\\u201d</span></h4>';
-    html+='<p style="margin:.5rem 0;font-size:.9rem">'+t.desc+'</p>';
-    html+='<p style="font-size:.82rem;color:var(--muted)">Examples: '+t.ex+'</p>';
+    html+='<h4 style="color:'+k.color+'">'+k.name+' <span style="color:var(--muted);font-weight:normal;font-size:.85rem">\\u2014 \\u201c'+k.q+'\\u201d</span></h4>';
+    html+='<p style="margin:.4rem 0;font-size:.9rem">'+k.desc+'</p>';
+    html+='<p style="font-size:.78rem;color:var(--muted);font-family:var(--font-display)">'+k.path+'</p>';
+    html+='<p style="font-size:.82rem;color:var(--muted)">Examples: '+k.ex+'</p>';
     html+='</div>';
   });
   html+='</div>';
 
-  // Boundaries table
-  html+='<h3 style="margin-top:1.5rem">Boundaries</h3>';
-  html+='<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>Type</th><th>Stores</th><th>Does NOT store</th></tr></thead><tbody>';
-  html+='<tr><td style="color:var(--info);font-weight:600">Agent</td><td>Harness, composition, wiring</td><td style="color:var(--muted)">Knowledge, constraints</td></tr>';
-  html+='<tr><td style="color:var(--type-commands);font-weight:600">Command</td><td>Slash triggers, UX layer</td><td style="color:var(--muted)">Implementation details</td></tr>';
-  html+='<tr><td style="color:var(--type-designs);font-weight:600">Design</td><td>Visual specs, mockups</td><td style="color:var(--muted)">Business logic, code</td></tr>';
-  html+='<tr><td style="color:var(--accent);font-weight:600">Memory</td><td>Knowledge, evidence</td><td style="color:var(--muted)">Actions, constraints, instructions</td></tr>';
-  html+='<tr><td style="color:#9b59b6;font-weight:600">Prompt</td><td>AI instructions</td><td style="color:var(--muted)">Execution logic, actor definitions</td></tr>';
-  html+='<tr><td style="color:var(--warning);font-weight:600">Rule</td><td>Constraints, policies</td><td style="color:var(--muted)">Why it was decided, how to implement</td></tr>';
-  html+='<tr><td style="color:var(--success);font-weight:600">Skill</td><td>Procedures, how-to</td><td style="color:var(--muted)">Why we do X, what X must follow</td></tr>';
+  // Kind reference table
+  html+='<h3 style="margin-top:1.5rem">Component reference</h3>';
+  html+='<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>Kind</th><th>Lives at</th><th>Installs as</th></tr></thead><tbody>';
+  html+='<tr><td style="color:var(--kind-skill);font-weight:600">Skill</td><td><code>skills/&lt;name&gt;/SKILL.md</code></td><td style="color:var(--muted)">Skill directory in the plugin</td></tr>';
+  html+='<tr><td style="color:var(--kind-command);font-weight:600">Command</td><td><code>commands/&lt;name&gt;.md</code></td><td style="color:var(--muted)">Slash command file</td></tr>';
+  html+='<tr><td style="color:var(--kind-agent);font-weight:600">Agent</td><td><code>agents/&lt;name&gt;.md</code></td><td style="color:var(--muted)">Subagent definition</td></tr>';
+  html+='<tr><td style="color:var(--kind-mcp);font-weight:600">MCP server</td><td><code>.mcp.json</code></td><td style="color:var(--muted)">Merged into the target .mcp.json</td></tr>';
+  html+='<tr><td style="color:var(--kind-hook);font-weight:600">Hook</td><td><code>hooks/hooks.json</code></td><td style="color:var(--muted)">Merged into settings.json hooks</td></tr>';
   html+='</tbody></table></div>';
 
-  // Memory context types
-  html+='<h3 style="margin-top:1.5rem">Memory Context Types</h3>';
-  html+='<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>Type</th><th>Stores</th><th>Boundary</th><th>Examples</th></tr></thead><tbody>';
-  const ctypes=[
-    ['decision','Why we chose X over Y','Not a rule (rules enforce; decisions explain)','adr-001-database-choice, adr-002-monorepo'],
-    ['architecture','What the system looks like','Not a skill (skills do; architecture describes)','system-topology, data-model-orders'],
-    ['incident','What happened, root cause','Not a runbook (runbooks are skills)','incident-2026-04, incident-2026-03-redis'],
-    ['domain','What things mean in context','Not a constraint (rules constrain; domain informs)','domain-payments, domain-glossary'],
-    ['context','Who, when, where','Not an agent (agents act; context describes)','team-ownership, project-q2-priorities'],
-    ['learning','What we measured','Not a policy (rules prescribe; learnings evidence)','learning-caching-strategy, learning-testing-strategy'],
-  ];
-  ctypes.forEach(([name,stores,boundary,ex])=>{
-    html+='<tr><td><code style="color:var(--accent)">'+name+'</code></td><td>'+stores+'</td><td style="color:var(--muted);font-size:.82rem">'+boundary+'</td><td style="font-size:.82rem">'+ex+'</td></tr>';
-  });
-  html+='</tbody></table></div>';
-
-  // Decision tree
-  html+='<h3 style="margin-top:1.5rem">Decision Tree</h3>';
-  html+='<div style="background:var(--bg);padding:1.2rem;border-radius:var(--radius);border:1px solid var(--border);font-size:.9rem;line-height:2">';
-  html+='Is it a full agent configuration? \\u2192 <strong style="color:var(--info)">Agent</strong><br>';
-  html+='Is it a user-facing trigger? \\u2192 <strong style="color:var(--type-commands)">Command</strong><br>';
-  html+='Is it a visual spec or mockup? \\u2192 <strong style="color:var(--type-designs)">Design</strong><br>';
-  html+='Is it knowledge to recall? \\u2192 <strong style="color:var(--accent)">Memory</strong><br>';
-  html+='Is it an instruction for AI? \\u2192 <strong style="color:#9b59b6">Prompt</strong><br>';
-  html+='Is it a constraint to enforce? \\u2192 <strong style="color:var(--warning)">Rule</strong><br>';
-  html+='Is it a reusable action? \\u2192 <strong style="color:var(--success)">Skill</strong>';
+  // Lifecycle
+  html+='<h3 style="margin-top:1.5rem">Publish once, install everywhere</h3>';
+  html+='<div style="background:var(--bg);padding:1.2rem;border-radius:var(--radius);border:1px solid var(--border);font-size:.9rem;line-height:2;max-width:760px">';
+  html+='<code>ihub push &lt;name&gt;</code> \\u2014 pack the plugin dir into an entry + attachments (sensitive scan runs over every component)<br>';
+  html+='<code>ihub pull &lt;name&gt;</code> \\u2014 recreate <code>plugins/&lt;name&gt;/</code>; add <code>--install</code> to drop it into the Claude plugin cache<br>';
+  html+='<code>ihub export --out &lt;dir&gt;</code> \\u2014 build a Claude marketplace (<code>marketplace.json</code> + one plugin per project)';
   html+='</div>';
+  html+='<p style="font-size:.88rem;color:var(--muted);line-height:1.6;max-width:760px;margin-top:.8rem">Plugins group into <strong style="color:var(--text)">projects</strong> via the manifest\\u2019s <code>project</code> field \\u2014 that grouping drives the Projects view and the marketplace export layout.</p>';
 
-  // The harness metaphor
-  html+='<h3 style="margin-top:1.5rem">The Harness Metaphor</h3>';
-  html+='<p style="font-size:.88rem;color:var(--muted);line-height:1.6;max-width:700px">The industry borrows from horse tack to explain why raw models aren\\u2019t agents on their own:</p>';
-  html+='<div style="background:var(--bg);padding:1rem;border-radius:var(--radius);border:1px solid var(--border);font-size:.85rem;margin-top:.8rem;max-width:700px;line-height:1.8">';
-  html+='<strong style="color:var(--info)">The Model (The Horse)</strong> \\u2014 High power, high speed, high intelligence, but directionless. Left alone it runs in an open field.<br>';
-  html+='<strong style="color:var(--success)">The Harness (The Infrastructure)</strong> \\u2014 The software layer that channels that power: tools (skills), memory (context), and guardrails (rules).<br>';
-  html+='<strong style="color:var(--warning)">The Human (The Rider)</strong> \\u2014 Sets the destination and adjusts the harness.';
-  html+='</div>';
-  html+='<p style="font-size:.88rem;color:var(--text);line-height:1.6;max-width:700px;margin-top:.6rem">An <strong style="color:var(--info)">Agent</strong> in ihub <em>is</em> the harness \\u2014 it wires skills, rules, memories, and prompts into a coherent configuration that turns a raw model into a directed coding assistant.</p>';
-
-  // Why "prompts" not "instructions"
-  html+='<h3 style="margin-top:1.5rem">Why \\u201cPrompts\\u201d and not \\u201cInstructions\\u201d?</h3>';
-  html+='<p style="font-size:.88rem;color:var(--muted);line-height:1.6;max-width:700px">Every artifact type is an instruction to an AI in some sense \\u2014 rules instruct what to enforce, skills instruct how to act, agents define the full harness. Calling the fifth type \\u201cinstructions\\u201d would blur the line between all of them.</p>';
-  html+='<p style="font-size:.88rem;color:var(--text);line-height:1.6;max-width:700px"><strong style="color:#9b59b6">Prompt</strong> is specific: it means the exact text you send to a model \\u2014 with variables, expected output format, and a target model. It answers a question no other type covers: <em>\\u201cWhat do we say to the model?\\u201d</em></p>';
-  html+='<h3 style="margin-top:1.5rem">When to use a Prompt</h3>';
-  html+='<p style="font-size:.88rem;color:var(--muted);line-height:1.6;max-width:700px">Use a prompt when you need <strong style="color:var(--text)">deterministic, repeatable output</strong> \\u2014 the same template producing the same shape of result every time, just with different inputs. The litmus test: if you can paste the body into a model\\u2019s chat with variables filled in and get a predictable, structured response \\u2014 it\\u2019s a prompt.</p>';
-  html+='<div style="background:var(--bg);padding:1rem;border-radius:var(--radius);border:1px solid var(--border);font-size:.85rem;margin-top:.8rem;max-width:700px;line-height:1.8">';
-  html+='<strong style="color:var(--muted)">Not a prompt:</strong><br>';
-  html+='\\u201cReview code for quality\\u201d \\u2192 too open-ended \\u2192 <strong style="color:var(--info)">Agent</strong><br>';
-  html+='\\u201cRun linters on changed files\\u201d \\u2192 an action \\u2192 <strong style="color:var(--success)">Skill</strong><br>';
-  html+='\\u201cAlways use semantic commits\\u201d \\u2192 a constraint \\u2192 <strong style="color:var(--warning)">Rule</strong><br>';
-  html+='\\u201cWe chose PostgreSQL because...\\u201d \\u2192 knowledge \\u2192 <strong style="color:var(--accent)">Memory</strong>';
-  html+='</div>';
   el.innerHTML=html;
 }
 
@@ -1819,23 +1707,22 @@ window.importBundleFile=async function(input){
   try{
     const text=await file.text();
     const bundle=JSON.parse(text);
-    const artifacts=bundle.artifacts||[];
-    if(!artifacts.length){toast('Bundle is empty','error');return;}
+    const plugins=bundle.plugins||bundle.artifacts||[];
+    if(!plugins.length){toast('Bundle is empty','error');return;}
 
     let imported=0,errors=0;
-    for(const art of artifacts){
-      const type=(art.type||'')+(art.type&&!art.type.endsWith('s')?'s':'');
+    for(const art of plugins){
       const name=art.name;
-      if(!type||!name){errors++;continue;}
+      if(!name){errors++;continue;}
       try{
-        const r=await api('/'+type+'/'+encodeURIComponent(name),{
+        const r=await api('/plugins/'+encodeURIComponent(name),{
           method:'POST',headers:authHeaders(),
           body:JSON.stringify({name,version:art.version||'1.0.0',description:art.description||'',tags:art.tags||[],meta:art.meta||{},body:art.body||''})
         });
         if(r.ok)imported++;else errors++;
       }catch{errors++;}
     }
-    toast('Imported '+imported+' artifacts'+(errors?' ('+errors+' errors)':''),'success');
+    toast('Imported '+imported+' plugins'+(errors?' ('+errors+' errors)':''),'success');
     await loadAllTypes();render();
   }catch(e){toast('Import error: '+e.message,'error');}
   input.value='';

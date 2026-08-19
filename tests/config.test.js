@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { loadServerConfig, resetConfig } from "../server/config.js";
+import { loadServerConfig, resetConfig, validateFirewallRules } from "../server/config.js";
 
 describe("config", () => {
   let tmpDir;
@@ -116,5 +116,50 @@ describe("config", () => {
     assert.equal(cfg.server.db_path, "./ihub.db"); // default
     assert.equal(cfg.auth0.enabled, false); // default
     assert.equal(cfg.metrics.enabled, true); // default
+  });
+});
+
+describe("firewall rule validation", () => {
+  it("accepts a valid exact IPv4 address", () => {
+    assert.deepEqual(validateFirewallRules(["1.2.3.4"]), []);
+  });
+
+  it("accepts a valid CIDR range", () => {
+    assert.deepEqual(validateFirewallRules(["10.0.0.0/8"]), []);
+  });
+
+  it("accepts a valid wildcard", () => {
+    assert.deepEqual(validateFirewallRules(["192.168.1.*"]), []);
+  });
+
+  it("accepts mixed valid rules", () => {
+    assert.deepEqual(validateFirewallRules(["10.0.0.0/24", "192.168.1.*", "172.16.5.100"]), []);
+  });
+
+  it("rejects an invalid octet (999)", () => {
+    const errors = validateFirewallRules(["999.1.1.1"]);
+    assert.equal(errors.length, 1);
+    assert.ok(errors[0].includes("999.1.1.1"));
+  });
+
+  it("rejects CIDR prefix > 32", () => {
+    const errors = validateFirewallRules(["10.0.0.0/33"]);
+    assert.equal(errors.length, 1);
+    assert.ok(errors[0].includes("10.0.0.0/33"));
+  });
+
+  it("rejects CIDR prefix < 0", () => {
+    const errors = validateFirewallRules(["10.0.0.0/-1"]);
+    assert.equal(errors.length, 1);
+    assert.ok(errors[0].includes("10.0.0.0/-1"));
+  });
+
+  it("reports errors for all invalid entries", () => {
+    const errors = validateFirewallRules(["1.2.3.4", "bad", "999.0.0.0/8"]);
+    assert.equal(errors.length, 2);
+  });
+
+  it("returns empty array for empty whitelist", () => {
+    assert.deepEqual(validateFirewallRules([]), []);
   });
 });

@@ -75,6 +75,40 @@ export function mergeArrayEntry(filePath, keyPath, marker, value) {
   writeJsonConfig(filePath, config);
 }
 
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Idempotent marker-keyed merge of a markdown section into a shared file
+ * (project-root AGENTS.md). The section is wrapped in
+ * `<!-- ihub:<marker> -->` ... `<!-- /ihub:<marker> -->` comments; a prior
+ * section with the same marker is replaced in place. Content outside the
+ * markers (user-authored or other ihub sections) is never touched.
+ * Creates the file when missing.
+ */
+export function mergeMarkdownSection(filePath, marker, content) {
+  const begin = `<!-- ihub:${marker} -->`;
+  const end = `<!-- /ihub:${marker} -->`;
+  const section = `${begin}\n${String(content).trim()}\n${end}`;
+
+  const existing = existsSync(filePath) ? readFileSync(filePath, "utf-8") : "";
+  const re = new RegExp(`${escapeRegExp(begin)}[\\s\\S]*?${escapeRegExp(end)}`);
+
+  let next;
+  if (re.test(existing)) {
+    // Replace our own section in place; replacer fn avoids `$` substitution.
+    next = existing.replace(re, () => section);
+  } else if (existing.trim()) {
+    next = existing.replace(/\n*$/, "\n\n") + section + "\n";
+  } else {
+    next = section + "\n";
+  }
+
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, next);
+}
+
 // The flat frontmatter parser keeps surrounding quotes on array items — strip them.
 function unquote(value) {
   const s = String(value).trim();

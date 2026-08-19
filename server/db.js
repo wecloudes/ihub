@@ -1,6 +1,14 @@
 import { Database } from "bun:sqlite";
 import { join } from "path";
 import { copyFileSync } from "fs";
+import { createHash } from "crypto";
+
+// API keys are stored hashed as "sha256:<hex>". Plaintext rows from older
+// deployments are migrated to a hash in-place the first time they authenticate.
+function hashKey(apiKey) {
+  if (typeof apiKey === "string" && apiKey.startsWith("sha256:")) return apiKey;
+  return "sha256:" + createHash("sha256").update(String(apiKey)).digest("hex");
+}
 
 function getDbPath() {
   return process.env.IHUB_DB_PATH || join(process.cwd(), "ihub.db");
@@ -127,13 +135,23 @@ function init(db) {
 
 export function registerUser(username, apiKey, role = "user") {
   const db = getDb();
-  db.prepare("INSERT INTO users (username, api_key, role) VALUES (?, ?, ?)").run(username, apiKey, role);
+  db.prepare("INSERT INTO users (username, api_key, role) VALUES (?, ?, ?)").run(username, hashKey(apiKey), role);
 }
 
 export function authenticateKey(apiKey) {
   const db = getDb();
-  const row = db.prepare("SELECT username, role FROM users WHERE api_key = ?").get(apiKey);
-  return row || null;
+  // Primary path: match the hashed key.
+  const hashed = hashKey(apiKey);
+  let row = db.prepare("SELECT username, role FROM users WHERE api_key = ?").get(hashed);
+  if (row) return row;
+  // Legacy path: a plaintext key from an older deployment. Match it raw, then
+  // migrate the stored value to a hash in-place.
+  row = db.prepare("SELECT username, role FROM users WHERE api_key = ?").get(apiKey);
+  if (row) {
+    db.prepare("UPDATE users SET api_key = ? WHERE username = ?").run(hashed, row.username);
+    return row;
+  }
+  return null;
 }
 
 export function getUser(username) {
@@ -143,7 +161,7 @@ export function getUser(username) {
 
 export function changeApiKey(username, newApiKey) {
   const db = getDb();
-  const result = db.prepare("UPDATE users SET api_key = ? WHERE username = ?").run(newApiKey, username);
+  const result = db.prepare("UPDATE users SET api_key = ? WHERE username = ?").run(hashKey(newApiKey), username);
   return result.changes > 0;
 }
 

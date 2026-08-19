@@ -134,6 +134,37 @@ export function printConfig(config) {
 }
 
 const VALID_NOTIFY = ["terminal", "slack", "email"];
+const VALID_UPSTREAM_TYPES = ["ihub", "mcp-registry"];
+
+// Valid IPv4 octet (0-255)
+const OCTET_RE = /^(25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)$/;
+
+function isValidFirewallRule(rule) {
+  if (typeof rule !== "string") return false;
+  const cidrMatch = rule.match(/^(.+)\/(\d+)$/);
+  if (cidrMatch) {
+    const [, ip, prefix] = cidrMatch;
+    const prefixNum = parseInt(prefix, 10);
+    if (isNaN(prefixNum) || prefixNum < 0 || prefixNum > 32) return false;
+    const octets = ip.split(".");
+    return octets.length === 4 && octets.every((o) => OCTET_RE.test(o));
+  }
+  const octets = rule.split(".");
+  return octets.length === 4 && octets.every((o) => o === "*" || OCTET_RE.test(o));
+}
+
+/**
+ * Validate firewall whitelist rules. Returns array of error strings.
+ */
+export function validateFirewallRules(whitelist) {
+  const errors = [];
+  for (const rule of (whitelist || [])) {
+    if (!isValidFirewallRule(rule)) {
+      errors.push(`firewall.whitelist entry "${rule}" is not a valid IPv4 address, CIDR range, or wildcard pattern`);
+    }
+  }
+  return errors;
+}
 
 /**
  * Validate config at startup. Returns array of error strings.
@@ -155,6 +186,28 @@ export function validateConfig(config) {
 
   if (config.security.notify_via === "email" && config.security.email && !process.env.SMTP_HOST) {
     errors.push(`security.notify_via is "email" but SMTP_HOST is not set. Configure SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS env vars.`);
+  }
+
+  // Firewall rule validation
+  if (config.firewall?.enabled) {
+    const fwErrors = validateFirewallRules(config.firewall.whitelist);
+    errors.push(...fwErrors);
+  }
+
+  for (const [i, upstream] of (config.federation?.upstreams || []).entries()) {
+    if (!upstream || typeof upstream !== "object" || !upstream.url) {
+      errors.push(`federation.upstreams[${i}] must have a "url"`);
+      continue;
+    }
+    if (upstream.type !== undefined && !VALID_UPSTREAM_TYPES.includes(upstream.type)) {
+      errors.push(`federation.upstreams[${i}].type must be one of: ${VALID_UPSTREAM_TYPES.join(", ")} (got "${upstream.type}")`);
+    }
+    if (upstream.limit !== undefined && (!Number.isInteger(upstream.limit) || upstream.limit <= 0)) {
+      errors.push(`federation.upstreams[${i}].limit must be a positive integer (got "${upstream.limit}")`);
+    }
+    if (upstream.search !== undefined && typeof upstream.search !== "string") {
+      errors.push(`federation.upstreams[${i}].search must be a string`);
+    }
   }
 
   return errors;

@@ -147,43 +147,43 @@ describe("API routes", () => {
     assert.ok(data.error.includes("Invalid type"));
   });
 
-  it("accepts mcps and hooks types", async () => {
-    for (const type of ["mcps", "hooks"]) {
-      const { status, data } = await api("GET", `/api/${type}`);
-      assert.equal(status, 200);
-      assert.deepEqual(data, []);
-    }
-  });
-
-  it("lists empty type", async () => {
-    const { status, data } = await api("GET", "/api/agents");
+  it("plugins is the only valid type", async () => {
+    const { status, data } = await api("GET", "/api/plugins");
     assert.equal(status, 200);
     assert.deepEqual(data, []);
   });
 
+  it("rejects the retired 9 artifact types", async () => {
+    for (const type of ["agents", "skills", "rules", "memories", "prompts", "commands", "designs", "hooks", "mcps"]) {
+      const { status, data } = await api("GET", `/api/${type}`);
+      assert.equal(status, 400, `type ${type} should be rejected`);
+      assert.ok(data.error.includes("Invalid type"));
+    }
+  });
+
   it("rejects push without auth", async () => {
-    const { status } = await api("POST", "/api/agents/my-agent", {
+    const { status } = await api("POST", "/api/plugins/my-plugin", {
       body: { version: "1.0.0" },
     });
     assert.equal(status, 401);
   });
 
   it("rejects push with wrong key", async () => {
-    const { status } = await api("POST", "/api/agents/my-agent", {
+    const { status } = await api("POST", "/api/plugins/my-plugin", {
       body: { version: "1.0.0" },
       token: "wrong-key",
     });
     assert.equal(status, 401);
   });
 
-  it("pushes an entry (alice)", async () => {
-    const { status, data } = await api("POST", "/api/agents/my-agent", {
+  it("pushes a plugin (alice)", async () => {
+    const { status, data } = await api("POST", "/api/plugins/my-plugin", {
       body: {
         version: "1.0.0",
-        description: "My agent",
+        description: "My plugin",
         tags: ["test"],
-        meta: { name: "my-agent" },
-        body: "# My Agent",
+        meta: { name: "my-plugin", components: { skills: ["lint"], commands: [], agents: [], mcpServers: [], hooks: [] } },
+        body: "# My Plugin",
         author: "alice",
       },
       token: aliceKey,
@@ -194,7 +194,7 @@ describe("API routes", () => {
   });
 
   it("rejects push without version", async () => {
-    const { status, data } = await api("POST", "/api/agents/bad-agent", {
+    const { status, data } = await api("POST", "/api/plugins/bad-plugin", {
       body: { description: "no version" },
       token: aliceKey,
     });
@@ -203,25 +203,25 @@ describe("API routes", () => {
   });
 
   it("gets an entry", async () => {
-    const { status, data } = await api("GET", "/api/agents/my-agent");
+    const { status, data } = await api("GET", "/api/plugins/my-plugin");
     assert.equal(status, 200);
-    assert.equal(data.name, "my-agent");
+    assert.equal(data.name, "my-plugin");
     assert.equal(data.version, "1.0.0");
     assert.equal(data.owner, "alice");
   });
 
   it("returns 404 for nonexistent entry", async () => {
-    const { status } = await api("GET", "/api/agents/nope");
+    const { status } = await api("GET", "/api/plugins/nope");
     assert.equal(status, 404);
   });
 
   it("alice pushes a second version", async () => {
-    const { status } = await api("POST", "/api/agents/my-agent", {
+    const { status } = await api("POST", "/api/plugins/my-plugin", {
       body: {
         version: "2.0.0",
         description: "Updated agent",
         tags: ["test", "v2"],
-        meta: { name: "my-agent" },
+        meta: { name: "my-plugin" },
         body: "# My Agent v2",
         author: "alice",
       },
@@ -231,27 +231,27 @@ describe("API routes", () => {
   });
 
   it("lists versions", async () => {
-    const { status, data } = await api("GET", "/api/agents/my-agent/versions");
+    const { status, data } = await api("GET", "/api/plugins/my-plugin/versions");
     assert.equal(status, 200);
     assert.ok(data.length >= 2);
   });
 
   it("gets specific version", async () => {
-    const { status, data } = await api("GET", "/api/agents/my-agent?version=1.0.0");
+    const { status, data } = await api("GET", "/api/plugins/my-plugin?version=1.0.0");
     assert.equal(status, 200);
     assert.equal(data.version, "1.0.0");
   });
 
   it("lists entries (latest per name)", async () => {
-    const { status, data } = await api("GET", "/api/agents");
+    const { status, data } = await api("GET", "/api/plugins");
     assert.equal(status, 200);
     assert.equal(data.length, 1);
   });
 
   it("searches entries", async () => {
-    const { status, data } = await api("GET", "/api/search?q=agent");
+    const { status, data } = await api("GET", "/api/search?q=plugin");
     assert.equal(status, 200);
-    assert.ok(data.some((r) => r.name === "my-agent"));
+    assert.ok(data.some((r) => r.name === "my-plugin"));
   });
 
   it("rejects search without query", async () => {
@@ -262,7 +262,7 @@ describe("API routes", () => {
   // --- Ownership ---
 
   it("bob cannot update alice's entry", async () => {
-    const { status, data } = await api("POST", "/api/agents/my-agent", {
+    const { status, data } = await api("POST", "/api/plugins/my-plugin", {
       body: {
         version: "3.0.0",
         description: "Hijacked",
@@ -278,7 +278,7 @@ describe("API routes", () => {
   });
 
   it("bob cannot remove alice's entry", async () => {
-    const { status, data } = await api("DELETE", "/api/agents/my-agent", {
+    const { status, data } = await api("DELETE", "/api/plugins/my-plugin", {
       token: bobKey,
     });
     assert.equal(status, 403);
@@ -286,7 +286,7 @@ describe("API routes", () => {
   });
 
   it("bob can push his own entry", async () => {
-    const { status, data } = await api("POST", "/api/skills/bob-skill", {
+    const { status, data } = await api("POST", "/api/plugins/bob-skill", {
       body: {
         version: "1.0.0",
         description: "Bob's skill",
@@ -302,39 +302,39 @@ describe("API routes", () => {
   });
 
   it("alice cannot remove bob's entry", async () => {
-    const { status } = await api("DELETE", "/api/skills/bob-skill", {
+    const { status } = await api("DELETE", "/api/plugins/bob-skill", {
       token: aliceKey,
     });
     assert.equal(status, 403);
   });
 
   it("bob can remove his own entry", async () => {
-    const { status, data } = await api("DELETE", "/api/skills/bob-skill", {
+    const { status, data } = await api("DELETE", "/api/plugins/bob-skill", {
       token: bobKey,
     });
     assert.equal(status, 200);
     assert.equal(data.ok, true);
   });
 
-  // --- Other types ---
+  // --- Multiple plugins ---
 
-  it("pushes entries of different types", async () => {
-    for (const type of ["skills", "rules", "memories", "prompts"]) {
-      const { status } = await api("POST", `/api/${type}/test-${type}`, {
-        body: { version: "1.0.0", description: `Test ${type}`, tags: [], meta: {}, body: "", author: "" },
+  it("pushes several distinct plugins", async () => {
+    for (const name of ["test-skills", "test-tools", "test-agents", "test-hooks"]) {
+      const { status } = await api("POST", `/api/plugins/${name}`, {
+        body: { version: "1.0.0", description: `Test ${name}`, tags: [], meta: {}, body: "", author: "" },
         token: aliceKey,
       });
-      assert.equal(status, 200, `Failed to push ${type}`);
+      assert.equal(status, 200, `Failed to push ${name}`);
     }
   });
 
   it("rejects delete without auth", async () => {
-    const { status } = await api("DELETE", "/api/skills/test-skills");
+    const { status } = await api("DELETE", "/api/plugins/test-skills");
     assert.equal(status, 401);
   });
 
   it("owner deletes an entry", async () => {
-    const { status, data } = await api("DELETE", "/api/skills/test-skills", {
+    const { status, data } = await api("DELETE", "/api/plugins/test-skills", {
       token: aliceKey,
     });
     assert.equal(status, 200);
@@ -342,7 +342,7 @@ describe("API routes", () => {
   });
 
   it("returns 404 when deleting nonexistent entry", async () => {
-    const { status } = await api("DELETE", "/api/skills/nope", {
+    const { status } = await api("DELETE", "/api/plugins/nope", {
       token: aliceKey,
     });
     assert.equal(status, 404);
@@ -351,7 +351,7 @@ describe("API routes", () => {
   // --- Comments ---
 
   it("no comments initially", async () => {
-    const { status, data } = await api("GET", "/api/agents/my-agent/comments");
+    const { status, data } = await api("GET", "/api/plugins/my-plugin/comments");
     assert.equal(status, 200);
     assert.deepEqual(data.comments, []);
     assert.equal(data.rating.count, 0);
@@ -359,14 +359,14 @@ describe("API routes", () => {
   });
 
   it("rejects comment without auth", async () => {
-    const { status } = await api("POST", "/api/agents/my-agent/comments", {
+    const { status } = await api("POST", "/api/plugins/my-plugin/comments", {
       body: { rating: 5, body: "Great!" },
     });
     assert.equal(status, 401);
   });
 
   it("rejects comment without body", async () => {
-    const { status } = await api("POST", "/api/agents/my-agent/comments", {
+    const { status } = await api("POST", "/api/plugins/my-plugin/comments", {
       body: { rating: 5 },
       token: aliceKey,
     });
@@ -374,18 +374,18 @@ describe("API routes", () => {
   });
 
   it("rejects comment with invalid rating", async () => {
-    const { status } = await api("POST", "/api/agents/my-agent/comments", {
+    const { status } = await api("POST", "/api/plugins/my-plugin/comments", {
       body: { rating: 6, body: "Too high" },
       token: aliceKey,
     });
     assert.equal(status, 400);
-    assert.ok((await api("POST", "/api/agents/my-agent/comments", {
+    assert.ok((await api("POST", "/api/plugins/my-plugin/comments", {
       body: { rating: 0, body: "Too low" }, token: aliceKey,
     })).status === 400);
   });
 
   it("rejects comment on nonexistent entry", async () => {
-    const { status } = await api("POST", "/api/agents/nope/comments", {
+    const { status } = await api("POST", "/api/plugins/nope/comments", {
       body: { rating: 3, body: "Does not exist" },
       token: aliceKey,
     });
@@ -393,7 +393,7 @@ describe("API routes", () => {
   });
 
   it("alice adds a comment", async () => {
-    const { status, data } = await api("POST", "/api/agents/my-agent/comments", {
+    const { status, data } = await api("POST", "/api/plugins/my-plugin/comments", {
       body: { rating: 5, body: "Excellent agent!" },
       token: aliceKey,
     });
@@ -403,7 +403,7 @@ describe("API routes", () => {
   });
 
   it("bob adds a comment", async () => {
-    const { status, data } = await api("POST", "/api/agents/my-agent/comments", {
+    const { status, data } = await api("POST", "/api/plugins/my-plugin/comments", {
       body: { rating: 3, body: "It's okay" },
       token: bobKey,
     });
@@ -412,7 +412,7 @@ describe("API routes", () => {
   });
 
   it("lists comments with average rating", async () => {
-    const { status, data } = await api("GET", "/api/agents/my-agent/comments");
+    const { status, data } = await api("GET", "/api/plugins/my-plugin/comments");
     assert.equal(status, 200);
     assert.equal(data.comments.length, 2);
     assert.equal(data.rating.count, 2);
@@ -423,24 +423,24 @@ describe("API routes", () => {
   });
 
   it("bob cannot delete alice's comment", async () => {
-    const { data: commentsData } = await api("GET", "/api/agents/my-agent/comments");
+    const { data: commentsData } = await api("GET", "/api/plugins/my-plugin/comments");
     const aliceComment = commentsData.comments.find((c) => c.username === "alice");
-    const { status } = await api("DELETE", `/api/agents/my-agent/comments/${aliceComment.id}`, {
+    const { status } = await api("DELETE", `/api/plugins/my-plugin/comments/${aliceComment.id}`, {
       token: bobKey,
     });
     assert.equal(status, 403);
   });
 
   it("alice deletes her own comment", async () => {
-    const { data: commentsData } = await api("GET", "/api/agents/my-agent/comments");
+    const { data: commentsData } = await api("GET", "/api/plugins/my-plugin/comments");
     const aliceComment = commentsData.comments.find((c) => c.username === "alice");
-    const { status } = await api("DELETE", `/api/agents/my-agent/comments/${aliceComment.id}`, {
+    const { status } = await api("DELETE", `/api/plugins/my-plugin/comments/${aliceComment.id}`, {
       token: aliceKey,
     });
     assert.equal(status, 200);
 
     // Verify only bob's comment remains
-    const { data } = await api("GET", "/api/agents/my-agent/comments");
+    const { data } = await api("GET", "/api/plugins/my-plugin/comments");
     assert.equal(data.comments.length, 1);
     assert.equal(data.comments[0].username, "bob");
     assert.equal(data.rating.average, 3);
@@ -571,14 +571,14 @@ describe("API routes", () => {
 
   it("audit log records view actions", async () => {
     // Trigger a view
-    await api("GET", "/api/agents/my-agent", { token: aliceKey });
+    await api("GET", "/api/plugins/my-plugin", { token: aliceKey });
     const { data } = await api("GET", "/api/audit?action=view", { token: aliceKey });
-    assert.ok(data.entries.some((e) => e.action === "view" && e.name === "my-agent"));
+    assert.ok(data.entries.some((e) => e.action === "view" && e.name === "my-plugin"));
   });
 
   it("audit logs anonymous actions with IP", async () => {
     // Anonymous view (no token)
-    await api("GET", "/api/agents/my-agent");
+    await api("GET", "/api/plugins/my-plugin");
     const { data } = await api("GET", "/api/audit?user=anonymous", { token: aliceKey });
     const anonView = data.entries.find((e) => e.username === "anonymous" && e.action === "view");
     assert.ok(anonView);
@@ -587,11 +587,11 @@ describe("API routes", () => {
 
   it("audit logs pull as distinct action from view", async () => {
     // Pull with X-Ihub-Action header
-    await fetch(`${baseUrl}/api/agents/my-agent`, {
+    await fetch(`${baseUrl}/api/plugins/my-plugin`, {
       headers: { "X-Ihub-Action": "pull", "Authorization": `Bearer ${aliceKey}` },
     });
     const { data } = await api("GET", "/api/audit?action=pull", { token: aliceKey });
-    assert.ok(data.entries.some((e) => e.action === "pull" && e.name === "my-agent"));
+    assert.ok(data.entries.some((e) => e.action === "pull" && e.name === "my-plugin"));
   });
 
   it("audit entries include IP address", async () => {
@@ -600,8 +600,8 @@ describe("API routes", () => {
   });
 
   it("audit logs versions and view-comments actions", async () => {
-    await api("GET", "/api/agents/my-agent/versions");
-    await api("GET", "/api/agents/my-agent/comments");
+    await api("GET", "/api/plugins/my-plugin/versions");
+    await api("GET", "/api/plugins/my-plugin/comments");
     const { data } = await api("GET", "/api/audit", { token: aliceKey });
     assert.ok(data.entries.some((e) => e.action === "versions"));
     assert.ok(data.entries.some((e) => e.action === "view-comments"));
@@ -641,59 +641,105 @@ describe("API routes", () => {
     assert.equal(status, 403);
   });
 
-  // --- Attachments ---
+  // --- Plugin pack: component files stored as attachments ---
 
-  it("push with attachments", async () => {
-    const { status, data } = await api("POST", "/api/skills/scripted-skill", {
+  const PLUGIN_MANIFEST = JSON.stringify({ name: "packed-plugin", version: "1.0.0", description: "Packed" });
+  const PLUGIN_SKILL = "---\ndescription: A packed skill\n---\n# Skill";
+  const PLUGIN_MCP = JSON.stringify({ github: { command: "npx", args: ["-y", "gh-mcp"], env: { TOKEN: "${TOKEN}" } } });
+
+  it("pushes a plugin with component attachments", async () => {
+    const { status, data } = await api("POST", "/api/plugins/packed-plugin", {
       body: {
         version: "1.0.0",
-        description: "A skill with scripts",
+        description: "A plugin with components",
         tags: [],
-        meta: {},
-        body: "# Scripted",
+        meta: { components: { skills: ["greet"], commands: [], agents: [], mcpServers: ["github"], hooks: [] } },
+        body: "# Packed Plugin",
         author: "alice",
         attachments: [
-          { filepath: "scripts/run.sh", content: Buffer.from("#!/bin/bash\necho hello").toString("base64") },
-          { filepath: "scripts/lib/util.py", content: Buffer.from("def hello(): pass").toString("base64") },
+          { filepath: ".claude-plugin/plugin.json", content: Buffer.from(PLUGIN_MANIFEST).toString("base64") },
+          { filepath: "skills/greet/SKILL.md", content: Buffer.from(PLUGIN_SKILL).toString("base64") },
+          { filepath: ".mcp.json", content: Buffer.from(PLUGIN_MCP).toString("base64") },
         ],
       },
       token: aliceKey,
     });
     assert.equal(status, 200);
-    assert.equal(data.attachments, 2);
+    assert.equal(data.attachments, 3);
+    // No secrets in the components → plugin stays available.
+    assert.equal(data.status, "available");
   });
 
-  it("GET entry includes attachment list", async () => {
-    const { status, data } = await api("GET", "/api/skills/scripted-skill");
+  it("GET plugin includes the component attachment list", async () => {
+    const { status, data } = await api("GET", "/api/plugins/packed-plugin");
     assert.equal(status, 200);
-    assert.equal(data.attachments.length, 2);
-    assert.ok(data.attachments.some((a) => a.filepath === "scripts/run.sh"));
-    assert.ok(data.attachments.some((a) => a.filepath === "scripts/lib/util.py"));
+    assert.equal(data.attachments.length, 3);
+    assert.ok(data.attachments.some((a) => a.filepath === ".claude-plugin/plugin.json"));
+    assert.ok(data.attachments.some((a) => a.filepath === "skills/greet/SKILL.md"));
+    assert.ok(data.attachments.some((a) => a.filepath === ".mcp.json"));
   });
 
   it("list attachments", async () => {
-    const { status, data } = await api("GET", "/api/skills/scripted-skill/attachments");
+    const { status, data } = await api("GET", "/api/plugins/packed-plugin/attachments");
     assert.equal(status, 200);
-    assert.equal(data.attachments.length, 2);
+    assert.equal(data.attachments.length, 3);
   });
 
-  it("download single attachment", async () => {
-    const res = await fetch(`${baseUrl}/api/skills/scripted-skill/attachments/scripts/run.sh`);
+  it("components recreate byte-for-byte on download", async () => {
+    // Nested path (skills/greet/SKILL.md) round-trips through the attachment route.
+    const res = await fetch(`${baseUrl}/api/plugins/packed-plugin/attachments/skills/greet/SKILL.md`);
     assert.equal(res.status, 200);
-    const text = await res.text();
-    assert.ok(text.includes("echo hello"));
+    assert.equal(await res.text(), PLUGIN_SKILL);
+    // The .mcp.json server config recreates exactly, ${VAR} placeholder intact.
+    const mcpRes = await fetch(`${baseUrl}/api/plugins/packed-plugin/attachments/.mcp.json`);
+    assert.equal(await mcpRes.text(), PLUGIN_MCP);
   });
 
   it("404 for nonexistent attachment", async () => {
-    const { status } = await api("GET", "/api/skills/scripted-skill/attachments/nope.txt");
+    const { status } = await api("GET", "/api/plugins/packed-plugin/attachments/nope.txt");
     assert.equal(status, 404);
   });
 
-  it("remove deletes attachments too", async () => {
-    await api("DELETE", "/api/skills/scripted-skill", { token: aliceKey });
-    const { status } = await api("GET", "/api/skills/scripted-skill/attachments");
-    // Entry is gone, so attachments route hits 'missing entry name' or returns empty
-    const res = await fetch(`${baseUrl}/api/skills/scripted-skill/attachments/scripts/run.sh`);
+  it("a secret in ANY component blocks the whole plugin", async () => {
+    const secretMcp = JSON.stringify({ github: { command: "gh", env: { GH_TOKEN: "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789" } } });
+    const { status, data } = await api("POST", "/api/plugins/leaky-plugin", {
+      body: {
+        version: "1.0.0",
+        description: "Has a secret in a component",
+        tags: [],
+        meta: {},
+        body: "# Clean body, no secrets here",
+        author: "alice",
+        attachments: [
+          { filepath: ".claude-plugin/plugin.json", content: Buffer.from(JSON.stringify({ name: "leaky-plugin", version: "1.0.0", description: "x" })).toString("base64") },
+          { filepath: ".mcp.json", content: Buffer.from(secretMcp).toString("base64") },
+        ],
+      },
+      token: aliceKey,
+    });
+    assert.equal(status, 200);
+    assert.equal(data.status, "blocked");
+    assert.ok(data.sensitive.masked >= 1);
+
+    // Blocked plugin: anonymous pull is forbidden until admin approves.
+    const { status: anon } = await api("GET", "/api/plugins/leaky-plugin");
+    assert.equal(anon, 403);
+
+    // The leaked token was masked out of the stored component.
+    const attRes = await fetch(`${baseUrl}/api/plugins/leaky-plugin/attachments/.mcp.json`, {
+      headers: { Authorization: `Bearer ${aliceKey}` },
+    });
+    const stored = await attRes.text();
+    assert.ok(!stored.includes("ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"), "secret must be masked in stored component");
+
+    // Admin approval unblocks it.
+    const { status: approved } = await api("POST", "/api/plugins/leaky-plugin/approve", { token: aliceKey });
+    assert.equal(approved, 200);
+  });
+
+  it("remove deletes component attachments too", async () => {
+    await api("DELETE", "/api/plugins/packed-plugin", { token: aliceKey });
+    const res = await fetch(`${baseUrl}/api/plugins/packed-plugin/attachments/.mcp.json`);
     assert.equal(res.status, 404);
   });
 
@@ -946,57 +992,60 @@ describe("API routes", () => {
 
   it("fetches specific version for diff", async () => {
     // Push v1
-    await api("POST", "/api/agents/diff-test", {
+    await api("POST", "/api/plugins/diff-test", {
       body: { version: "1.0.0", description: "First", tags: [], meta: {}, body: "# Version 1\nOriginal content" },
       token: aliceKey,
     });
     // Push v2
-    await api("POST", "/api/agents/diff-test", {
+    await api("POST", "/api/plugins/diff-test", {
       body: { version: "2.0.0", description: "Second", tags: [], meta: {}, body: "# Version 2\nUpdated content" },
       token: aliceKey,
     });
 
-    const v1 = await api("GET", "/api/agents/diff-test?version=1.0.0");
+    const v1 = await api("GET", "/api/plugins/diff-test?version=1.0.0");
     assert.equal(v1.status, 200);
     assert.equal(v1.data.version, "1.0.0");
     assert.ok(v1.data.body.includes("Version 1"));
 
-    const v2 = await api("GET", "/api/agents/diff-test?version=2.0.0");
+    const v2 = await api("GET", "/api/plugins/diff-test?version=2.0.0");
     assert.equal(v2.status, 200);
     assert.equal(v2.data.version, "2.0.0");
     assert.ok(v2.data.body.includes("Version 2"));
   });
 
-  // --- Artifact relationships in meta ---
+  // --- Plugin component metadata (meta.components) ---
 
-  it("stores and returns agent memories and prompts in meta", async () => {
-    await api("POST", "/api/agents/rel-test", {
+  it("stores and returns plugin components in meta", async () => {
+    await api("POST", "/api/plugins/rel-test", {
       body: {
-        version: "1.0.0", description: "Relationship test", tags: [],
-        meta: { skills: ["s1"], rules: ["r1"], memories: ["m1", "m2"], prompts: ["p1"] },
+        version: "1.0.0", description: "Component test", tags: [],
+        meta: { components: { skills: ["s1", "s2"], commands: ["c1"], agents: ["a1"], mcpServers: ["github"], hooks: ["PreToolUse"] } },
         body: "# Test",
       },
       token: aliceKey,
     });
-    const { status, data } = await api("GET", "/api/agents/rel-test");
+    const { status, data } = await api("GET", "/api/plugins/rel-test");
     assert.equal(status, 200);
-    assert.deepStrictEqual(data.meta.memories, ["m1", "m2"]);
-    assert.deepStrictEqual(data.meta.prompts, ["p1"]);
-    assert.deepStrictEqual(data.meta.skills, ["s1"]);
-    assert.deepStrictEqual(data.meta.rules, ["r1"]);
+    assert.deepStrictEqual(data.meta.components.skills, ["s1", "s2"]);
+    assert.deepStrictEqual(data.meta.components.commands, ["c1"]);
+    assert.deepStrictEqual(data.meta.components.agents, ["a1"]);
+    assert.deepStrictEqual(data.meta.components.mcpServers, ["github"]);
+    assert.deepStrictEqual(data.meta.components.hooks, ["PreToolUse"]);
   });
 
-  it("stores and returns prompt memories in meta", async () => {
-    await api("POST", "/api/prompts/rel-prompt-test", {
+  it("preserves manifest metadata fields (project, keywords) in meta", async () => {
+    await api("POST", "/api/plugins/rel-manifest-test", {
       body: {
-        version: "1.0.0", description: "Prompt with memories", tags: [],
-        meta: { memories: ["m1"], compatible_agents: ["a1"] },
-        body: "# Prompt Test",
+        version: "1.0.0", description: "Manifest fields", tags: [],
+        meta: { project: "dev-tools", keywords: ["mcp", "ci"], license: "MIT" },
+        body: "# Manifest Test",
       },
       token: aliceKey,
     });
-    const { status, data } = await api("GET", "/api/prompts/rel-prompt-test");
+    const { status, data } = await api("GET", "/api/plugins/rel-manifest-test");
     assert.equal(status, 200);
-    assert.deepStrictEqual(data.meta.memories, ["m1"]);
+    assert.equal(data.meta.project, "dev-tools");
+    assert.deepStrictEqual(data.meta.keywords, ["mcp", "ci"]);
+    assert.equal(data.meta.license, "MIT");
   });
 });

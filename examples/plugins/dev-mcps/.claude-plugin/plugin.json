@@ -1,0 +1,13 @@
+{
+  "name": "dev-mcps",
+  "displayName": "Dev MCPs",
+  "version": "1.0.0",
+  "description": "A bundle of MCP servers for everyday development — Azure, Context7 docs, and GitHub — plus a format-on-save hook",
+  "author": {
+    "name": "ihub"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/ihub/examples",
+  "keywords": ["mcp", "azure", "github", "docs", "formatting"],
+  "project": "developer-tools"
+}

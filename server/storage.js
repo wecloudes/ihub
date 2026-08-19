@@ -136,13 +136,9 @@ class FilesSdkStorage {
 
   async deleteEntryContent(type, name) {
     const client = await this._getClient();
-    try {
-      const { items } = await client.list({ prefix: `${type}/${name}/` });
-      for (const item of items || []) {
-        await client.delete(item.key || item.name);
-      }
-    } catch {
-      // Best effort
+    const { items } = await client.list({ prefix: `${type}/${name}/` });
+    for (const item of items || []) {
+      await client.delete(item.key || item.name);
     }
   }
 
@@ -199,8 +195,8 @@ class FilesSdkStorage {
       for (const item of items || []) {
         await client.delete(item.key || item.name);
       }
-    } catch {
-      // Best effort
+    } catch (err) {
+      throw err;
     }
     // Delete metadata from SQLite
     const db = getDb();

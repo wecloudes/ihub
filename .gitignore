@@ -22,3 +22,5 @@ hooks/*.md
 
 # Local Claude Code permissions
 .claude/settings.local.json
+# Local Pi runtime state
+.atl/

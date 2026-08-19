@@ -2,9 +2,9 @@ import { resolve, join } from "path";
 import { readFileSync, existsSync } from "fs";
 import { homedir } from "os";
 import { getBaseUrl, getToken, authHeaders, fetchServerConfig } from "./registry.js";
-import { loadRegistry } from "./parse.js";
+import { loadPlugins } from "./parse.js";
 import { renderMarkdown } from "./render.js";
-import { ROOT, pluralize, singularize, prompt } from "./context.js";
+import { ROOT } from "./context.js";
 
 export function completions(args) {
   const shell = args[0] || "";
@@ -71,37 +71,32 @@ export async function showConfig() {
 
 export async function outdated() {
   const base = getBaseUrl();
-  const registry = loadRegistry(ROOT);
-  const TYPES = ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"];
+  const plugins = loadPlugins(ROOT);
 
   let found = 0;
   console.log("");
 
-  for (const type of TYPES) {
-    for (const entry of registry[type]) {
-      const name = entry.name || entry.file;
-      const localVersion = entry.version || "0.0.0";
-
-      try {
-        const res = await fetch(`${base}/api/${type}/${name}`);
-        if (!res.ok) continue;
-        const remote = await res.json();
-        const remoteVersion = remote.meta?.version || remote.version || "0.0.0";
-
-        if (remoteVersion !== localVersion && remoteVersion > localVersion) {
-          console.log(`  ${name}  local: ${localVersion}  registry: ${remoteVersion}  ⬆ update available`);
-          found++;
-        }
-      } catch {
-        // registry unavailable — skip
+  for (const entry of plugins) {
+    const name = entry.name;
+    const localVersion = entry.version || "0.0.0";
+    try {
+      const res = await fetch(`${base}/api/plugins/${name}`);
+      if (!res.ok) continue;
+      const remote = await res.json();
+      const remoteVersion = remote.meta?.version || remote.version || "0.0.0";
+      if (remoteVersion !== localVersion && remoteVersion > localVersion) {
+        console.log(`  ${name}  local: ${localVersion}  registry: ${remoteVersion}  ⬆ update available`);
+        found++;
       }
+    } catch {
+      // registry unavailable — skip
     }
   }
 
   if (found === 0) {
-    console.log("  All local artifacts are up to date.");
+    console.log("  All local plugins are up to date.");
   } else {
-    console.log(`\n  ${found} artifact(s) have updates available.`);
+    console.log(`\n  ${found} plugin(s) have updates available.`);
   }
   console.log("");
 }
@@ -110,7 +105,6 @@ export async function outdated() {
 export async function doctor() {
   const base = getBaseUrl();
   const token = getToken();
-  const TYPES = ["agents", "commands", "designs", "hooks", "mcps", "memories", "prompts", "rules", "skills"];
 
   console.log("\nihub doctor\n");
 
@@ -145,33 +139,30 @@ export async function doctor() {
     console.log("  ✗ Auth valid (no token configured)");
   }
 
-  // 3. Local artifacts valid
+  // 3. Local plugins valid
   try {
-    const registry = loadRegistry(ROOT);
+    const plugins = loadPlugins(ROOT);
     let errors = 0;
-    for (const [type, entries] of Object.entries(registry)) {
-      for (const entry of entries) {
-        if (!entry.name) errors++;
-        if (!entry.description) errors++;
-        if (!entry.version) errors++;
-      }
+    for (const entry of plugins) {
+      if (entry.manifestError) errors++;
+      if (!entry.name) errors++;
+      if (!entry.description) errors++;
+      if (!entry.version) errors++;
     }
     if (errors === 0) {
-      console.log("  ✓ Local artifacts valid");
+      console.log(`  ✓ Local plugins valid (${plugins.length})`);
     } else {
-      console.log("  ✗ Local artifacts valid (" + errors + " issue(s))");
+      console.log("  ✗ Local plugins valid (" + errors + " issue(s))");
     }
   } catch (err) {
-    console.log("  ✗ Local artifacts valid (" + err.message + ")");
+    console.log("  ✗ Local plugins valid (" + err.message + ")");
   }
 
   // 4. Storage writable
-  const allExist = TYPES.every((t) => existsSync(resolve(ROOT, t)));
-  if (allExist) {
+  if (existsSync(resolve(ROOT, "plugins"))) {
     console.log("  ✓ Storage writable");
   } else {
-    const missing = TYPES.filter((t) => !existsSync(resolve(ROOT, t)));
-    console.log("  ✗ Storage writable (missing: " + missing.join(", ") + ")");
+    console.log("  ✗ Storage writable (missing: plugins/)");
   }
 
   // 5. Config file found
@@ -188,49 +179,42 @@ export async function doctor() {
 
 
 export async function verify(args) {
-  const [type, name] = args;
-  if (!type || !name) {
-    console.error("Usage: ihub verify <type> <name>");
+  const [name] = args;
+  if (!name) {
+    console.error("Usage: ihub verify <name>");
     process.exit(1);
   }
 
-  const singularType = singularize(type);
-  const pluralType = pluralize(singularType);
   const base = getBaseUrl();
-
-  const res = await fetch(`${base}/api/${pluralType}/${name}`, {
-    headers: authHeaders(),
-  });
+  const res = await fetch(`${base}/api/plugins/${name}`, { headers: authHeaders() });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || `Not found: ${pluralType}/${name}`);
+  if (!res.ok) throw new Error(data.error || `Not found: plugins/${name}`);
 
   if (data.verified === true) {
-    console.log(`\x1b[32m✓ ${pluralType}/${name} — signature verified\x1b[0m`);
+    console.log(`\x1b[32m✓ plugins/${name} — signature verified\x1b[0m`);
   } else if (data.verified === false) {
-    console.log(`\x1b[31m✗ ${pluralType}/${name} — signature verification FAILED\x1b[0m`);
-    console.log("  The artifact may have been tampered with.");
+    console.log(`\x1b[31m✗ plugins/${name} — signature verification FAILED\x1b[0m`);
+    console.log("  The plugin may have been tampered with.");
     process.exit(1);
   } else {
-    console.log(`\x1b[33m⚠ ${pluralType}/${name} — no signature (signing not enabled on server)\x1b[0m`);
+    console.log(`\x1b[33m⚠ plugins/${name} — no signature (signing not enabled on server)\x1b[0m`);
   }
 }
 
 
 export async function diff(args) {
-  const [type, name, v1, v2] = args;
-  if (!type || !name || !v1 || !v2) {
-    console.error("Usage: ihub diff <type> <name> <version1> <version2>");
+  const [name, v1, v2] = args;
+  if (!name || !v1 || !v2) {
+    console.error("Usage: ihub diff <name> <version1> <version2>");
     process.exit(1);
   }
 
-  const singularType = singularize(type);
-  const pluralType = pluralize(singularType);
   const base = getBaseUrl();
   const hdrs = authHeaders();
 
   const [r1, r2] = await Promise.all([
-    fetch(`${base}/api/${pluralType}/${name}?version=${encodeURIComponent(v1)}`, { headers: hdrs }),
-    fetch(`${base}/api/${pluralType}/${name}?version=${encodeURIComponent(v2)}`, { headers: hdrs }),
+    fetch(`${base}/api/plugins/${name}?version=${encodeURIComponent(v1)}`, { headers: hdrs }),
+    fetch(`${base}/api/plugins/${name}?version=${encodeURIComponent(v2)}`, { headers: hdrs }),
   ]);
   if (!r1.ok) throw new Error(`Version ${v1} not found`);
   if (!r2.ok) throw new Error(`Version ${v2} not found`);
@@ -239,7 +223,7 @@ export async function diff(args) {
   const lines1 = (d1.body || "").split("\n"), lines2 = (d2.body || "").split("\n");
   const maxLen = Math.max(lines1.length, lines2.length);
 
-  console.log(`\n\x1b[1m${pluralType}/${name}\x1b[0m  v${v1} → v${v2}\n`);
+  console.log(`\n\x1b[1mplugins/${name}\x1b[0m  v${v1} → v${v2}\n`);
 
   let adds = 0, dels = 0;
   for (let i = 0; i < maxLen; i++) {
@@ -266,47 +250,56 @@ export function version() {
 
 export function help() {
   console.log(`
-ihub — harness engineering platform for AI coding agents
+ihub — a registry for Claude Code plugins
+
+A plugin bundles skills, commands, agents, MCP servers, and hooks into one
+installable unit (Claude Code plugin spec). ihub publishes and pulls whole
+plugins.
 
 Commands:
-  browse                     Interactive TUI browser for the registry
-  open                       Open the web UI in your default browser
-  list [type]                 List entries (agents, commands, designs, hooks, mcps, memories, prompts, rules, skills, or all)
-  search <query>              Full-text search across local entries
-  show <type> <name>          Show metadata for a specific entry
-  preview <type> <name>       Render an entry with markdown formatting
-  validate                    Check all entries for missing fields and broken refs
-  projects [name]             Tree view of all projects and their artifacts
-  create <type> <name> [-i] [--from <template>]
-                              Create a new entry (-i for interactive, --from to use registry template)
-  import <type> <path> [-i]  Import from coding agent (auto-push, -i for metadata prompts)
-  import <bundle.json>        Import from JSON bundle (created by ihub export)
-  push <type> <name>          Publish a local entry to the registry
-  pull <type> <name[:ver]>    Download an entry (--local or --global, --no-deps; --yes to skip hook confirmation)
-  pull <url>                  Pull artifact directly from any registry URL
-  watch                       Watch local dirs and auto-push on save
-  remove <type> <name>        Remove an entry (owner only)
-  comment <type> <name>       Add a comment with rating (1-5)
-  comments <type> <name>      View comments and average rating
+  browse                      Interactive TUI browser for the registry
+  open                        Open the web UI in your default browser
+  list                        List plugins (local + remote)
+  search <query>              Full-text search across plugins
+  show <name>                 Show a plugin's manifest + component tree
+  preview <name>              Render a plugin's README + component tree
+  validate                    Validate every local plugin
+  projects [name]             Group plugins by project
+  create <name> [-i]          Scaffold plugins/<name>/ from the template
+  import <path> [--no-push]   Import a Claude plugin dir or wrap a component
+  import <bundle.json>        Import from a JSON bundle (created by ihub export)
+  push <name> [--force]       Pack plugins/<name>/ and publish it
+  pull <name[:ver]>           Recreate plugins/<name>/ from the registry
+                                --install         drop into ~/.claude/plugins
+                                --local|--global  install scope
+                                --marketplace <d> assemble a marketplace at <d>
+                                --yes             skip hook confirmation
+  pull <url>                  Pull a plugin from any registry URL
+  watch                       Watch plugins/ and auto-push on save
+  remove <name>               Remove a plugin (owner only)
+  comment <name>              Add a comment with rating (1-5)
+  comments <name>             View comments and average rating
   search --remote <query>     Search the remote registry
   register <url>              Create account and save API key
   login <url> [--auth0]       Log in with API key or Auth0 device flow
-  passwd                     Change password (API key)
+  passwd                      Change password (API key)
   whoami                      Show current user and registry
-  doctor                     Run diagnostic checks (server, auth, storage, config)
-  outdated                   Compare local vs registry versions
-  verify <type> <name>        Check artifact HMAC signature
-  diff <type> <name> <v1> <v2> Compare two versions of an artifact
-  pin <type> <name> [ver]     Lock artifact to a specific version
-  unpin <type> <name>         Remove version pin
-  pins                       List all pinned artifacts
-  export [--project P] [--type T] [--name N] [-o file]
-                              Export artifacts as JSON bundle
+  doctor                      Run diagnostic checks (server, auth, storage, config)
+  outdated                    Compare local vs registry versions
+  verify <name>               Check a plugin's HMAC signature
+  diff <name> <v1> <v2>       Compare two versions of a plugin
+  pin <name> [ver]            Lock a plugin to a specific version
+  unpin <name>                Remove version pin
+  pins                        List all pinned plugins
+  export [--project P] [--name N] [-o file]
+                              Export plugins as a JSON bundle
+  export --format claude-plugin --out <dir>
+                              Export a Claude Code plugin marketplace
   export --from <url>         Export from another registry
-  config                     Show server config and enabled features (admin)
+  config                      Show server config and enabled features (admin)
   audit [--user U] [--action A] [--page N] [--limit N]
                               View audit trail (admin only, paginated)
-  metrics [--type T] [--user U] [--name N] [--project P]
+  metrics [--user U] [--name N] [--project P]
                               Show server metrics dashboard (filterable)
   backup [path]               Download SQLite backup (admin only)
   backup --full [path]        Download full JSON backup (any storage adapter)
@@ -318,23 +311,16 @@ Commands:
   federation sync             Trigger manual upstream sync (admin only)
   federation status           Show upstream registry status (admin only)
   admin set-role <user> <role> Set user role (admin only)
-  admin approve <type>/<name> Approve a blocked artifact (admin only)
-  admin blocked              List blocked artifacts (admin only)
-  admin digest               Send weekly digest to Slack (admin only)
+  admin approve plugins/<name> Approve a blocked plugin (admin only)
+  admin blocked               List blocked plugins (admin only)
+  admin digest                Send weekly digest to Slack (admin only)
   completions [bash|zsh]      Output shell completions
-  man                        Full manual page
+  man                         Full manual page
   version                     Show version info
 
 Flags: --json on list, show, search, comments, whoami, projects, audit, metrics
 
-Type-first syntax (equivalent):
-  ihub agents list            Same as: ihub list agents
-  ihub agent show <name>      Same as: ihub show agent <name>
-  ihub skill create <name> [-i]  Same as: ihub create skill <name> [-i]
-  ihub rule push <name>       Same as: ihub push rule <name>
-  ihub memory pull <name>     Same as: ihub pull memory <name>
-
-Types: agent(s), command(s), design(s), memory/memories, prompt(s), rule(s), skill(s)
+The "plugin" noun is accepted for symmetry: ihub plugin list = ihub list.
 `);
 }
 

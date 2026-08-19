@@ -1,7 +1,7 @@
 {
   "name": "ihub",
-  "version": "0.8.1",
-  "description": "Harness engineering platform for AI coding agents",
+  "version": "1.0.0",
+  "description": "Registry for Claude Code plugins",
   "type": "module",
   "engines": {
     "bun": ">=1.0.0"

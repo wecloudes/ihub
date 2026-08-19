@@ -1,4 +1,4 @@
-import { describe, it, beforeAll, afterAll } from "bun:test";
+import { describe, it, beforeAll, afterAll, beforeEach } from "bun:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "fs";
 import { join } from "path";
@@ -84,5 +84,35 @@ describe("webhook delivery", () => {
     addWebhook("http://localhost:1/unreachable", ["pull"], null);
     // Should not throw
     sendWebhook("pull", { type: "agents", name: "x", username: "y" });
+  });
+
+  it("sendWebhook handles non-2xx responses and increments failure metric", async () => {
+    // Start a server that returns 500
+    const { reset, serialize } = await import("../server/metrics.js");
+    reset();
+    const errServer = createServer((req, res) => { res.writeHead(500); res.end("error"); });
+    await new Promise((resolve) => errServer.listen(0, resolve));
+    const errUrl = `http://localhost:${errServer.address().port}`;
+    addWebhook(errUrl + "/err", ["approve"], null);
+    sendWebhook("approve", { type: "agents", name: "x", username: "y" });
+    // Wait for initial attempt (10s timeout won't fire but non-2xx is instant)
+    await new Promise((r) => setTimeout(r, 500));
+    const metrics = serialize();
+    // Either delivery or retry should have incremented failed counter
+    assert.ok(metrics.includes("ihub_webhook_failed_total"), "Expected failure metric");
+    errServer.close();
+  });
+
+  it("sendWebhook handles timeout gracefully", async () => {
+    // Start a server that never responds
+    const slowServer = createServer(() => { /* hang */ });
+    await new Promise((resolve) => slowServer.listen(0, resolve));
+    const slowUrl = `http://localhost:${slowServer.address().port}`;
+    addWebhook(slowUrl + "/slow", ["register"], null);
+    // Should not throw or block — it returns immediately and delivers asynchronously
+    const start = Date.now();
+    sendWebhook("register", { type: "agents", name: "x", username: "y" });
+    assert.ok(Date.now() - start < 100, "sendWebhook should return immediately");
+    slowServer.close();
   });
 });

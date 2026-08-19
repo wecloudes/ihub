@@ -48,7 +48,7 @@ export async function notifyPush({ type, name, version, owner }) {
  */
 export async function sendWeeklyDigest(db) {
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 19).replace("T", " ");
-  const types = ["agents", "skills", "rules", "memories", "prompts"];
+  const types = ["plugins"];
 
   const sections = [];
 
@@ -120,17 +120,13 @@ export async function sendWeeklyDigest(db) {
 }
 
 function singularType(type) {
-  const map = { agents: "agent", skills: "skill", rules: "rule", memories: "memory", prompts: "prompt" };
+  const map = { plugins: "plugin" };
   return map[type] || type;
 }
 
 function typeEmoji(type) {
   const map = {
-    agents: ":robot_face:",
-    skills: ":hammer_and_wrench:",
-    rules: ":shield:",
-    memories: ":brain:",
-    prompts: ":speech_balloon:",
+    plugins: ":package:",
   };
   return map[type] || ":package:";
 }

@@ -9,7 +9,7 @@ const gauges = {};
 /**
  * Increment a counter.
  * @param {string} name   Metric name (e.g. "ihub_push_total")
- * @param {object} labels Key-value labels (e.g. { type: "agents", user: "alice" })
+ * @param {object} labels Key-value labels (e.g. { type: "plugins", user: "alice" })
  * @param {number} value  Increment amount (default 1)
  */
 export function inc(name, labels = {}, value = 1) {
@@ -105,6 +105,8 @@ register("ihub_backup_total", "counter", "Database backups");
 register("ihub_role_change_total", "counter", "User role changes");
 register("ihub_sensitive_detected_total", "counter", "Sensitive data detected and masked");
 register("ihub_firewall_blocked_total", "counter", "Requests blocked by firewall");
+register("ihub_webhook_delivered_total", "counter", "Webhook deliveries succeeded");
+register("ihub_webhook_failed_total", "counter", "Webhook deliveries failed (including retries)");
 register("ihub_entries_count", "gauge", "Current number of entries by type");
 register("ihub_entries_by_project_count", "gauge", "Current number of entries by project and type");
 register("ihub_entries_by_name_count", "gauge", "Current number of entry versions by type and name");

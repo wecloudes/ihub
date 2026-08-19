@@ -1,450 +1,235 @@
 import { resolve, dirname, join, basename } from "path";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, readdirSync } from "fs";
-import { CODING_AGENTS } from "./agents-config.js";
-import { pushEntry, pullEntry, entryToMarkdown } from "./registry.js";
-import { ROOT, TYPE_FIELDS, pluralize, prompt, closeReadline } from "./context.js";
+import {
+  readFileSync, writeFileSync, existsSync, mkdirSync, statSync, readdirSync, cpSync,
+} from "fs";
+import { loadPlugin } from "./parse.js";
+import { ROOT, PLUGIN_FIELDS, PLUGIN_NAME_RE, prompt, closeReadline } from "./context.js";
 import { importBundle as importBundleCmd } from "./pinning.js";
+
+const TEMPLATE_DIR = resolve(ROOT, "templates", "plugin");
+
+// --- create ---
 
 export async function create(args) {
   const interactive = args.includes("--interactive") || args.includes("-i");
-
-  // Parse --from flag
-  let fromName = null;
-  const filtered = [];
+  // Ignore any --from template flag; not supported for plugins.
+  const positional = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--interactive" || args[i] === "-i") continue;
-    if (args[i] === "--from" && args[i + 1]) { fromName = args[++i]; continue; }
-    filtered.push(args[i]);
+    if (args[i] === "--from") { i++; continue; }
+    positional.push(args[i]);
   }
 
-  let [type, name] = filtered;
-
-  const validTypes = ["agent", "command", "design", "hook", "mcp", "memory", "prompt", "rule", "skill"];
-
-  if (interactive && !type) {
-    type = await prompt(`Type (${validTypes.join(", ")}): `);
-  }
-  if (!type) {
-    console.error("Usage: ihub create <agent|command|design|hook|mcp|memory|prompt|rule|skill> <name> [--interactive|-i]");
-    process.exit(1);
-  }
-  if (!validTypes.includes(type)) {
-    console.error(`Type must be one of: ${validTypes.join(", ")}`);
-    process.exit(1);
-  }
-
-  if (interactive && !name) {
-    name = await prompt("Name: ");
-  }
+  let [name] = positional;
+  if (interactive && !name) name = await prompt("Plugin name (kebab-case): ");
   if (!name) {
-    console.error("Usage: ihub create <type> <name> [--interactive|-i]");
+    console.error("Usage: ihub create <name> [--interactive|-i]");
+    process.exit(1);
+  }
+  if (!PLUGIN_NAME_RE.test(name)) {
+    console.error(`Invalid name "${name}" — plugin names must be kebab-case [a-z0-9-] (no ":").`);
     process.exit(1);
   }
 
-  const targetPath = resolve(ROOT, pluralize(type), `${name}.md`);
-  if (existsSync(targetPath)) {
-    console.error(`Already exists: ${targetPath}`);
+  const pluginDir = resolve(ROOT, "plugins", name);
+  if (existsSync(pluginDir)) {
+    console.error(`Already exists: ${pluginDir}`);
     process.exit(1);
   }
 
-  // --from: create from registry template
-  if (fromName) {
-    await createFromTemplate(type, name, fromName, targetPath, interactive);
-    return;
-  }
-
-  if (!interactive) {
-    // Original template-based flow
-    const templatePath = resolve(ROOT, "templates", `${type}.md`);
-    let content = readFileSync(templatePath, "utf-8");
-    content = content.replace(/^name: *$/m, `name: ${name}`);
-    content = content.replace(/\{\{name\}\}/g, name);
-    writeFileSync(targetPath, content);
-    console.log(`Created: ${targetPath}`);
-    return;
-  }
-
-  // Interactive flow
-  const fields = TYPE_FIELDS[type];
+  // Gather manifest values
   const values = { name };
-
-  console.log(`\nCreating ${type}: ${name}\n`);
-
-  for (const field of fields) {
-    const defaultHint = field.default ? ` (${field.default})` : "";
-    const requiredHint = field.required ? " *" : "";
-    const answer = await prompt(`${field.label}${requiredHint}${defaultHint}: `);
-
-    if (field.type === "array") {
-      values[field.key] = answer
-        ? answer.split(",").map((s) => s.trim()).filter(Boolean)
-        : [];
-    } else {
-      values[field.key] = answer || field.default || "";
+  if (interactive) {
+    console.log(`\nCreating plugin: ${name}\n`);
+    for (const field of PLUGIN_FIELDS) {
+      const defaultHint = field.default ? ` (${field.default})` : "";
+      const requiredHint = field.required ? " *" : "";
+      const answer = await prompt(`${field.label}${requiredHint}${defaultHint}: `);
+      if (field.type === "array") {
+        values[field.key] = answer ? answer.split(",").map((s) => s.trim()).filter(Boolean) : [];
+      } else {
+        values[field.key] = answer || field.default || "";
+      }
+      if (field.required && !values[field.key]) {
+        console.error(`${field.label} is required.`);
+        process.exit(1);
+      }
     }
-
-    if (field.required && !values[field.key]) {
-      console.error(`${field.label} is required.`);
-      process.exit(1);
+    closeReadline();
+  } else {
+    for (const field of PLUGIN_FIELDS) {
+      values[field.key] = field.type === "array" ? [] : (field.default || "");
     }
+    if (!values.description) values.description = `The ${name} plugin`;
   }
 
-  // Build frontmatter
-  const frontmatter = ["---"];
-  for (const [key, value] of Object.entries(values)) {
-    if (Array.isArray(value)) {
-      frontmatter.push(`${key}: [${value.join(", ")}]`);
-    } else {
-      frontmatter.push(`${key}: ${value}`);
-    }
-  }
-  frontmatter.push("---");
-
-  // Build body from template structure
-  const bodyParts = [`\n# ${name}\n`];
-  const templatePath = resolve(ROOT, "templates", `${type}.md`);
-  const templateContent = readFileSync(templatePath, "utf-8");
-  const templateBody = templateContent.replace(/^---[\s\S]*?---/, "").trim();
-  // Replace placeholder and remove the name heading (we already added it)
-  const cleanBody = templateBody.replace(/# \{\{name\}\}/, "").trim();
-  if (cleanBody) bodyParts.push(cleanBody);
-
-  const content = frontmatter.join("\n") + "\n" + bodyParts.join("\n") + "\n";
-  writeFileSync(targetPath, content);
-  closeReadline();
-  console.log(`\nCreated: ${targetPath}`);
+  scaffoldPlugin(pluginDir, values);
+  console.log(`Created: ${pluginDir}`);
+  console.log(`  Edit .claude-plugin/plugin.json, then: ihub push ${name}`);
 }
 
-// --- Import ---
-
-export function detectSourceAgent(path) {
-  const p = path.toLowerCase();
-  if (p.includes("/.claude/") || p.includes("\\.claude\\")) return "claude";
-  if (p.includes("/.cursor/") || p.includes("\\.cursor\\") || p.endsWith(".mdc")) return "cursor";
-  if (p.includes("/.qwen/") || p.includes("\\.qwen\\")) return "qwen";
-  if (p.includes("/.gemini/") || p.includes("\\.gemini\\")) return "gemini";
-  if (p.includes("/.codex/") || p.includes("\\.codex\\")) return "codex";
-  if (p.includes("/.opencode/") || p.includes("\\.opencode\\") || p.includes("/.config/opencode/")) return "opencode";
-  if (p.includes("/.agents/") || p.includes("\\.agents\\")) return "codex";
-  return null;
-}
-
-export function mapSourceFields(sourceAgent, type, sourceMeta) {
-  const mapped = {};
-
-  // Common: name and description are universal
-  if (sourceMeta.name) mapped.name = sourceMeta.name;
-  if (sourceMeta.description) mapped.description = sourceMeta.description;
-
-  // Claude/Qwen/OpenCode SKILL.md: may have nested metadata
-  if (sourceAgent === "claude" || sourceAgent === "qwen" || sourceAgent === "opencode") {
-    if (sourceMeta.metadata) {
-      if (sourceMeta.metadata.author) mapped.author = sourceMeta.metadata.author;
-      if (sourceMeta.metadata.version) mapped.version = sourceMeta.metadata.version;
-    }
-    if (sourceMeta.license) mapped.tags = [...(mapped.tags || []), `license:${sourceMeta.license}`];
+// Copy templates/plugin/ into the target dir, filling manifest + README
+// placeholders. Falls back to a minimal inline scaffold if the template dir
+// is absent.
+function scaffoldPlugin(pluginDir, values) {
+  if (existsSync(TEMPLATE_DIR)) {
+    cpSync(TEMPLATE_DIR, pluginDir, { recursive: true });
+  } else {
+    writeMinimalScaffold(pluginDir);
   }
 
-  // Cursor .mdc: map globs/alwaysApply to ihub fields
-  if (sourceAgent === "cursor") {
-    if (sourceMeta.alwaysApply === true || sourceMeta.alwaysApply === "true") {
-      mapped.scope = "global";
-    } else {
-      mapped.scope = "project";
-    }
-    if (sourceMeta.globs) {
-      mapped.globs = String(sourceMeta.globs).replace(/^["']|["']$/g, "");
-    }
-    if (sourceMeta.priority) {
-      const p = parseInt(sourceMeta.priority, 10);
-      if (p >= 8) mapped.severity = "error";
-      else if (p >= 4) mapped.severity = "warning";
-      else mapped.severity = "info";
-    }
-    if (sourceMeta.tags && Array.isArray(sourceMeta.tags)) {
-      mapped.tags = [...(mapped.tags || []), ...sourceMeta.tags];
-    }
+  // Write the manifest from gathered values (authoritative over template).
+  const manifest = {
+    name: values.name,
+    displayName: values.displayName || values.name,
+    version: values.version || "0.1.0",
+    description: values.description || "",
+    ...(values.author && { author: { name: values.author } }),
+    ...(values.homepage && { homepage: values.homepage }),
+    ...(values.repository && { repository: values.repository }),
+    license: values.license || "MIT",
+    keywords: Array.isArray(values.keywords) ? values.keywords : [],
+    ...(values.project && { project: values.project }),
+  };
+  const manifestPath = join(pluginDir, ".claude-plugin", "plugin.json");
+  mkdirSync(dirname(manifestPath), { recursive: true });
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+
+  // Fill README placeholders.
+  const readmePath = join(pluginDir, "README.md");
+  if (existsSync(readmePath)) {
+    let readme = readFileSync(readmePath, "utf-8");
+    readme = readme.replace(/\{\{name\}\}/g, values.name).replace(/\{\{description\}\}/g, values.description || "");
+    writeFileSync(readmePath, readme);
+  } else {
+    writeFileSync(readmePath, `# ${values.name}\n\n${values.description || ""}\n`);
   }
-
-  // Codex AGENTS.md: typically no structured frontmatter
-  // Gemini GEMINI.md: typically no structured frontmatter
-
-  return mapped;
 }
+
+function writeMinimalScaffold(pluginDir) {
+  mkdirSync(join(pluginDir, ".claude-plugin"), { recursive: true });
+  mkdirSync(join(pluginDir, "skills", "example-skill"), { recursive: true });
+  mkdirSync(join(pluginDir, "commands"), { recursive: true });
+  writeFileSync(join(pluginDir, "skills", "example-skill", "SKILL.md"),
+    "---\ndescription: One-line description of what this skill does and when to use it\n---\n\n# Example Skill\n\nExplain the capability this skill adds.\n");
+  writeFileSync(join(pluginDir, "commands", "example-command.md"),
+    "---\ndescription: One-line description of this command\n---\n\nDescribe what running this command does.\n");
+  writeFileSync(join(pluginDir, ".mcp.json"),
+    JSON.stringify({ "example-server": { command: "npx", args: ["-y", "@example/mcp-server@latest"], env: { API_KEY: "${API_KEY}" } } }, null, 2) + "\n");
+  mkdirSync(join(pluginDir, "hooks"), { recursive: true });
+  writeFileSync(join(pluginDir, "hooks", "hooks.json"),
+    JSON.stringify({ hooks: { PostToolUse: [{ matcher: "Edit|Write", hooks: [{ type: "command", command: "echo edited" }] }] } }, null, 2) + "\n");
+}
+
+// --- import ---
 
 export async function importArtifact(args) {
-  // Route to bundle import if first non-flag arg is a .json file
-  const nonFlagArgs = args.filter((a) => !a.startsWith("-"));
-  if (nonFlagArgs.length >= 1 && nonFlagArgs[0].endsWith(".json")) {
+  const nonFlag = args.filter((a) => !a.startsWith("-"));
+  if (nonFlag.length >= 1 && nonFlag[0].endsWith(".json")) {
     return importBundleCmd(args, ROOT);
   }
 
-  const interactive = args.includes("-i") || args.includes("--interactive");
   const noPush = args.includes("--no-push");
-  const filtered = args.filter((a) => a !== "-i" && a !== "--interactive" && a !== "--no-push");
+  const filtered = args.filter((a) => a !== "--no-push" && a !== "-i" && a !== "--interactive");
+  const [sourcePath] = filtered;
 
-  const [type, sourcePath] = filtered;
-  if (!type || !sourcePath) {
-    console.error("Usage: ihub import <type> <path> [-i] [--no-push]");
+  if (!sourcePath) {
+    console.error("Usage: ihub import <path> [--no-push]");
     console.error("       ihub import <bundle.json> [--no-push]");
     console.error("");
-    console.error("  Import from coding agent:");
-    console.error("    ihub import skill ~/.claude/skills/docx/");
-    console.error("    ihub import rule .cursor/rules/my-rule.mdc");
-    console.error("");
-    console.error("  Import from JSON bundle (created by ihub export):");
-    console.error("    ihub import bundle.json");
-    console.error("    ihub import bundle.json --no-push");
-    process.exit(1);
-  }
-
-  const validTypes = ["agent", "skill", "rule", "memory", "prompt"];
-  if (!validTypes.includes(type)) {
-    console.error(`Type must be one of: ${validTypes.join(", ")}`);
+    console.error("  Import an existing Claude plugin directory:");
+    console.error("    ihub import ~/some-plugin/          # has .claude-plugin/plugin.json");
+    console.error("  Import a single component (wrapped into a new plugin):");
+    console.error("    ihub import ~/.claude/skills/docx/  # a SKILL.md dir");
     process.exit(1);
   }
 
   const absPath = resolve(sourcePath);
-
-  // Determine the source file and companion directory
-  let sourceFile;
-  let sourceDir;
-
-  const stat = existsSync(absPath) ? statSync(absPath) : null;
-  if (!stat) {
+  if (!existsSync(absPath)) {
     console.error(`Source not found: ${absPath}`);
     process.exit(1);
   }
+  const st = statSync(absPath);
 
-  if (stat.isDirectory()) {
-    // Look for known files in order of priority
-    const candidates = ["SKILL.md", "AGENT.md", "RULE.md", "PROMPT.md", "index.md", "README.md"];
-    const allFiles = readdirSync(absPath);
-    const mdFiles = allFiles.filter((f) => f.endsWith(".md") || f.endsWith(".mdc"));
-    const found = candidates.find((c) => mdFiles.includes(c)) || mdFiles[0];
-    if (!found) {
-      console.error(`No markdown file found in: ${absPath}`);
-      process.exit(1);
-    }
-    sourceFile = join(absPath, found);
-    sourceDir = absPath;
-  } else if (stat.isFile() && (absPath.endsWith(".md") || absPath.endsWith(".mdc"))) {
-    sourceFile = absPath;
-    sourceDir = dirname(absPath);
+  let name;
+  if (st.isDirectory() && existsSync(join(absPath, ".claude-plugin", "plugin.json"))) {
+    // Full Claude plugin — copy verbatim.
+    let manifest = {};
+    try { manifest = JSON.parse(readFileSync(join(absPath, ".claude-plugin", "plugin.json"), "utf-8")); } catch {}
+    name = manifest.name || basename(absPath);
+    const dest = resolve(ROOT, "plugins", name);
+    if (existsSync(dest)) { console.error(`Already exists: ${dest}`); process.exit(1); }
+    cpSync(absPath, dest, { recursive: true });
+    console.log(`Imported plugin ${name} → ${dest}`);
   } else {
-    console.error(`Source must be a directory or .md/.mdc file: ${absPath}`);
-    process.exit(1);
+    // Single component — wrap into a new plugin.
+    name = await wrapComponentAsPlugin(absPath, st);
   }
 
-  // Detect source agent from path
-  const sourceAgent = detectSourceAgent(absPath);
-
-  // Parse source frontmatter + body
-  const sourceContent = readFileSync(sourceFile, "utf-8");
-  const { parseFrontmatter } = await import("./parse.js");
-  const { meta: sourceMeta, body: sourceBody } = parseFrontmatter(sourceContent);
-
-  // Map agent-specific fields to ihub fields
-  const mapped = mapSourceFields(sourceAgent, type, sourceMeta);
-
-  // Extract name from source metadata, mapped fields, or directory name
-  const defaultName = mapped.name || sourceMeta.name || basename(sourceDir);
-
-  console.log(`\nImporting ${type} from: ${sourceFile}`);
-  if (sourceAgent) console.log(`  Detected agent: ${CODING_AGENTS[sourceAgent]?.name || sourceAgent}`);
-  if (mapped.name || sourceMeta.name) console.log(`  Source name: ${mapped.name || sourceMeta.name}`);
-  if (mapped.description || sourceMeta.description) {
-    const desc = mapped.description || sourceMeta.description;
-    const truncated = desc.length > 80 ? desc.slice(0, 77) + "..." : desc;
-    console.log(`  Description: ${truncated}`);
-  }
-  console.log("");
-
-  // Build ihub metadata — auto-fill what we can, ask for the rest
-  const fields = TYPE_FIELDS[type];
-  const values = {};
-
-  if (interactive) {
-    values.name = await prompt(`Name (${defaultName}): `, defaultName);
-    for (const field of fields) {
-      const mappedVal = mapped[field.key];
-      const sourceVal = mappedVal !== undefined ? mappedVal : sourceMeta[field.key];
-      const defaultVal = sourceVal
-        ? (Array.isArray(sourceVal) ? sourceVal.join(", ") : String(sourceVal))
-        : (field.default || "");
-      const hint = defaultVal ? ` (${defaultVal})` : "";
-      const requiredHint = field.required ? " *" : "";
-      const answer = await prompt(`${field.label}${requiredHint}${hint}: `, defaultVal);
-
-      if (field.type === "array") {
-        values[field.key] = answer ? answer.split(",").map((s) => s.trim()).filter(Boolean) : [];
-      } else {
-        values[field.key] = answer || field.default || "";
-      }
-    }
-    closeReadline();
-  } else {
-    // Auto-fill from mapped + source + defaults
-    values.name = defaultName;
-    let missingRequired = [];
-
-    for (const field of fields) {
-      const mappedVal = mapped[field.key];
-      const sourceVal = mappedVal !== undefined ? mappedVal : sourceMeta[field.key];
-
-      if (sourceVal !== undefined) {
-        values[field.key] = sourceVal;
-      } else if (field.default) {
-        values[field.key] = field.default;
-      } else if (field.type === "array") {
-        values[field.key] = [];
-      } else {
-        values[field.key] = "";
-      }
-
-      // Track missing required fields
-      if (field.required && !values[field.key]) {
-        missingRequired.push(field);
-      }
-    }
-
-    // Prompt only for missing required fields
-    if (missingRequired.length > 0) {
-      console.log(`Missing required fields — please provide:\n`);
-      for (const field of missingRequired) {
-        const answer = await prompt(`${field.label} *: `);
-        if (field.type === "array") {
-          values[field.key] = answer ? answer.split(",").map((s) => s.trim()).filter(Boolean) : [];
-        } else {
-          values[field.key] = answer || "";
-        }
-      }
-      closeReadline();
-    }
-  }
-
-  const name = values.name;
-  const pluralType = pluralize(type);
-
-  // Build frontmatter
-  const frontmatter = ["---"];
-  for (const [key, value] of Object.entries(values)) {
-    if (Array.isArray(value)) {
-      frontmatter.push(`${key}: [${value.join(", ")}]`);
-    } else {
-      frontmatter.push(`${key}: ${value}`);
-    }
-  }
-  frontmatter.push("---");
-
-  // Write the artifact .md
-  const targetPath = resolve(ROOT, pluralType, `${name}.md`);
-  const content = frontmatter.join("\n") + "\n\n" + sourceBody + "\n";
-  writeFileSync(targetPath, content);
-  console.log(`Created: ${targetPath}`);
-
-  // Copy companion files (everything except the source .md itself)
-  const companionDir = resolve(ROOT, pluralType, name);
-  let fileCount = 0;
-  const sourceFiles = [];
-  collectCompanionFiles(sourceDir, sourceDir, sourceFile, sourceFiles);
-
-  if (sourceFiles.length > 0) {
-    for (const { relPath, absPath: filePath } of sourceFiles) {
-      const destPath = resolve(companionDir, relPath);
-      mkdirSync(dirname(destPath), { recursive: true });
-      writeFileSync(destPath, readFileSync(filePath));
-      fileCount++;
-    }
-    console.log(`Copied: ${fileCount} file(s) → ${companionDir}`);
-  }
-
-  // Push to server unless --no-push
   if (!noPush) {
-    const { loadRegistry } = await import("./parse.js");
-    const registry = loadRegistry(ROOT);
-    const entry = registry[pluralType]?.find((e) => (e.name || e.file) === name);
-    if (entry) {
-      try {
-        const result = await pushEntry(pluralType, entry);
-        console.log(`Pushed: ${pluralType}/${name}@${result.version}` + (result.attachments ? ` (+${result.attachments} files)` : ""));
-      } catch (err) {
-        console.error(`Push failed: ${err.message}`);
-        console.error("Files saved locally. Push manually with: ihub push " + type + " " + name);
-      }
+    try {
+      const { push } = await import("./publish.js");
+      await push([name]);
+    } catch (err) {
+      console.error(`Push failed: ${err.message}`);
+      console.error(`Files saved locally. Push manually with: ihub push ${name}`);
     }
   } else {
-    console.log(`\nSkipped push. Run manually: ihub push ${type} ${name}`);
+    console.log(`\nSkipped push. Run manually: ihub push ${name}`);
   }
+  return name;
 }
 
-export function collectCompanionFiles(dir, baseDir, excludeFile, result) {
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) {
-      collectCompanionFiles(full, baseDir, excludeFile, result);
-    } else if (full !== excludeFile) {
-      const relPath = full.substring(baseDir.length + 1);
-      result.push({ relPath, absPath: full });
+// Wrap a lone component (a SKILL.md dir, a skill/command/agent .md file, or a
+// bare component tree missing a manifest) into a new plugins/<name>/ directory.
+async function wrapComponentAsPlugin(absPath, st) {
+  const dirName = basename(absPath).replace(/\.(md|mdc)$/i, "");
+  const name = dirName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "imported-plugin";
+  const dest = resolve(ROOT, "plugins", name);
+  if (existsSync(dest)) { console.error(`Already exists: ${dest}`); process.exit(1); }
+
+  let description = `Imported plugin ${name}`;
+
+  if (st.isDirectory() && existsSync(join(absPath, "SKILL.md"))) {
+    // A skill directory → skills/<name>/
+    const skillDest = join(dest, "skills", name);
+    cpSync(absPath, skillDest, { recursive: true });
+    description = readSkillDescription(join(skillDest, "SKILL.md")) || description;
+  } else if (st.isDirectory() && (existsSync(join(absPath, "skills")) || existsSync(join(absPath, "commands")) || existsSync(join(absPath, "agents")))) {
+    // A component tree missing a manifest → copy component dirs.
+    for (const sub of ["skills", "commands", "agents", "hooks"]) {
+      if (existsSync(join(absPath, sub))) cpSync(join(absPath, sub), join(dest, sub), { recursive: true });
     }
-  }
-}
-
-// --- Remote Commands ---
-
-export async function createFromTemplate(type, name, fromName, targetPath, interactive) {
-  const pluralType = pluralize(type);
-
-  // Fetch the template artifact from registry
-  let entry;
-  try {
-    entry = await pullEntry(pluralType, fromName);
-  } catch (err) {
-    console.error(`Failed to fetch template "${fromName}" from registry: ${err.message}`);
+    if (existsSync(join(absPath, ".mcp.json"))) cpSync(join(absPath, ".mcp.json"), join(dest, ".mcp.json"));
+  } else if (st.isFile() && /SKILL\.md$/i.test(absPath)) {
+    const skillDest = join(dest, "skills", name);
+    mkdirSync(skillDest, { recursive: true });
+    cpSync(absPath, join(skillDest, "SKILL.md"));
+    description = readSkillDescription(join(skillDest, "SKILL.md")) || description;
+  } else if (st.isFile() && /\.(md|mdc)$/i.test(absPath)) {
+    // A lone markdown file → treat as a command.
+    mkdirSync(join(dest, "commands"), { recursive: true });
+    cpSync(absPath, join(dest, "commands", `${name}.md`));
+  } else {
+    console.error(`Unsupported source: ${absPath} (expected a plugin dir, a SKILL.md dir, or a component file)`);
     process.exit(1);
   }
 
-  const templateMeta = entry.meta || {};
-  const templateBody = entry.body || "";
-
-  // Build new metadata: keep everything from template but replace name and reset version
-  const values = { ...templateMeta, name, version: "0.1.0" };
-
-  if (interactive) {
-    const fields = TYPE_FIELDS[type];
-    console.log(`\nCreating ${type}: ${name} (from template: ${fromName})\n`);
-
-    for (const field of fields) {
-      const currentVal = values[field.key];
-      const defaultVal = currentVal
-        ? (Array.isArray(currentVal) ? currentVal.join(", ") : String(currentVal))
-        : (field.default || "");
-      const hint = defaultVal ? ` (${defaultVal})` : "";
-      const requiredHint = field.required ? " *" : "";
-      const answer = await prompt(`${field.label}${requiredHint}${hint}: `, defaultVal);
-
-      if (field.type === "array") {
-        values[field.key] = answer ? answer.split(",").map((s) => s.trim()).filter(Boolean) : [];
-      } else {
-        values[field.key] = answer || field.default || "";
-      }
-    }
-    closeReadline();
+  // Synthesize the manifest + README.
+  mkdirSync(join(dest, ".claude-plugin"), { recursive: true });
+  writeFileSync(join(dest, ".claude-plugin", "plugin.json"),
+    JSON.stringify({ name, displayName: name, version: "0.1.0", description, license: "MIT", keywords: [] }, null, 2) + "\n");
+  if (!existsSync(join(dest, "README.md"))) {
+    writeFileSync(join(dest, "README.md"), `# ${name}\n\n${description}\n`);
   }
+  console.log(`Wrapped component into plugin ${name} → ${dest}`);
+  return name;
+}
 
-  // Build frontmatter
-  const frontmatter = ["---"];
-  for (const [key, value] of Object.entries(values)) {
-    if (Array.isArray(value)) {
-      frontmatter.push(`${key}: [${value.join(", ")}]`);
-    } else {
-      frontmatter.push(`${key}: ${value}`);
-    }
-  }
-  frontmatter.push("---");
-
-  const content = frontmatter.join("\n") + "\n\n" + templateBody + "\n";
-  mkdirSync(dirname(targetPath), { recursive: true });
-  writeFileSync(targetPath, content);
-  console.log(`Created: ${targetPath} (from template: ${fromName})`);
+function readSkillDescription(skillPath) {
+  try {
+    const content = readFileSync(skillPath, "utf-8");
+    const m = content.match(/^description:\s*(.+)$/m);
+    return m ? m[1].trim() : "";
+  } catch { return ""; }
 }

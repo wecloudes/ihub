@@ -2,6 +2,36 @@
 
 All notable changes to ihub are documented in this file.
 
+## [1.0.0] - 2026-08-19
+
+**Reworked to a plugin-only model. Removed the nine artifact types. Everything is now a Claude Code plugin.** This is a hard replace and a clean break — there is no migration path from 0.x registries or working directories.
+
+### Breaking
+
+- **The nine artifact types are gone.** `agent`, `command`, `design`, `hook`, `mcp`, `memory`, `prompt`, `rule`, and `skill` no longer exist as top-level types. There is exactly one artifact type: **`plugin`** (a [Claude Code plugin](https://code.claude.com/docs/en/plugins-reference) directory). `skill`, `command`, `agent`, `mcp`, and `hook` survive only as *components inside a plugin*; `rule`, `memory`, `prompt`, and `design` were dropped entirely (no plugin-spec equivalent — see `examples/DROPPED.md`).
+- **Commands no longer take a type argument.** `ihub push skill lint-check` → `ihub push my-plugin`; `ihub show agent code-reviewer` → `ihub show my-plugin`; likewise `pull`, `create`, `remove`, `comment`, `comments`, `verify`, `diff`, `pin`, `unpin`, `preview`. The type-first syntax (`ihub agent show ...`) is removed. A `plugin`/`plugins` noun is accepted for symmetry (`ihub plugin list` = `ihub list`).
+- **On-disk layout changed.** Local artifacts live in `plugins/<name>/` directories (each with `.claude-plugin/plugin.json`), not flat `<type>/<name>.md` files. The old working directories (`agents/`, `skills/`, `rules/`, `memories/`, `prompts/`, `commands/`, `designs/`, `mcps/`, `hooks/`) are no longer used.
+- **Registry API collapses to a single type.** `VALID_TYPES = ["plugins"]` in `server/routes.js`, `server/federation.js`, and `server/ui.js`. Endpoints are `/api/plugins/...`; requests for other types return `400`. The DB `type` column is always `"plugin"` (no schema migration — `UNIQUE(type,name,version)` and indexes unchanged).
+- **The multi-agent install matrix is removed.** No more `--agent claude,cursor,...`, per-agent frontmatter transforms, `agentsmd`/`antigravity`/`gemini`/`qwen`/`opencode`/`codex` targets, or shared-config merges into each agent's files. A plugin is Claude-native and installs as a whole directory.
+- **`ihub pull` flags changed.** `--agent`, `--no-deps` removed. New: `--install` (drop the plugin into `~/.claude/plugins/` or `./.claude/plugins/`), `--marketplace <dir>` (assemble a Claude marketplace), `--global`/`--local` select install scope, `--yes` skips hook confirmation.
+- **Version-pin keys changed** from `<type>/<name>` to `plugins/<name>` — existing `~/.ihubrc` pins for old types no longer resolve.
+- **`ihub validate` is now plugin-structural** — validates plugin.json, skill/command/agent files, `.mcp.json`, and `hooks/hooks.json` per plugin, instead of per-type frontmatter + cross-references.
+
+### Added
+
+- **Plugin packing/unpacking.** `ihub push <name>` packs `plugins/<name>/` into a registry entry: manifest → meta, derived `meta.components` (`{ skills, commands, agents, mcpServers, hooks }`), `README.md` → body, and every component file → an attachment at its plugin-relative path. `ihub pull <name>` reverses it, synthesizing `plugin.json` from meta when needed.
+- **`ihub create <name> [-i]`** scaffolds `plugins/<name>/` from `templates/plugin/` (plugin.json skeleton, README, example skill/command/agent, `.mcp.json`, `hooks/hooks.json`).
+- **`ihub import <path>`** ingests an existing Claude plugin directory verbatim, or wraps a lone component (a `SKILL.md` dir, a component tree, or a bare `.md`) into a new plugin with a synthesized manifest.
+- **`ihub pull --install [--global|--local]`** installs the plugin directory into the Claude plugin cache (`~/.claude/plugins/<name>`) or project dir (`./.claude/plugins/<name>`); **`--marketplace <dir>`** builds `.claude-plugin/marketplace.json` + `plugins/<name>/`.
+- **`ihub export --format claude-plugin --out <dir>`** now maps plugin entries 1:1 into a Claude Code plugin marketplace (no lossy type filtering — plugins are already Claude-native). `--format json` emits a self-contained bundle with base64 attachment content.
+- **Server-side sensitive scan covers component files** — the push handler runs the detector over the README body *and* every text attachment, blocking the plugin if any hit.
+- **Federation `mcp-registry` → plugin** — each MCP server from the official MCP Registry syncs as a plugin named after the server, carrying a single `.mcp.json` attachment + generated plugin.json (secrets always `${VAR}`).
+- **Example plugins** — `examples/plugins/{code-quality,dev-mcps,docs-tools}/` replace the old per-type examples; `examples/DROPPED.md` documents what the collapse discarded.
+
+### Unchanged
+
+- Signing (HMAC-SHA256), semver/breaking-change versioning, comments + ratings, audit log, metrics, Grafana dashboard, IP firewall, Slack notifications, webhooks, Auth0, pluggable storage (SQLite + 30+ providers), backup/restore, and the security-alert channels all still apply — now per plugin.
+
 ## [Unreleased]
 
 ### Changed
@@ -13,6 +43,11 @@ All notable changes to ihub are documented in this file.
 
 ### Added
 
+- **Antigravity CLI install target (`--agent antigravity`)** — Google discontinued Gemini CLI for consumer tiers in June 2026; Antigravity is its successor. Global skills stay at `~/.gemini/skills/`, workspace artifacts install to `.agents/skills/`, MCP configs merge into `~/.gemini/config/mcp_config.json` (global) / `.agents/mcp_config.json` (local). The `gemini` target remains for enterprise-legacy installs
+- **Universal `AGENTS.md` install target (`--agent agentsmd`)** — rules and memories merge into the project-root `AGENTS.md` (the Linux Foundation standard read by 20+ coding agents) as idempotent marker-keyed sections (`<!-- ihub:rule:<name> -->` ... `<!-- /ihub:rule:<name> -->`); re-pull replaces sections in place, hand-written content is never touched, the file is created if missing
+- **Official MCP Registry as a federation upstream** — set `type: "mcp-registry"` on a `federation.upstreams[]` entry (optional `search` and `limit`, default 50) to sync servers from registry.modelcontextprotocol.io as `mcp` artifacts with a Claude-native `.mcp.json` block: remotes map to `http`/`sse` entries, npm packages to `npx` commands; env vars and secret headers are always emitted as `${VAR}` placeholders, never literal values; records without usable remotes or npm packages are skipped. Config validation now checks upstreams at startup (required `url`, known `type`, positive `limit`)
+- **Claude Code plugin marketplace export** — `ihub export --format claude-plugin --out <dir>` writes a ready-to-publish marketplace: `.claude-plugin/marketplace.json` plus one plugin per project (`.claude-plugin/plugin.json`, `skills/`, `commands/`, `agents/`, merged `.mcp.json` and `hooks/hooks.json`); honors `--project`/`--type`/`--name` filters; rules/memories/prompts/designs are skipped with a stderr note (no plugin-schema equivalent). Output validates with `claude plugin validate`
+- **`ihub validate` understands 2026 artifact conventions** — skill boolean frontmatter accepts `yes/no/on/off/1/0` alongside `true/false`; the new Claude Code skill fields `context` (e.g. `fork`) and `background` are recognized; agent names containing `:` are rejected (reserved for plugin namespacing); mcp artifacts may carry an optional `protocolVersion` checked against the MCP spec date format (`YYYY-MM-DD`, e.g. `2026-07-28`)
 - **Web UI hash routing** — deep links (`#agents/code-reviewer`, `#metrics`), browser back/forward, shareable artifact URLs
 - **Web UI server-backed search** — global search now merges `/api/search` results (matches inside artifact bodies) with the client-side filter
 - **Web UI keyboard shortcuts** — `/` focuses search, `Esc` closes modals / clears search
@@ -22,6 +57,9 @@ All notable changes to ihub are documented in this file.
 
 ### Fixed
 
+- **Skill installs stripped unrecognized frontmatter** — `transformForAgent()` for Claude Code (and Qwen/OpenCode) kept only name/description/version/author, silently dropping new fields like `context: fork` and `background`; all non-internal frontmatter now passes through unmodified on pull
+- **Interactive agent-picker default was hardcoded to `"7"`** — broke whenever the agent list changed; now computed from the ihub entry's position
+- **TUI tests pressed hardcoded key `"7"` for the ihub agent and ran from the repo root** — after the agent list grew, `7` selected Cursor and bulk-pull tests wrote `.cursor/skills/` residue into the repo; the key is now computed from `AGENT_NAMES` and the TUI runs in a temp working directory
 - **Pinning and bundle export/import mis-mapped `mcp` and `hook` artifact types** — `cli/pinning.js` carried a stale type map predating those types (7 of 9), so `pin`/`unpin`/`pins` and bundle round-trips silently mishandled them. Now uses the canonical 9-type map from `cli/context.js`
 - **Web UI: blocked-artifact Approve button was broken** — it called `DELETE /api/blocked/:name`, which doesn't exist; now `POST /api/:type/:name/approve`
 - **Web UI: federation panel always showed "never"/empty** — read `last_sync`/`synced`; server returns `lastSync`/`lastSynced`

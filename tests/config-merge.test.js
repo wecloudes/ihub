@@ -2,11 +2,13 @@ import { describe, it, afterAll } from "bun:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
+import { homedir } from "os";
 import { tmpdir } from "os";
 
 import {
   mergeObjectEntry,
   mergeArrayEntry,
+  mergeMarkdownSection,
   parseKeyValueArray,
   buildMcpEntry,
   buildClaudeHookEntry,
@@ -15,7 +17,7 @@ import {
   resolveHookEntries,
   toOpencodeMcpEntry,
 } from "../cli/config-merge.js";
-import { getConfigTarget } from "../cli/agents-config.js";
+import { pluginInstallDir, getInstallPath, PLUGIN_PATHS } from "../cli/agents-config.js";
 
 const tmpDir = mkdtempSync(join(tmpdir(), "ihub-config-merge-test-"));
 let counter = 0;
@@ -179,36 +181,29 @@ describe("config-merge", () => {
     assert.deepEqual(entry, { hooks: [{ type: "command", command: "notify" }] });
   });
 
-  // --- getConfigTarget ---
+  // --- plugin install targets (agents-config.js) ---
 
-  it("resolves claude mcp local target to .mcp.json", () => {
-    const t = getConfigTarget("claude", "mcps", "local");
-    assert.equal(t.path, ".mcp.json");
-    assert.equal(t.key, "mcpServers");
-    assert.equal(t.shape, "standard");
+  it("pluginInstallDir points global to the personal Claude plugin cache", () => {
+    assert.equal(pluginInstallDir("global"), join(homedir(), ".claude", "plugins"));
+    assert.equal(pluginInstallDir("global"), PLUGIN_PATHS.global);
   });
 
-  it("resolves claude hook target to settings.json with claude-hooks shape", () => {
-    const t = getConfigTarget("claude", "hooks", "local");
-    assert.ok(t.path.endsWith("settings.json"));
-    assert.equal(t.shape, "claude-hooks");
+  it("pluginInstallDir points local to the project-scoped plugin dir", () => {
+    assert.equal(pluginInstallDir("local"), join(".claude", "plugins"));
+    assert.equal(pluginInstallDir("local"), PLUGIN_PATHS.local);
   });
 
-  it("returns a note for codex mcp (unsupported)", () => {
-    const t = getConfigTarget("codex", "mcps", "local");
-    assert.equal(t.path, undefined);
-    assert.match(t.note, /config\.toml/);
+  it("pluginInstallDir defaults to global", () => {
+    assert.equal(pluginInstallDir(), PLUGIN_PATHS.global);
   });
 
-  it("returns a note for cursor hooks (unsupported)", () => {
-    const t = getConfigTarget("cursor", "hooks", "local");
-    assert.equal(t.path, undefined);
-    assert.ok(t.note);
-  });
-
-  it("accepts singular type names", () => {
-    const t = getConfigTarget("gemini", "mcp", "local");
-    assert.equal(t.key, "mcpServers");
+  it("getInstallPath reports a directory target for each scope", () => {
+    const g = getInstallPath(null, null, "global");
+    assert.equal(g.isDir, true);
+    assert.equal(g.path, PLUGIN_PATHS.global);
+    const l = getInstallPath(null, null, "local");
+    assert.equal(l.isDir, true);
+    assert.equal(l.path, PLUGIN_PATHS.local);
   });
 
   // --- config blocks (canonical format) ---
@@ -264,5 +259,46 @@ describe("config-merge", () => {
       toOpencodeMcpEntry({ type: "http", url: "https://x", headers: { A: "B" } }),
       { type: "remote", url: "https://x", enabled: true, headers: { A: "B" } }
     );
+  });
+
+  // --- mergeMarkdownSection (idempotent marker-keyed markdown merge) ---
+
+  it("mergeMarkdownSection creates a marker-wrapped section when the file is missing", () => {
+    const file = tmpFile().replace(/\.json$/, ".md");
+    mergeMarkdownSection(file, "rule:no-console", "## no-console\n\nNever use console.log.");
+    const raw = readFileSync(file, "utf-8");
+    assert.ok(raw.startsWith("<!-- ihub:rule:no-console -->\n"));
+    assert.ok(raw.includes("Never use console.log."));
+    assert.ok(raw.trimEnd().endsWith("<!-- /ihub:rule:no-console -->"));
+  });
+
+  it("mergeMarkdownSection appends after existing user content without touching it", () => {
+    const file = tmpFile().replace(/\.json$/, ".md");
+    writeFileSync(file, "# My project\n\nHand-written instructions.\n");
+    mergeMarkdownSection(file, "rule:x", "rule body");
+    const raw = readFileSync(file, "utf-8");
+    assert.ok(raw.startsWith("# My project\n\nHand-written instructions.\n"));
+    assert.ok(raw.includes("<!-- ihub:rule:x -->\nrule body\n<!-- /ihub:rule:x -->"));
+  });
+
+  it("mergeMarkdownSection replaces its own section in place on re-merge", () => {
+    const file = tmpFile().replace(/\.json$/, ".md");
+    writeFileSync(file, "before\n");
+    mergeMarkdownSection(file, "rule:x", "version one");
+    mergeMarkdownSection(file, "rule:x", "version two");
+    const raw = readFileSync(file, "utf-8");
+    assert.ok(!raw.includes("version one"));
+    assert.equal(raw.match(/<!-- ihub:rule:x -->/g).length, 1);
+    assert.ok(raw.includes("version two"));
+    assert.ok(raw.startsWith("before\n"));
+  });
+
+  it("mergeMarkdownSection does not mangle regex replacement patterns", () => {
+    const file = tmpFile().replace(/\.json$/, ".md");
+    mergeMarkdownSection(file, "rule:x", "costs $100, use $& and $1 carefully");
+    mergeMarkdownSection(file, "rule:x", "now $` and $' too");
+    const raw = readFileSync(file, "utf-8");
+    assert.ok(raw.includes("now $` and $' too"));
+    assert.ok(!raw.includes("$100"));
   });
 });

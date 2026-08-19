@@ -170,7 +170,7 @@ export function renderDashboard(metrics, filters = {}) {
   lines.push(hr);
   lines.push(`${DIM}Source: /api/metrics  |  ${new Date().toISOString()}${RESET}`);
   if (!hasFilters) {
-    lines.push(`${DIM}Tip: filter with --type agents --user alice --name code-reviewer --project ci-toolkit${RESET}`);
+    lines.push(`${DIM}Tip: filter with --type plugin --user alice --name code-reviewer --project ci-toolkit${RESET}`);
   }
   lines.push("");
 

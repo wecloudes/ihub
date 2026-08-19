@@ -4,11 +4,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { startTui } from "./tui.js";
 import { loadConfig } from "./registry.js";
-import {
-  ROOT, TYPE_FIELDS, VALID_HOOK_EVENTS, REF_CHECKS,
-  PLURAL_MAP, SINGULAR_MAP, TYPE_ALIASES,
-  pluralize, singularize,
-} from "./context.js";
+import { ROOT } from "./context.js";
 import {
   list, search, show, preview, validate, projects, printProjectTree,
 } from "./query.js";
@@ -79,63 +75,16 @@ const commands = {
   help,
 };
 
-// Support type-first syntax: ihub agents list, ihub agent show <name>
 let command = rawCommand;
 let args = [...rawArgs];
 
-if (command && TYPE_ALIASES[command] && !commands[command]) {
-  const pluralType = TYPE_ALIASES[command];
-  const subcommand = args[0];
-
-  if (subcommand === "list") {
-    command = "list";
-    args = [pluralType];
-  } else if (subcommand === "show") {
-    command = "show";
-    // Convert: ihub agent show <name> → show(["agent", "<name>"])
-    const singularType = singularize(pluralType);
-    args = [singularType, ...args.slice(1)];
-  } else if (subcommand === "preview") {
-    command = "preview";
-    const singularType = singularize(pluralType);
-    args = [singularType, ...args.slice(1)];
-  } else if (subcommand === "import") {
-    command = "import";
-    const singularType = singularize(pluralType);
-    args = [singularType, ...args.slice(1)];
-  } else if (subcommand === "create") {
-    command = "create";
-    const singularType = singularize(pluralType);
-    args = [singularType, ...args.slice(1)];
-  } else if (subcommand === "push") {
-    command = "push";
-    const singularType = singularize(pluralType);
-    args = [singularType, ...args.slice(1)];
-  } else if (subcommand === "pull") {
-    command = "pull";
-    const singularType = singularize(pluralType);
-    args = [singularType, ...args.slice(1)];
-  } else if (subcommand === "remove") {
-    command = "remove";
-    const singularType = singularize(pluralType);
-    args = [singularType, ...args.slice(1)];
-  } else if (subcommand === "comment") {
-    command = "comment";
-    const singularType = singularize(pluralType);
-    args = [singularType, ...args.slice(1)];
-  } else if (subcommand === "comments") {
-    command = "comments";
-    const singularType = singularize(pluralType);
-    args = [singularType, ...args.slice(1)];
-  } else if (subcommand === "search") {
-    command = "search";
-    // keep args as-is (the query)
-    args = args.slice(1);
-  } else {
-    // No subcommand: default to list
-    command = "list";
-    args = [pluralType];
-  }
+// Accept `plugin`/`plugins` as an explicit noun for symmetry:
+//   ihub plugin list        → ihub list
+//   ihub plugin show <name>  → ihub show <name>
+//   ihub plugins             → ihub list
+if (command === "plugin" || command === "plugins") {
+  command = args[0] || "list";
+  args = args.slice(1);
 }
 
 const fn = commands[command];
@@ -164,10 +113,10 @@ async function open() {
   const base = (config.registry || process.env.IHUB_REGISTRY || "http://localhost:3000").replace(/\/+$/, "");
   const url = base + "/ui";
   const { platform } = await import("os");
-  const { execSync } = await import("child_process");
+  const { execFileSync } = await import("child_process");
   const cmd = platform() === "darwin" ? "open" : platform() === "win32" ? "start" : "xdg-open";
   try {
-    execSync(`${cmd} ${url}`, { stdio: "ignore" });
+    execFileSync(cmd, [url], { stdio: "ignore" });
     console.log(`Opened ${url}`);
   } catch {
     console.log(`Open in your browser: ${url}`);
